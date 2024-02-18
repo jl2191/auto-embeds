@@ -3,7 +3,7 @@ from typing import Literal, Optional
 
 import torch as t
 
-from auto_circuit.data import PromptPairBatch
+from auto_steer.data import PromptPairBatch
 
 MaskFn = Optional[Literal["hard_concrete", "sigmoid"]]
 

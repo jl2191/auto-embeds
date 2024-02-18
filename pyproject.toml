@@ -2,13 +2,45 @@
 name = "auto-steer"
 version = "0.1.0"
 description = ""
-authors = ["Your Name <you@example.com>"]
+authors = ["jl2191"]
 readme = "README.md"
+packages = [{include = "auto_steer"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
+torch = "^2.1.1"
+transformer-lens = "^1.13.0"
+einops = "^0.6.1"
+ordered-set = "^4.1.0"
+tqdm = {git = "https://github.com/UFO-101/tqdm.git"}
+plotly = "^5.18.0"
+kaleido = "0.2.1"  # Improved renderer for plotly
+blobfile = "2.0.2"
+word2word = "^1.0.0"
+tracr = {git = "https://github.com/google-deepmind/tracr.git"}
 
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^3.3.3"
+ipykernel = "^6.25.0"
+ipywidgets = "^8.1.0"
+jupyter = "^1.0.0"
+pytest = "^7.4.0"
+pyright = "^1.1.350"
+ipytest = "^0.13.3"
+# torch-tb-profiler = "^0.4.1"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+# pyflakes, pycodestyle, isort
+select = ["F", "E", "W", "I001"]
+
+[tool.pyright]
+ignore = ["datasets/ioi_generator.py", "datasets/greaterthan_generator.py", "datasets/docstring_generator.py"]
+reportMissingParameterType = true
+reportUnknownParameterType = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
