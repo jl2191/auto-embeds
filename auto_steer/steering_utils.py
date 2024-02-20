@@ -192,7 +192,7 @@ def create_data_loaders(
         total_size = len(dataset)
         train_size = int(train_ratio * total_size)
         test_size = total_size - train_size
-        print(train_size, test_size)
+        print(f"Train size: {train_size}, Test size: {test_size}")
         train_set, test_set = t.utils.data.random_split(
             dataset, [train_size, test_size]
         )
@@ -406,7 +406,7 @@ def evaluate_accuracy(
 
 
 def calc_cos_sim_acc(
-    test_loader: DataLoader[Tuple[Tensor, ...]], rotation: Union[Module, Tensor]
+    test_loader: DataLoader[Tuple[Tensor, ...]], rotation: Union[Module, Tensor], device: Optional[str] = None
 ) -> float:
     """
     Calculates the cosine similarity accuracy between predicted and actual embeddings.
@@ -414,14 +414,17 @@ def calc_cos_sim_acc(
     Args:
         test_loader: DataLoader for the testing dataset.
         rotation: The learned transformation to be evaluated.
+        device: The device to perform calculations on.
 
     Returns:
         The mean cosine similarity accuracy.
     """
+    if device is not None:
+        rotation.to(device)
     cosine_sims = []
     for batch_idx, (en_embed, fr_embed) in enumerate(test_loader):
-        en_embed
-        fr_embed
+        en_embed = en_embed.to(device)
+        fr_embed = fr_embed.to(device)
         pred = word_pred_from_embeds(en_embed, rotation)
         cosine_sim = word_distance_metric(pred, fr_embed)
         cosine_sims.append(cosine_sim)
@@ -449,70 +452,68 @@ def read_file_lines(file_path: Union[str, Path], lines_count: int = 5000) -> Lis
             for _ in range(lines_count + 1)
         ][1:]
 
-
 def tokenize_texts(
     model: tl.HookedTransformer,
-    texts: List[str],
+    *text_lists: List[str],
     padding_side: str = "right",
-    batch_size: int = 1000,
-    single: bool = False,
-) -> Tuple[t.Tensor, t.Tensor]:
+    pad_to_same_length: bool = False,
+    padding_strategy: str = "longest"
+) -> List[Tuple[t.Tensor, t.Tensor]]:
     """
-    Tokenizes a long list of texts using the model's tokenizer with specified
-    padding, processing in batches to manage memory efficiently. It ensures all
-    tokenized batches have the same sequence length before concatenation to return
-    a single tensor for input IDs and a single tensor for attention masks. If the
-    'single' flag is set to True, only returns tensors of the texts where both the
-    English and French tokenization result in single values.
+    Tokenizes multiple lists of texts using the model's tokenizer. Optional arguments
+    for padding size as well as having all tensors in each of the lists be tokenized and
+    padded to the same length. Returns a list of tuples, each containing a single
+    tensor for input IDs and a single tensor for attention masks for each text list.
+    The padding_strategy argument is ignored if pad_to_same_length is set to True.
 
     Args:
         model (tl.HookedTransformer): The transformer model for tokenization.
-        texts (List[str]): The long list of texts to be tokenized.
+        *text_lists (List[str]): Variable number of text lists to be tokenized.
         padding_side (str, optional): The side for padding tokenized texts.
                                       Defaults to "right".
-        batch_size (int, optional): The batch size for processing texts.
-                                    Defaults to 1000.
-        single (bool, optional): If True, only returns tensors for texts where
-                                 both English and French tokenizations are single
-                                 values. Defaults to False.
+        pad_to_same_length (bool, optional): If True, pads all tokenized text lists
+                                             to the same length. Defaults to False.
+        padding_strategy (str, optional): The strategy for padding tokenized texts.
+                                          Defaults to "longest".
 
     Returns:
-        Tuple[t.Tensor, t.Tensor]: A single tensor of tokenized texts as input
-        IDs and a single tensor for their corresponding attention masks, respectively.
+        List[Tuple[t.Tensor, t.Tensor]]: A list of tuples, each containing a single
+        tensor of tokenized texts as input IDs and a single tensor for their
+        corresponding attention masks, respectively, for each text list.
     """
-    input_ids_list, attention_masks_list = [], []
-    max_length = 0
+    original_padding_side = model.tokenizer.padding_side  # type: ignore
+    model.tokenizer.padding_side = padding_side
+    tokenized_results = []
 
-    for i in range(0, len(texts), batch_size):
-        batch_texts = texts[i : i + batch_size]
-        tokenized = model.tokenizer(batch_texts, padding=True, return_tensors="pt") #type: ignore
-        
-        if single:
-            # Filter out texts where tokenization does not result in single values
-            single_value_mask = tokenized["input_ids"].shape[1] == 1
-            tokenized["input_ids"] = tokenized["input_ids"][single_value_mask]
-            tokenized["attention_mask"] = tokenized["attention_mask"][single_value_mask]
-            if tokenized["input_ids"].size(0) == 0:
-                continue  # Skip if no texts in the batch meet the criteria
+    padding = padding_strategy if not pad_to_same_length else "longest"
 
-        input_ids_list.append(tokenized["input_ids"])
-        attention_masks_list.append(tokenized["attention_mask"])
-        max_length = max(max_length, tokenized["input_ids"].shape[1])
+    for text_list in text_lists:
+        tokenized = model.tokenizer(text_list, padding=padding, return_tensors="pt")  # type: ignore
+        input_ids, attention_mask = tokenized["input_ids"], tokenized["attention_mask"]
+        tokenized_results.append((input_ids, attention_mask))
 
-    # Ensure all tensors have the same sequence length through padding
-    input_ids_list = [
-        t.nn.functional.pad(input_ids, (0, max_length - input_ids.shape[1]))
-        for input_ids in input_ids_list
-    ]
-    attention_masks_list = [
-        t.nn.functional.pad(attention_mask, (0, max_length - attention_mask.shape[1]))
-        for attention_mask in attention_masks_list
-    ]
+    if pad_to_same_length:
+        max_length_all_lists = 0
+        # calculate the max token sequence length across all lists
+        for tokenized_list in tokenized_results:
+            input_ids, _ = tokenized_list
+            lengths = [len(tensor) for tensor in input_ids]
+            max_length_this_list = max(lengths)
+            max_length_all_lists = max(max_length_all_lists, max_length_this_list)
+        # rerun the tokenizer for all lists, this time with the found max length
+        tokenized_results = []
+        for text_list in text_lists:
+            tokenized = model.tokenizer(text_list,
+                                        padding="max_length",
+                                        max_length=max_length_all_lists,
+                                        return_tensors="pt")  # type: ignore
 
-    input_ids = t.cat(input_ids_list, dim=0)
-    attention_masks = t.cat(attention_masks_list, dim=0)
-
-    return input_ids, attention_masks
+            input_ids = tokenized["input_ids"]
+            attention_mask = tokenized["attention_mask"]
+            tokenized_results.append((input_ids, attention_mask))
+    # set the model's tokenizer padding side to what it was before this function call
+    model.tokenizer.padding_side = original_padding_side  # type: ignore
+    return tokenized_results
 
 
 def run_and_gather_acts(
@@ -737,3 +738,5 @@ def steering_hook(
     rotated_final_tok = word_pred_from_embeds(final_tok, transformation)
     out = t.cat([prefix_toks, rotated_final_tok.unsqueeze(1)], dim=1)
     return out
+
+# %%

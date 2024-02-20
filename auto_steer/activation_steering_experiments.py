@@ -1,4 +1,6 @@
 # %%
+%load_ext autoreload
+%autoreload 2
 import json
 
 import torch as t
@@ -30,33 +32,54 @@ datasets_folder = repo_path_to_abs_path("datasets")
 cache_folder = repo_path_to_abs_path("datasets/activation_cache")
 
 #%% ------------------------------------------------------------------------------------
-# %% kaikki french dictionary
-# %% generate activations
-with open(f"{datasets_folder}/kaikki-french-dictionary-single-word-pairs.json", "r") as file:
+# %% kaikki french dictionary - learn W_E (embedding matrix) rotation
+with open(f"{datasets_folder}/kaikki-french-dictionary-single-word-pairs-no-hyphen.json", "r") as file:
     fr_en_pairs = json.load(file)
 
 #38597 english-french pairs in total
-en_strs_list, fr_strs_list = zip(*[(pair["English"], pair["French"]) for pair in fr_en_pairs])
+en_strs_list = [pair["English"] for pair in fr_en_pairs]
+fr_strs_list = [pair["French"] for pair in fr_en_pairs]
 #%%
-en_toks, en_attn_mask = tokenize_texts(model, en_strs_list)
-fr_toks, fr_attn_mask = tokenize_texts(model, fr_strs_list)
-#%%
-train_loader, test_loader = create_data_loaders(
-    en_toks,
-    fr_toks,
-    batch_size=16,
-    train_ratio=0.99,
-    en_attn_mask=en_attn_mask,
-    fr_attn_mask=fr_attn_mask,
+# en_toks, en_attn_mask = tokenize_texts(model, en_strs_list)
+# fr_toks, fr_attn_mask = tokenize_texts(model, fr_strs_list)
+
+# en (fr_toks, fr_attn_mask)] = tokenize_texts(
+#     model, en_strs_list, fr_strs_list, padding_side="left", pad_to_same_length=True
+# )
+
+[(en_toks, en_attn_mask), (fr_toks, fr_attn_mask)] = tokenize_texts(
+    model, en_strs_list, fr_strs_list, padding_side="left", pad_to_same_length=True
 )
-filename_base = "bloom-3b-kaikki"
+#%%
+en_embeds = model.embed.W_E[en_toks].detach().clone() # shape[batch, seq_len, d_model]
+fr_embeds = model.embed.W_E[fr_toks].detach().clone() # shape[batch, seq_len, d_model]
+
+train_loader, test_loader = create_data_loaders(
+    en_embeds,
+    fr_embeds,
+    batch_size=128,
+    train_ratio=0.99,
+)
+
+filename_base = "bloom-560m-kaikki"
+
+initial_rotation, optim = initialize_transform_and_optim(
+    d_model, transformation="rotation", lr=0.0002, device=device
+)
+learned_rotation = train_and_evaluate_transform(
+    model, train_loader, test_loader, initial_rotation, optim, 50, device
+)
+print("Test Accuracy:", calc_cos_sim_acc(test_loader, learned_rotation))
+
+
+#%% ------------------------------------------------------------------------------------
 # %% gather activations
-# en_acts, fr_acts = run_and_gather_acts(model, train_loader, layers=[1, 2])
+en_acts, fr_acts = run_and_gather_acts(model, train_loader, layers=[0, 1])
 # %% save activations
-# save_acts(cache_folder, filename_base, en_acts, fr_acts)
+save_acts(cache_folder, filename_base, en_acts, fr_acts)
 # %% load activations
-en_resids = t.load(f"{cache_folder}/bloom-3b-kaikki-en-layers-[1, 2].pt")
-fr_resids = t.load(f"{cache_folder}/bloom-3b-kaikki-fr-layers-[1, 2].pt")
+en_resids = t.load(f"{cache_folder}/bloom-560m-kaikki-en-layers-[0, 1].pt")
+fr_resids = t.load(f"{cache_folder}/bloom-560m-kaikki-fr-layers-[0, 1].pt")
 #%%
 en_resids = {layer: t.cat(en_resids[layer], dim=0) for layer in en_resids}
 fr_resids = {layer: t.cat(fr_resids[layer], dim=0) for layer in fr_resids}
@@ -65,7 +88,7 @@ layer_idx = 1
 gen_length = 20
 
 # %% train en-fr rotation
-with open(f"{datasets_folder}/kaikki-french-dictionary-single-word-pairs.json",
+with open(f"{datasets_folder}/kaikki-french-dictionary-single-word-pairs-no-hyphen.json",
           "r") as file:
     fr_en_pairs = json.load(file)
 
