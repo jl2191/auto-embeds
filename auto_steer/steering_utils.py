@@ -11,6 +11,7 @@ from torch.nn import Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from word2word import Word2word
+from jaxtyping import Float, Int
 
 from auto_steer.utils.custom_tqdm import tqdm
 from auto_steer.utils.misc import (
@@ -22,7 +23,7 @@ from auto_steer.utils.misc import (
 def generate_tokens(
     model: tl.HookedTransformer,
     n_toks: int,
-    device: Optional[Union[str, t.device]] = None
+    device: Optional[Union[str, t.device]] = None,
 ) -> Tuple[Tensor, Tensor]:
     """
     Generates and translates tokens from English to French.
@@ -51,7 +52,7 @@ def generate_tokens(
         except Exception as e:
             print(f"Translation failed for {en_tok_str}: {e}")
             continue
-        if en_tok_str.lower() == fr_tok_str.lower(): # type: ignore
+        if en_tok_str.lower() == fr_tok_str.lower():  # type: ignore
             continue
         try:
             fr_tok = model.to_single_token(fr_tok_str)
@@ -64,7 +65,8 @@ def generate_tokens(
 
 
 def generate_google_words(
-    model: tl.HookedTransformer, n_toks: int,
+    model: tl.HookedTransformer,
+    n_toks: int,
     en_file: List[str],
     device: Optional[Union[str, t.device]] = None,
 ) -> Tuple[List[str], List[str]]:
@@ -105,8 +107,10 @@ def generate_google_words(
 
 
 def generate_embeddings(
-    model: tl.HookedTransformer, en_toks: Tensor, fr_toks: Tensor,
-    device: Optional[Union[str, t.device]] = None
+    model: tl.HookedTransformer,
+    en_toks: Tensor,
+    fr_toks: Tensor,
+    device: Optional[Union[str, t.device]] = None,
 ) -> Tuple[Tensor, Tensor]:
     """
     Generates embeddings for English and French tokens.
@@ -125,6 +129,7 @@ def generate_embeddings(
     en_embeds = model.embed.W_E[en_toks].detach().clone().to(device)
     fr_embeds = model.embed.W_E[fr_toks].detach().clone().to(device)
     return en_embeds, fr_embeds
+
 
 def create_data_loaders(
     en_embeds: Tensor,
@@ -204,6 +209,7 @@ def create_data_loaders(
         )
         return train_loader
 
+
 def initialize_transform_and_optim(
     d_model: int,
     transformation: str,
@@ -234,8 +240,10 @@ def initialize_transform_and_optim(
         optim = t.optim.Adam([transform], lr=0.0002)
     if transformation == "mean_translation":
         if train_en_resids is None or train_fr_resids is None:
-            raise ValueError("English and French residuals must be provided for \
-                             mean-centered steering transformation.")
+            raise ValueError(
+                "English and French residuals must be provided for \
+                             mean-centered steering transformation."
+            )
         mean_diff = train_en_resids.mean(dim=0) - train_fr_resids.mean(dim=0)
         transform = mean_diff.to(device)
         optim = t.optim.Adam([transform], lr=lr)
@@ -270,7 +278,7 @@ def word_pred_from_embeds(
     Returns:
         Tensor: The transformed embeddings after applying the transformation.
     """
-    
+
     if isinstance(transformation, t.nn.Module):
         return transformation(embeds)
     else:  # transformation is a Tensor
@@ -298,7 +306,7 @@ def train_and_evaluate_transform(
     initial_rotation: Union[Module, Tensor],
     optim: Optimizer,
     n_epochs: int,
-    device: Optional[Union[str, t.device]] = None
+    device: Optional[Union[str, t.device]] = None,
 ) -> Union[Module, Tensor]:
     """
     Trains and evaluates the model, returning the learned transformation.
@@ -323,10 +331,8 @@ def train_and_evaluate_transform(
     )  # Ensure the learned_rotation model is on the correct device
     for epoch in (epoch_pbar := tqdm(range(n_epochs))):
         for batch_idx, (en_embed, fr_embed) in enumerate(train_loader):
-            print(batch_idx)
             en_embed = en_embed.to(device)
             fr_embed = fr_embed.to(device)
-
             optim.zero_grad()
             pred = word_pred_from_embeds(en_embed, initial_rotation)
             loss = word_distance_metric(pred, fr_embed).mean()
@@ -383,7 +389,7 @@ def evaluate_accuracy(
             )
             fr_str = model.to_single_str_token(logits.argmax().item())
             logits = einsum(pred[i], model.embed.W_E, "d_model, vocab d_model -> vocab")
-            pred_str = model.to_single_str_token(logits.argmax().item()) # type: ignore
+            pred_str = model.to_single_str_token(logits.argmax().item())  # type: ignore
             if correct := (fr_str == pred_str):
                 correct_count += 1
             print("English:", en_str, "French:", fr_str)
@@ -424,6 +430,7 @@ def calc_cos_sim_acc(
 
 # %% ----------------------- functions --------------------------
 
+
 def read_file_lines(file_path: Union[str, Path], lines_count: int = 5000) -> List[str]:
     """
     Reads the specified number of lines from a file, excluding the first line.
@@ -444,14 +451,19 @@ def read_file_lines(file_path: Union[str, Path], lines_count: int = 5000) -> Lis
 
 
 def tokenize_texts(
-    model: tl.HookedTransformer, texts: List[str], padding_side: str = "right",
-    batch_size: int = 1000
+    model: tl.HookedTransformer,
+    texts: List[str],
+    padding_side: str = "right",
+    batch_size: int = 1000,
+    single: bool = False,
 ) -> Tuple[t.Tensor, t.Tensor]:
     """
     Tokenizes a long list of texts using the model's tokenizer with specified
     padding, processing in batches to manage memory efficiently. It ensures all
     tokenized batches have the same sequence length before concatenation to return
-    a single tensor for input IDs and a single tensor for attention masks.
+    a single tensor for input IDs and a single tensor for attention masks. If the
+    'single' flag is set to True, only returns tensors of the texts where both the
+    English and French tokenization result in single values.
 
     Args:
         model (tl.HookedTransformer): The transformer model for tokenization.
@@ -460,34 +472,53 @@ def tokenize_texts(
                                       Defaults to "right".
         batch_size (int, optional): The batch size for processing texts.
                                     Defaults to 1000.
+        single (bool, optional): If True, only returns tensors for texts where
+                                 both English and French tokenizations are single
+                                 values. Defaults to False.
 
     Returns:
         Tuple[t.Tensor, t.Tensor]: A single tensor of tokenized texts as input
         IDs and a single tensor for their corresponding attention masks, respectively.
     """
-    model.tokenizer.padding_side = padding_side  # type: ignore
     input_ids_list, attention_masks_list = [], []
     max_length = 0
 
     for i in range(0, len(texts), batch_size):
-        batch_texts = texts[i:i+batch_size]
-        tokenized = model.tokenizer(batch_texts, padding=True, return_tensors="pt")  # type: ignore
+        batch_texts = texts[i : i + batch_size]
+        tokenized = model.tokenizer(batch_texts, padding=True, return_tensors="pt") #type: ignore
+        
+        if single:
+            # Filter out texts where tokenization does not result in single values
+            single_value_mask = tokenized["input_ids"].shape[1] == 1
+            tokenized["input_ids"] = tokenized["input_ids"][single_value_mask]
+            tokenized["attention_mask"] = tokenized["attention_mask"][single_value_mask]
+            if tokenized["input_ids"].size(0) == 0:
+                continue  # Skip if no texts in the batch meet the criteria
+
         input_ids_list.append(tokenized["input_ids"])
         attention_masks_list.append(tokenized["attention_mask"])
         max_length = max(max_length, tokenized["input_ids"].shape[1])
 
-    # Ensure all tensors have the same sequence length
-    input_ids_list = [t.nn.functional.pad(input_ids, (0, max_length - input_ids.shape[1])) for input_ids in input_ids_list]
-    attention_masks_list = [t.nn.functional.pad(attention_mask, (0, max_length - attention_mask.shape[1])) for attention_mask in attention_masks_list]
+    # Ensure all tensors have the same sequence length through padding
+    input_ids_list = [
+        t.nn.functional.pad(input_ids, (0, max_length - input_ids.shape[1]))
+        for input_ids in input_ids_list
+    ]
+    attention_masks_list = [
+        t.nn.functional.pad(attention_mask, (0, max_length - attention_mask.shape[1]))
+        for attention_mask in attention_masks_list
+    ]
 
     input_ids = t.cat(input_ids_list, dim=0)
     attention_masks = t.cat(attention_masks_list, dim=0)
 
     return input_ids, attention_masks
-    
+
+
 def run_and_gather_acts(
-    model: tl.HookedTransformer, dataloader: DataLoader[Tuple[Tensor, ...]],
-    layers: List[int]
+    model: tl.HookedTransformer,
+    dataloader: DataLoader[Tuple[Tensor, ...]],
+    layers: List[int],
 ) -> Tuple[Dict[int, List[Tensor]], Dict[int, List[Tensor]]]:
     """
     Runs the model on batches of English and French text embeddings from the dataloader
@@ -545,6 +576,7 @@ def save_acts(
     t.save(en_acts, f"{cache_folder}/{filename_base}-en-layers-{en_layers}.pt")
     t.save(fr_acts, f"{cache_folder}/{filename_base}-fr-layers-{fr_layers}.pt")
 
+
 # -------------- functions 3 - train fr en embed rotation ------------------
 def mean_vec(train_en_resids: t.Tensor, train_fr_resids: t.Tensor) -> t.Tensor:
     """
@@ -570,9 +602,9 @@ def perform_translation_tests(
 ) -> None:
     """
     Performs translation tests on a model by generating translations for English
-    and French strings. For each pair of strings in the provided lists, it prints the original
-    string, generates a translation by iteratively appending the most likely next
-    token, and prints the generated translation. For French strings, it modifies
+    and French strings. For each pair of strings in the provided lists, it prints the
+    original string, generates a translation by iteratively appending the most likely
+    next token, and prints the generated translation. For French strings, it modifies
     the model's behavior using a `steering_hook` during translation.
 
     Args:
@@ -588,8 +620,9 @@ def perform_translation_tests(
         print("\n----------------------------------------------")
 
         generate_translation(model, test_en_str, gen_length)
-        generate_translation_with_hook(model, test_fr_str, gen_length, layer_idx,
-                                       transformation)
+        generate_translation_with_hook(
+            model, test_fr_str, gen_length, layer_idx, transformation
+        )
 
         if idx > 5:
             break
@@ -614,6 +647,7 @@ def load_test_strings(file_path: Union[str, Path], skip_lines: int) -> List[str]
                 test_strs.append(line.strip() + " " + next_line)
     return test_strs
 
+
 def generate_translation(model: t.nn.Module, test_str: str, gen_length: int) -> str:
     """
     Generates a translation for a given string using the model.
@@ -626,19 +660,22 @@ def generate_translation(model: t.nn.Module, test_str: str, gen_length: int) -> 
     Returns:
         str: The generated translation.
     """
-    print("Original:", test_str)
+    print("test_en_str:", test_str)
     original_len = len(test_str)
     for _ in range(gen_length):
         top_tok = model(test_str, prepend_bos=True)[:, -1].argmax(dim=-1)
         top_tok_str = model.to_string(top_tok)
         test_str += top_tok_str
-    print("Translation:", test_str[original_len:])
+    print("result fr str:", test_str[original_len:])
     return test_str
 
 
 def generate_translation_with_hook(
-    model: t.nn.Module, test_str: str, gen_length: int, layer_idx: int,
-    transformation: Union[Module, Tensor]
+    model: t.nn.Module,
+    test_str: str,
+    gen_length: int,
+    layer_idx: int,
+    transformation: Union[Module, Tensor],
 ) -> str:
     """
     Generates a translation for a given string using the model with a steering hook.
@@ -648,30 +685,34 @@ def generate_translation_with_hook(
         test_str (str): The string to translate.
         gen_length (int): The number of tokens to generate for the translation.
         layer_idx (int): The index of the layer to apply the steering hook.
-        transformation (Union[Module, Tensor]): The transformation to apply using the steering hook.
+        transformation (Union[Module, Tensor]): The transformation to apply using the
+        steering hook.
 
     Returns:
         str: The generated translation with the steering hook applied.
     """
-    print("Original:", test_str)
+    print("test_fr_str:", test_str)
     original_len = len(test_str)
     with remove_hooks() as handles, t.inference_mode():
         handle = model.blocks[layer_idx].hook_resid_pre.register_forward_hook(
-            lambda module, input, output:
-            steering_hook(module, input, output, transformation)
+            lambda module, input, output: steering_hook(
+                module, input, output, transformation
+            )
         )
         handles.add(handle)
         for _ in range(gen_length):
             top_tok = model(test_str, prepend_bos=True)[:, -1].argmax(dim=-1)
             top_tok_str = model.to_string(top_tok)
             test_str += top_tok_str
-    print("Translation:", test_str[original_len:])
+    print("result fr str", test_str[original_len:])
     return test_str
 
 
 def steering_hook(
-    module: t.nn.Module, input: Tuple[t.Tensor], output: t.Tensor,
-    transformation: Union[Module, Tensor]
+    module: t.nn.Module,
+    input: Tuple[t.Tensor],
+    output: t.Tensor,
+    transformation: Union[Module, Tensor],
 ) -> t.Tensor:
     """
     Modifies a module's output during translation by applying a transformation.

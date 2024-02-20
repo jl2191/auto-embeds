@@ -22,12 +22,12 @@ for entry in data:
         for sense in entry['senses']:
             if 'glosses' in sense and sense['glosses']:
                 # Extract all English translations from the glosses
-                english_translations = [gloss for gloss in sense['glosses'] if ' ' not in gloss]
+                english_translations = [gloss for gloss in sense['glosses'] if ' ' not in gloss and '-' not in gloss]
                 # Create a pair for each English translation
                 for english_word in english_translations:
                     translation_pairs.append({'French': french_word, 'English': english_word})
                 break  # Stop after adding translations from the first sense with glosses
 
 # Write the new JSON structure to a file
-with open('kaikki-french-dictionary-single-word-pairs.json', 'w', encoding='utf-8') as outfile:
+with open('kaikki-french-dictionary-single-word-pairs-no-hyphen.json', 'w', encoding='utf-8') as outfile:
     json.dump(translation_pairs, outfile, ensure_ascii=False, indent=4)
