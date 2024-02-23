@@ -6,18 +6,7 @@ import json
 import torch as t
 import transformer_lens as tl
 
-from auto_steer.steering_utils import (
-    calc_cos_sim_acc,
-    create_data_loaders,
-    initialize_transform_and_optim,
-    load_test_strings,
-    mean_vec,
-    perform_translation_tests,
-    run_and_gather_acts,
-    save_acts,
-    tokenize_texts,
-    train_and_evaluate_transform,
-)
+from auto_steer.steering_utils import *
 from auto_steer.utils.misc import (
     repo_path_to_abs_path,
 )
@@ -34,11 +23,11 @@ cache_folder = repo_path_to_abs_path("datasets/activation_cache")
 #%% ------------------------------------------------------------------------------------
 # %% kaikki french dictionary - learn W_E (embedding matrix) rotation
 with open(f"{datasets_folder}/kaikki-french-dictionary-single-word-pairs-no-hyphen.json", "r") as file:
-    fr_en_pairs = json.load(file)
+    fr_en_pairs_file = json.load(file)
 
 #38597 english-french pairs in total
-en_strs_list = [pair["English"] for pair in fr_en_pairs]
-fr_strs_list = [pair["French"] for pair in fr_en_pairs]
+en_fr_pairs = [[pair["English"], pair["French"]] for pair in fr_en_pairs_file]
+
 #%%
 # en_toks, en_attn_mask = tokenize_texts(model, en_strs_list)
 # fr_toks, fr_attn_mask = tokenize_texts(model, fr_strs_list)
@@ -47,8 +36,13 @@ fr_strs_list = [pair["French"] for pair in fr_en_pairs]
 #     model, en_strs_list, fr_strs_list, padding_side="left", pad_to_same_length=True
 # )
 
-[(en_toks, en_attn_mask), (fr_toks, fr_attn_mask)] = tokenize_texts(
-    model, en_strs_list, fr_strs_list, padding_side="left", pad_to_same_length=True
+en_toks, en_attn_mask, fr_toks, fr_attn_mask = tokenize_texts(
+    model,
+    en_fr_pairs,
+    padding_side="left",
+    single_tokens_only=True,
+    # discard_if_same=True,
+    min_length=2,
 )
 #%%
 en_embeds = model.embed.W_E[en_toks].detach().clone() # shape[batch, seq_len, d_model]
@@ -57,20 +51,23 @@ fr_embeds = model.embed.W_E[fr_toks].detach().clone() # shape[batch, seq_len, d_
 train_loader, test_loader = create_data_loaders(
     en_embeds,
     fr_embeds,
-    batch_size=128,
+    batch_size=32,
     train_ratio=0.99,
 )
 
+#%%
 filename_base = "bloom-560m-kaikki"
 
 initial_rotation, optim = initialize_transform_and_optim(
     d_model, transformation="rotation", lr=0.0002, device=device
 )
-learned_rotation = train_and_evaluate_transform(
-    model, train_loader, test_loader, initial_rotation, optim, 50, device
+learned_rotation = train_transform(
+    model, train_loader, initial_rotation, optim, 150, device
 )
+#%%
+evaluate_accuracy(model, test_loader, learned_rotation, device)
+#%%
 print("Test Accuracy:", calc_cos_sim_acc(test_loader, learned_rotation))
-
 
 #%% ------------------------------------------------------------------------------------
 # %% gather activations
@@ -124,7 +121,7 @@ initial_rotation, optim = initialize_transform_and_optim(
     d_model, transformation="rotation", lr=0.0002, device=device
 )
 
-learned_rotation = train_and_evaluate_transform(
+learned_rotation = train_transform(
     model, train_loader, test_loader, initial_rotation, optim, 1, device
 )
 

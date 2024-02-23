@@ -11,15 +11,15 @@ from auto_steer.steering_utils import (
     load_test_strings,
     mean_vec,
     perform_translation_tests,
-    train_and_evaluate_transform,
+    train_transform,
 )
 from auto_steer.utils.misc import (
     repo_path_to_abs_path,
 )
 
 # %% model setup
-model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
-model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
+model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
+# model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
 device = model.cfg.device
 d_model = model.cfg.d_model
 n_toks = model.cfg.d_vocab_out
@@ -36,8 +36,8 @@ train_loader, test_loader = create_data_loaders(
 initial_rotation, optim = initialize_transform_and_optim(
     d_model, transformation="rotation", lr=0.0002, device=device
 )
-learned_rotation = train_and_evaluate_transform(
-    model, train_loader, test_loader, initial_rotation, optim, 50, device
+learned_rotation = train_transform(
+    model, train_loader, test_loader, initial_rotation, optim, 50
 )
 print("Test Accuracy:", calc_cos_sim_acc(test_loader, learned_rotation))
 

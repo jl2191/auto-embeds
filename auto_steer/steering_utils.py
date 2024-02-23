@@ -6,12 +6,12 @@ import plotly.express as px
 import torch as t
 import transformer_lens as tl
 from einops import einsum
+from jaxtyping import Float, Int
 from torch import Tensor
 from torch.nn import Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from word2word import Word2word
-from jaxtyping import Float, Int
 
 from auto_steer.utils.custom_tqdm import tqdm
 from auto_steer.utils.misc import (
@@ -182,10 +182,12 @@ def create_data_loaders(
             fr_embeds = fr_embeds * fr_attn_mask
 
     # Create dataset based on available data
-    dataset_tensors = [en_embeds, fr_embeds]
     if en_attn_mask is not None and fr_attn_mask is not None:
-        dataset_tensors.extend([en_attn_mask, fr_attn_mask])
-    dataset = t.utils.data.TensorDataset(*dataset_tensors)
+        dataset = t.utils.data.TensorDataset(
+            en_embeds, fr_embeds, en_attn_mask, fr_attn_mask
+        )
+    else:
+        dataset = t.utils.data.TensorDataset(en_embeds, fr_embeds)
 
     # Split dataset into training and testing if train_ratio is specified
     if train_ratio != 1.0:
@@ -296,13 +298,12 @@ def word_distance_metric(a: t.Tensor, b: t.Tensor) -> t.Tensor:
     Returns:
         t.Tensor: The negative cosine similarity between the input tensors.
     """
-    return -t.nn.functional.cosine_similarity(a, b)
+    return -t.nn.functional.cosine_similarity(a, b, -1)
 
 
-def train_and_evaluate_transform(
+def train_transform(
     model: tl.HookedTransformer,
     train_loader: DataLoader[Tuple[Tensor, ...]],
-    test_loader: DataLoader[Tuple[Tensor, ...]],
     initial_rotation: Union[Module, Tensor],
     optim: Optimizer,
     n_epochs: int,
@@ -315,7 +316,6 @@ def train_and_evaluate_transform(
         model: The transformer model used for training.
         device: The device on which the model is allocated.
         train_loader: DataLoader for the training dataset.
-        test_loader: DataLoader for the testing dataset.
         initial_rotation: The initial transformation to be optimized.
         optim: The optimizer for the transformation.
         n_epochs: The number of epochs to train for.
@@ -335,6 +335,7 @@ def train_and_evaluate_transform(
             fr_embed = fr_embed.to(device)
             optim.zero_grad()
             pred = word_pred_from_embeds(en_embed, initial_rotation)
+            metric = word_distance_metric(pred, fr_embed)
             loss = word_distance_metric(pred, fr_embed).mean()
             loss_history.append(loss.item())
             loss.backward()
@@ -342,7 +343,6 @@ def train_and_evaluate_transform(
             epoch_pbar.set_description(f"Loss: {loss.item():.3f}")
     px.line(y=loss_history, title="Loss History").show()
     learned_rotation = initial_rotation
-    evaluate_accuracy(model, test_loader, learned_rotation, device)
     return learned_rotation
 
 
@@ -374,29 +374,30 @@ def evaluate_accuracy(
             en_embed, fr_embed, en_attn_mask, fr_attn_mask = batch
         else:
             en_embed, fr_embed = batch
-
         en_embed = en_embed.to(device)
         fr_embed = fr_embed.to(device)
-        pred = word_pred_from_embeds(en_embed, learned_rotation)
 
         for i in range(len(en_embed)):
+            sample_en_embed = en_embed[i].squeeze(0)
+            sample_fr_embed = fr_embed[i].squeeze(0)
+            pred = word_pred_from_embeds(sample_en_embed, learned_rotation)
             logits = einsum(
-                en_embed[i], model.embed.W_E, "d_model, vocab d_model -> vocab"
+               sample_en_embed, model.embed.W_E, "d_model, vocab d_model -> vocab"
             )
             en_str = model.to_single_str_token(logits.argmax().item())
             logits = einsum(
-                fr_embed[i], model.embed.W_E, "d_model, vocab d_model -> vocab"
+                sample_fr_embed, model.embed.W_E, "d_model, vocab d_model -> vocab"
             )
             fr_str = model.to_single_str_token(logits.argmax().item())
-            logits = einsum(pred[i], model.embed.W_E, "d_model, vocab d_model -> vocab")
-            pred_str = model.to_single_str_token(logits.argmax().item())  # type: ignore
+            logits = einsum(pred, model.embed.W_E, "d_model, vocab d_model -> vocab")
+            pred_str = model.to_single_str_token(logits.argmax().item())
             if correct := (fr_str == pred_str):
                 correct_count += 1
             print("English:", en_str, "French:", fr_str)
             print("English to French rotation", "✅" if correct else "❌")
             get_most_similar_embeddings(
                 model,
-                pred[i],
+                pred,
                 top_k=4,
                 apply_embed=True,
             )
@@ -454,67 +455,70 @@ def read_file_lines(file_path: Union[str, Path], lines_count: int = 5000) -> Lis
 
 def tokenize_texts(
     model: tl.HookedTransformer,
-    *text_lists: List[str],
+    texts: List[List[str]],
     padding_side: str = "right",
-    pad_to_same_length: bool = False,
-    padding_strategy: str = "longest"
-) -> List[Tuple[t.Tensor, t.Tensor]]:
+    pad_to_same_length: bool = True,
+    padding_strategy: str = "longest",
+    single_tokens_only: bool = False,
+    discard_if_same: bool = False,
+    min_length: int = 1
+) -> Tuple[t.Tensor, t.Tensor, t.Tensor, t.Tensor]:
     """
-    Tokenizes multiple lists of texts using the model's tokenizer. Optional arguments
-    for padding size as well as having all tensors in each of the lists be tokenized and
-    padded to the same length. Returns a list of tuples, each containing a single
-    tensor for input IDs and a single tensor for attention masks for each text list.
-    The padding_strategy argument is ignored if pad_to_same_length is set to True.
+    Tokenizes texts into tensors for input IDs and attention masks for both languages.
 
     Args:
         model (tl.HookedTransformer): The transformer model for tokenization.
-        *text_lists (List[str]): Variable number of text lists to be tokenized.
-        padding_side (str, optional): The side for padding tokenized texts.
-                                      Defaults to "right".
-        pad_to_same_length (bool, optional): If True, pads all tokenized text lists
-                                             to the same length. Defaults to False.
-        padding_strategy (str, optional): The strategy for padding tokenized texts.
-                                          Defaults to "longest".
+        texts (List[List[str]]): Texts to be tokenized.
+        padding_side (str): The side for padding tokenized texts. Defaults to "right".
+        pad_to_same_length (bool): If True, pads all tokenized text lists to the same length.
+        padding_strategy (str): The strategy for padding tokenized texts. Defaults to "longest".
+        single_tokens_only (bool): If True, discards the word pair if both words do not
+                                   tokenize to a single token.
+        discard_if_same (bool): If True, discards the word pair if both words are the same.
+        min_length (int): Minimum length of words to be considered for tokenization. Defaults to 1.
 
     Returns:
-        List[Tuple[t.Tensor, t.Tensor]]: A list of tuples, each containing a single
-        tensor of tokenized texts as input IDs and a single tensor for their
-        corresponding attention masks, respectively, for each text list.
+        Tuple of tensors for input IDs and attention masks for both languages.
     """
-    original_padding_side = model.tokenizer.padding_side  # type: ignore
+
     model.tokenizer.padding_side = padding_side
-    tokenized_results = []
 
-    padding = padding_strategy if not pad_to_same_length else "longest"
+    if discard_if_same:
+        texts = [pair for pair in texts if pair[0] != pair[1]]
+    texts = [pair for pair in texts if len(pair[0]) >= min_length and len(pair[1]) >= min_length]
 
-    for text_list in text_lists:
-        tokenized = model.tokenizer(text_list, padding=padding, return_tensors="pt")  # type: ignore
-        input_ids, attention_mask = tokenized["input_ids"], tokenized["attention_mask"]
-        tokenized_results.append((input_ids, attention_mask))
+    if single_tokens_only:
+        filtered_texts = []
+        for pair in texts:
+            tokenized_pair_0 = model.tokenizer(" "+pair[0])
+            tokenized_pair_1 = model.tokenizer(" "+pair[1])
+            if len(tokenized_pair_0["input_ids"]) == 1 and len(tokenized_pair_1["input_ids"]) == 1:
+                # print(len(tokenized_pair_0["input_ids"]))
+                # print(tokenized_pair_1["input_ids"])
+                filtered_texts.append(pair)
+        texts = filtered_texts
 
-    if pad_to_same_length:
-        max_length_all_lists = 0
-        # calculate the max token sequence length across all lists
-        for tokenized_list in tokenized_results:
-            input_ids, _ = tokenized_list
-            lengths = [len(tensor) for tensor in input_ids]
-            max_length_this_list = max(lengths)
-            max_length_all_lists = max(max_length_all_lists, max_length_this_list)
-        # rerun the tokenizer for all lists, this time with the found max length
-        tokenized_results = []
-        for text_list in text_lists:
-            tokenized = model.tokenizer(text_list,
-                                        padding="max_length",
-                                        max_length=max_length_all_lists,
-                                        return_tensors="pt")  # type: ignore
+    # Add a space to the front of all the words in the texts list
+    texts = [(f" {pair[0]}", f" {pair[1]}") for pair in texts]
+    print(texts)
+    print(len(texts))
 
-            input_ids = tokenized["input_ids"]
-            attention_mask = tokenized["attention_mask"]
-            tokenized_results.append((input_ids, attention_mask))
-    # set the model's tokenizer padding side to what it was before this function call
-    model.tokenizer.padding_side = original_padding_side  # type: ignore
-    return tokenized_results
+    english_texts, french_texts = zip(*texts)
+    combined_texts = list(english_texts) + list(french_texts)
 
+    tokenized = model.tokenizer(combined_texts, padding='longest', return_tensors="pt") # type: ignore
+    num_pairs = tokenized.input_ids.shape[0]
+    assert num_pairs % 2 == 0
+    word_each = num_pairs//2
+    # toks, attn_masks = tokenized["input_ids"], tokenized["attention_mask"]
+    toks = tokenized.input_ids
+    attn_masks = tokenized.attention_mask
+    en_toks = toks[:word_each]
+    en_attn_masks = attn_masks[:word_each]
+    fr_toks = toks[word_each:]
+    fr_attn_masks = attn_masks[word_each:]
+
+    return en_toks, en_attn_masks, fr_toks, fr_attn_masks
 
 def run_and_gather_acts(
     model: tl.HookedTransformer,

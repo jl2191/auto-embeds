@@ -19,6 +19,9 @@ blobfile = "2.0.2"
 word2word = "^1.0.0"
 tracr = {git = "https://github.com/google-deepmind/tracr.git"}
 jaxtyping = "^0.2.25"
+debugpy = "^1.8.1"
+importmagic = "^0.1.7"
+epc = "^0.0.5"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.3.3"
