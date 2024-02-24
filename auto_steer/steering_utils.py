@@ -40,7 +40,7 @@ def generate_tokens(
         Tuple of tensors with indices of valid English and French tokens.
     """
     if device is None:
-        device = t.device("cuda" if t.cuda.is_available() else "cpu")
+        device = model.cfg.device
     en2fr = Word2word("en", "fr")
     en_toks, fr_toks = [], []
     for tok in range(n_toks):
@@ -84,8 +84,8 @@ def generate_google_words(
     Returns:
         A tuple of lists containing English strings and their French translations.
     """
-    if device is None:
-        device = t.device("cuda" if t.cuda.is_available() else "cpu")
+    if device == None:
+        device = model.cfg.device
     en2fr = Word2word("en", "fr")
     en_toks_list, fr_toks_list = [], []
     en_strs_list, fr_strs_list = [], []
@@ -125,7 +125,7 @@ def generate_embeddings(
         A tuple of tensors containing embeddings for English and French tokens.
     """
     if device is None:
-        device = t.device("cuda" if t.cuda.is_available() else "cpu")
+        device = model.device
     en_embeds = model.embed.W_E[en_toks].detach().clone().to(device)
     fr_embeds = model.embed.W_E[fr_toks].detach().clone().to(device)
     return en_embeds, fr_embeds
@@ -249,12 +249,12 @@ def initialize_transform_and_optim(
         mean_diff = train_en_resids.mean(dim=0) - train_fr_resids.mean(dim=0)
         transform = mean_diff.to(device)
         optim = t.optim.Adam([transform], lr=lr)
-    elif transformation == "rotation":
+    elif transformation == "linear_map":
         transform = t.nn.Linear(d_model, d_model, bias=False, device=device)
         # optim = t.optim.Adam(list(learned_rotation.parameters()) + [translate],
         # lr=0.0002)
         optim = t.optim.Adam(transform.parameters(), lr=lr)
-    elif transformation == "linear_map":
+    elif transformation == "rotation":
         initial_rotation = t.nn.Linear(d_model, d_model, bias=False, device=device)
         transform = t.nn.utils.parametrizations.orthogonal(initial_rotation, "weight")
         optim = t.optim.Adam(list(transform.parameters()), lr=0.0002)
@@ -324,7 +324,7 @@ def train_transform(
         The learned transformation after training.
     """
     if device is None:
-        device = t.device("cuda" if t.cuda.is_available() else "cpu")
+        model.cfg.device
     loss_history = []
     initial_rotation.to(
         device
@@ -350,23 +350,28 @@ def evaluate_accuracy(
     model: tl.HookedTransformer,
     test_loader: DataLoader[Tuple[Tensor, ...]],
     learned_rotation: Union[Module, Tensor],
+    exact_match: bool,
     device: Optional[Union[str, t.device]] = None,
-):
+) -> None:
     """
     Evaluates the accuracy of the learned transformation by comparing the predicted
-    embeddings to the actual French embeddings.
+    embeddings to the actual French embeddings. It supports requiring exact matches
+    or allowing for case-insensitive comparisons.
 
     Args:
-        model: The transformer model used for evaluation.
-        device: The device on which the model is allocated.
-        test_loader: DataLoader for the testing dataset.
-        learned_rotation: The learned transformation to be evaluated.
+        model (tl.HookedTransformer): Transformer model for evaluation.
+        test_loader (DataLoader[Tuple[Tensor, ...]]): DataLoader for test dataset.
+        learned_rotation (Union[Module, Tensor]): Learned transformation.
+        exact_match (bool): If True, requires exact matches between predicted and actual
+        embeddings. If False, matches are correct if identical ignoring case
+        differences.
+        device (Optional[Union[str, t.device]]): Model's device. Defaults to None.
 
     Returns:
-        None. Prints the accuracy of the learned transformation.
+        None. Outputs the accuracy of the learned transformation.
     """
-    if device is None:
-        device = t.device("cuda" if t.cuda.is_available() else "cpu")
+    if device == None:
+        device = model.cfg.device
     correct_count = 0
     total_count = 0
     for batch in test_loader:
@@ -391,7 +396,11 @@ def evaluate_accuracy(
             fr_str = model.to_single_str_token(logits.argmax().item())
             logits = einsum(pred, model.embed.W_E, "d_model, vocab d_model -> vocab")
             pred_str = model.to_single_str_token(logits.argmax().item())
-            if correct := (fr_str == pred_str):
+            if exact_match:
+                correct = (fr_str == pred_str)
+            else:
+                correct = (fr_str.strip().lower() == pred_str.strip().lower())
+            if correct:
                 correct_count += 1
             print("English:", en_str, "French:", fr_str)
             print("English to French rotation", "✅" if correct else "❌")
@@ -461,7 +470,10 @@ def tokenize_texts(
     padding_strategy: str = "longest",
     single_tokens_only: bool = False,
     discard_if_same: bool = False,
-    min_length: int = 1
+    min_length: int = 1,
+    capture_diff_case: bool = False,
+    capture_space: bool = True,
+    capture_no_space: bool = True
 ) -> Tuple[t.Tensor, t.Tensor, t.Tensor, t.Tensor]:
     """
     Tokenizes texts into tensors for input IDs and attention masks for both languages.
@@ -476,32 +488,52 @@ def tokenize_texts(
                                    tokenize to a single token.
         discard_if_same (bool): If True, discards the word pair if both words are the same.
         min_length (int): Minimum length of words to be considered for tokenization. Defaults to 1.
+    capture_diff_case (bool): If True, includes both capitalized and non-capitalized versions
+                              of the French and English word pairs in addition to the original
+                              pairs. This effectively quadruples the input data by adding each
+                              word pair in its original form, its form with the English word
+                              capitalized, its form with the French word capitalized, and its
+                              form with both words capitalized.
 
     Returns:
         Tuple of tensors for input IDs and attention masks for both languages.
     """
 
     model.tokenizer.padding_side = padding_side
-
+    
     if discard_if_same:
         texts = [pair for pair in texts if pair[0] != pair[1]]
     texts = [pair for pair in texts if len(pair[0]) >= min_length and len(pair[1]) >= min_length]
 
+    
+    if capture_diff_case:
+        diff_case_texts = []
+        for pair in texts:
+            diff_case_texts.append([pair[0], pair[1]])
+            diff_case_texts.append([pair[0].capitalize(), pair[1]])
+            diff_case_texts.append([pair[0], pair[1].capitalize()])
+            diff_case_texts.append([pair[0].capitalize(), pair[1].capitalize()])
+        texts = diff_case_texts
+
     if single_tokens_only:
         filtered_texts = []
         for pair in texts:
-            tokenized_pair_0 = model.tokenizer(" "+pair[0])
-            tokenized_pair_1 = model.tokenizer(" "+pair[1])
-            if len(tokenized_pair_0["input_ids"]) == 1 and len(tokenized_pair_1["input_ids"]) == 1:
-                # print(len(tokenized_pair_0["input_ids"]))
-                # print(tokenized_pair_1["input_ids"])
-                filtered_texts.append(pair)
+            if capture_no_space:
+                tokenized_pair_0 = model.tokenizer(pair[0])
+                tokenized_pair_1 = model.tokenizer(pair[1])
+                if len(tokenized_pair_0["input_ids"]) == 1 and len(tokenized_pair_1["input_ids"]) == 1:
+                    filtered_texts.append(pair)
+            if capture_space:
+                tokenized_pair_0 = model.tokenizer(" "+pair[0])
+                tokenized_pair_1 = model.tokenizer(" "+pair[1])
+                if len(tokenized_pair_0["input_ids"]) == 1 and len(tokenized_pair_1["input_ids"]) == 1:
+                    filtered_texts.append([f" {pair[0]}", f" {pair[1]}"])
         texts = filtered_texts
+    
+    print(texts)
 
     # Add a space to the front of all the words in the texts list
-    texts = [(f" {pair[0]}", f" {pair[1]}") for pair in texts]
-    print(texts)
-    print(len(texts))
+    # texts = [[f" {pair[0]}", f" {pair[1]}"] for pair in texts]
 
     english_texts, french_texts = zip(*texts)
     combined_texts = list(english_texts) + list(french_texts)
@@ -510,13 +542,14 @@ def tokenize_texts(
     num_pairs = tokenized.input_ids.shape[0]
     assert num_pairs % 2 == 0
     word_each = num_pairs//2
-    # toks, attn_masks = tokenized["input_ids"], tokenized["attention_mask"]
     toks = tokenized.input_ids
     attn_masks = tokenized.attention_mask
     en_toks = toks[:word_each]
     en_attn_masks = attn_masks[:word_each]
     fr_toks = toks[word_each:]
     fr_attn_masks = attn_masks[word_each:]
+
+    print(en_toks.shape)
 
     return en_toks, en_attn_masks, fr_toks, fr_attn_masks
 
@@ -742,5 +775,3 @@ def steering_hook(
     rotated_final_tok = word_pred_from_embeds(final_tok, transformation)
     out = t.cat([prefix_toks, rotated_final_tok.unsqueeze(1)], dim=1)
     return out
-
-# %%

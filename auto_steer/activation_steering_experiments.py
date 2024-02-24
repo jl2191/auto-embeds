@@ -1,6 +1,7 @@
 # %%
 %load_ext autoreload
 %autoreload 2
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 import json
 
 import torch as t
@@ -41,9 +42,26 @@ en_toks, en_attn_mask, fr_toks, fr_attn_mask = tokenize_texts(
     en_fr_pairs,
     padding_side="left",
     single_tokens_only=True,
-    # discard_if_same=True,
-    min_length=2,
+    discard_if_same=True,
+    min_length=3,
+    capture_diff_case=True,
+    capture_space=True,
+    capture_no_space=True
 )
+
+# single_tokens_only, discard_if_same, min_length=3, capture_space:
+# 1656 tokens pairs
+
+# single_tokens_only, discard_if_same, min_length=3, capture_diff_case, capture_space:
+# 3502 token pairs
+# bloom-560m, batch size 512, 200 epochs, performance 65%
+
+# single_tokens_only, discard_if_same, min_length=3, capture_diff_case, capture_space,
+# capture_no_space:
+# 7772 token pairs
+# bloom-560m, batch size 512, 200 epochs, performance 65%
+
+
 #%%
 en_embeds = model.embed.W_E[en_toks].detach().clone() # shape[batch, seq_len, d_model]
 fr_embeds = model.embed.W_E[fr_toks].detach().clone() # shape[batch, seq_len, d_model]
@@ -51,8 +69,8 @@ fr_embeds = model.embed.W_E[fr_toks].detach().clone() # shape[batch, seq_len, d_
 train_loader, test_loader = create_data_loaders(
     en_embeds,
     fr_embeds,
-    batch_size=32,
-    train_ratio=0.99,
+    batch_size=512,
+    train_ratio=0.97,
 )
 
 #%%
@@ -62,10 +80,10 @@ initial_rotation, optim = initialize_transform_and_optim(
     d_model, transformation="rotation", lr=0.0002, device=device
 )
 learned_rotation = train_transform(
-    model, train_loader, initial_rotation, optim, 150, device
+    model, train_loader, initial_rotation, optim, 200, device
 )
 #%%
-evaluate_accuracy(model, test_loader, learned_rotation, device)
+evaluate_accuracy(model, test_loader, learned_rotation, exact_match=False)
 #%%
 print("Test Accuracy:", calc_cos_sim_acc(test_loader, learned_rotation))
 
