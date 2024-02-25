@@ -1,7 +1,6 @@
 # %%
 %load_ext autoreload
 %autoreload 2
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 import json
 
 import torch as t
@@ -21,15 +20,15 @@ n_toks = model.cfg.d_vocab_out
 datasets_folder = repo_path_to_abs_path("datasets")
 cache_folder = repo_path_to_abs_path("datasets/activation_cache")
 
-#%% ------------------------------------------------------------------------------------
+# %% ------------------------------------------------------------------------------------
 # %% kaikki french dictionary - learn W_E (embedding matrix) rotation
 with open(f"{datasets_folder}/kaikki-french-dictionary-single-word-pairs-no-hyphen.json", "r") as file:
     fr_en_pairs_file = json.load(file)
 
-#38597 english-french pairs in total
+# 38597 english-french pairs in total
 en_fr_pairs = [[pair["English"], pair["French"]] for pair in fr_en_pairs_file]
 
-#%%
+# %%
 # en_toks, en_attn_mask = tokenize_texts(model, en_strs_list)
 # fr_toks, fr_attn_mask = tokenize_texts(model, fr_strs_list)
 
@@ -62,7 +61,7 @@ en_toks, en_attn_mask, fr_toks, fr_attn_mask = tokenize_texts(
 # bloom-560m, batch size 512, 200 epochs, performance 65%
 
 
-#%%
+# %%
 en_embeds = model.embed.W_E[en_toks].detach().clone() # shape[batch, seq_len, d_model]
 fr_embeds = model.embed.W_E[fr_toks].detach().clone() # shape[batch, seq_len, d_model]
 
@@ -73,7 +72,7 @@ train_loader, test_loader = create_data_loaders(
     train_ratio=0.97,
 )
 
-#%%
+# %%
 filename_base = "bloom-560m-kaikki"
 
 initial_rotation, optim = initialize_transform_and_optim(
@@ -82,12 +81,27 @@ initial_rotation, optim = initialize_transform_and_optim(
 learned_rotation = train_transform(
     model, train_loader, initial_rotation, optim, 200, device
 )
-#%%
-evaluate_accuracy(model, test_loader, learned_rotation, exact_match=False)
-#%%
+# %%
+accuracy = evaluate_accuracy(model, test_loader, learned_rotation, exact_match=False, print_results=True)
+print(f"Correct Percentage: {accuracy * 100:.2f}%")
+# %%
 print("Test Accuracy:", calc_cos_sim_acc(test_loader, learned_rotation))
 
-#%% ------------------------------------------------------------------------------------
+# %% ------------------------------------------------------------------------------------
+# %%
+run_sweep(
+    en_fr_pairs=en_fr_pairs,
+    min_lengths=[3, 4, 5], 
+    batch_sizes=[256, 512], 
+    epochs_list=[50, 100, 200, 300], 
+    transformations=["rotation", "linear_map"], 
+    learning_rates=[0.0001, 0.0002, 0.0005], 
+    model_names=["bloom-560m", "bloom-3b"],
+    wandb_config={"project": "activation_steering_experiments",
+                  "name": "single-token-rotations",
+                  "save_code": True}
+)
+# %% ------------------------------------------------------------------------------------
 # %% gather activations
 en_acts, fr_acts = run_and_gather_acts(model, train_loader, layers=[0, 1])
 # %% save activations
@@ -95,7 +109,7 @@ save_acts(cache_folder, filename_base, en_acts, fr_acts)
 # %% load activations
 en_resids = t.load(f"{cache_folder}/bloom-560m-kaikki-en-layers-[0, 1].pt")
 fr_resids = t.load(f"{cache_folder}/bloom-560m-kaikki-fr-layers-[0, 1].pt")
-#%%
+# %%
 en_resids = {layer: t.cat(en_resids[layer], dim=0) for layer in en_resids}
 fr_resids = {layer: t.cat(fr_resids[layer], dim=0) for layer in fr_resids}
 
@@ -134,7 +148,7 @@ test_loader, train_loader = create_data_loaders(
      batch_size=128,
      match_dims=True
 )
-#%%
+# %%
 initial_rotation, optim = initialize_transform_and_optim(
     d_model, transformation="rotation", lr=0.0002, device=device
 )
@@ -143,7 +157,7 @@ learned_rotation = train_transform(
     model, train_loader, test_loader, initial_rotation, optim, 1, device
 )
 
-#%%
+# %%
 print("Test Accuracy:", calc_cos_sim_acc(test_loader, learned_rotation))
 
 fr_to_en_mean_vec = mean_vec(en_resids[layer_idx], fr_resids[layer_idx])

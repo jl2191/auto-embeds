@@ -1,6 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 
 import plotly.express as px
 import torch as t
@@ -12,7 +12,8 @@ from torch.nn import Module
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from word2word import Word2word
-
+import itertools
+import time
 from auto_steer.utils.custom_tqdm import tqdm
 from auto_steer.utils.misc import (
     get_most_similar_embeddings,
@@ -284,7 +285,7 @@ def word_pred_from_embeds(
     if isinstance(transformation, t.nn.Module):
         return transformation(embeds)
     else:  # transformation is a Tensor
-        return embeds @ transformation
+        return einsum("batch pos d_model, d_model -> batch pos d_model", embeds, transformation)
 
 
 def word_distance_metric(a: t.Tensor, b: t.Tensor) -> t.Tensor:
@@ -352,7 +353,8 @@ def evaluate_accuracy(
     learned_rotation: Union[Module, Tensor],
     exact_match: bool,
     device: Optional[Union[str, t.device]] = None,
-) -> None:
+    print_results: bool = False,
+) -> float:
     """
     Evaluates the accuracy of the learned transformation by comparing the predicted
     embeddings to the actual French embeddings. It supports requiring exact matches
@@ -366,53 +368,51 @@ def evaluate_accuracy(
         embeddings. If False, matches are correct if identical ignoring case
         differences.
         device (Optional[Union[str, t.device]]): Model's device. Defaults to None.
+        print_results (bool): If True, prints the translation attempts and results. Defaults to False.
 
     Returns:
-        None. Outputs the accuracy of the learned transformation.
+        float. The accuracy of the learned transformation.
     """
     if device == None:
         device = model.cfg.device
     correct_count = 0
     total_count = 0
     for batch in test_loader:
-        if len(batch) == 4:
-            en_embed, fr_embed, en_attn_mask, fr_attn_mask = batch
-        else:
-            en_embed, fr_embed = batch
-        en_embed = en_embed.to(device)
-        fr_embed = fr_embed.to(device)
+        en_embeds, fr_embeds = batch[:2]
+        en_embeds = en_embeds.to(device)
+        fr_embeds = fr_embeds.to(device)
+        
+        en_logits = einsum(en_embeds, model.embed.W_E, "batch pos d_model, d_vocab d_model -> batch pos d_vocab")
+        en_strs = model.to_str_tokens(en_logits.argmax(dim=-1))
 
-        for i in range(len(en_embed)):
-            sample_en_embed = en_embed[i].squeeze(0)
-            sample_fr_embed = fr_embed[i].squeeze(0)
-            pred = word_pred_from_embeds(sample_en_embed, learned_rotation)
-            logits = einsum(
-               sample_en_embed, model.embed.W_E, "d_model, vocab d_model -> vocab"
-            )
-            en_str = model.to_single_str_token(logits.argmax().item())
-            logits = einsum(
-                sample_fr_embed, model.embed.W_E, "d_model, vocab d_model -> vocab"
-            )
-            fr_str = model.to_single_str_token(logits.argmax().item())
-            logits = einsum(pred, model.embed.W_E, "d_model, vocab d_model -> vocab")
-            pred_str = model.to_single_str_token(logits.argmax().item())
-            if exact_match:
-                correct = (fr_str == pred_str)
-            else:
-                correct = (fr_str.strip().lower() == pred_str.strip().lower())
-            if correct:
-                correct_count += 1
-            print("English:", en_str, "French:", fr_str)
-            print("English to French rotation", "✅" if correct else "❌")
-            get_most_similar_embeddings(
-                model,
-                pred,
-                top_k=4,
-                apply_embed=True,
-            )
-        total_count += len(en_embed)
-    print()
-    print("Correct percentage:", correct_count / total_count * 100)
+        fr_logits = einsum(fr_embeds, model.embed.W_E, "batch pos d_model, d_vocab d_model -> batch pos d_vocab")
+        fr_strs = model.to_str_tokens(fr_logits.argmax(dim=-1))
+
+        pred = word_pred_from_embeds(en_embeds, learned_rotation)
+        pred_logits = einsum(pred, model.embed.W_E, "batch pos d_model, d_vocab d_model -> batch pos d_vocab")
+        pred_top_strs = model.to_str_tokens(pred_logits.argmax(dim=-1))
+
+
+        for i, pred_top_str in enumerate(pred_top_strs):
+            fr_str = fr_strs[i]
+            en_str = en_strs[i]
+            correct = (fr_str == pred_top_str) if exact_match else (fr_str.strip().lower() == pred_top_str.strip().lower())
+            correct_count += correct
+            if print_results:
+                result_emoji = "✅" if correct else "❌"
+                print(f"English: {en_str}\nFrench: {fr_str}\nPredicted: {pred_top_str} {result_emoji}")
+                print("Top Predictions:")
+                most_similar_embeds = get_most_similar_embeddings(
+                        model,
+                        out=pred[i].squeeze(),
+                        top_k=4,
+                        apply_embed=True,
+                    )
+                print()
+        total_count += len(en_embeds)
+
+    accuracy = correct_count / total_count
+    return accuracy
 
 
 def calc_cos_sim_acc(
@@ -439,8 +439,6 @@ def calc_cos_sim_acc(
         cosine_sim = word_distance_metric(pred, fr_embed)
         cosine_sims.append(cosine_sim)
     return t.cat(cosine_sims).mean().item()
-
-
 # %% ----------------------- functions --------------------------
 
 
@@ -530,8 +528,6 @@ def tokenize_texts(
                     filtered_texts.append([f" {pair[0]}", f" {pair[1]}"])
         texts = filtered_texts
     
-    print(texts)
-
     # Add a space to the front of all the words in the texts list
     # texts = [[f" {pair[0]}", f" {pair[1]}"] for pair in texts]
 
@@ -548,8 +544,6 @@ def tokenize_texts(
     en_attn_masks = attn_masks[:word_each]
     fr_toks = toks[word_each:]
     fr_attn_masks = attn_masks[word_each:]
-
-    print(en_toks.shape)
 
     return en_toks, en_attn_masks, fr_toks, fr_attn_masks
 
