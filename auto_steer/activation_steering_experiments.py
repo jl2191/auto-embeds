@@ -12,8 +12,8 @@ from auto_steer.utils.misc import (
 )
 
 # %% model setup
-# model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
-model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
+model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
+# model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
 device = model.cfg.device
 d_model = model.cfg.d_model
 n_toks = model.cfg.d_vocab_out
@@ -78,8 +78,8 @@ filename_base = "bloom-560m-kaikki"
 initial_rotation, optim = initialize_transform_and_optim(
     d_model, transformation="rotation", lr=0.0002, device=device
 )
-learned_rotation = train_transform(
-    model, train_loader, initial_rotation, optim, 200, device
+learned_rotation, loss_history = train_transform(
+    model, train_loader, initial_rotation, optim, 100, device
 )
 # %%
 accuracy = evaluate_accuracy(model, test_loader, learned_rotation, exact_match=False, print_results=True)
@@ -87,20 +87,6 @@ print(f"Correct Percentage: {accuracy * 100:.2f}%")
 # %%
 print("Test Accuracy:", calc_cos_sim_acc(test_loader, learned_rotation))
 
-# %% ------------------------------------------------------------------------------------
-# %%
-run_sweep(
-    en_fr_pairs=en_fr_pairs,
-    min_lengths=[3, 4, 5], 
-    batch_sizes=[256, 512], 
-    epochs_list=[50, 100, 200, 300], 
-    transformations=["rotation", "linear_map"], 
-    learning_rates=[0.0001, 0.0002, 0.0005], 
-    model_names=["bloom-560m", "bloom-3b"],
-    wandb_config={"project": "activation_steering_experiments",
-                  "name": "single-token-rotations",
-                  "save_code": True}
-)
 # %% ------------------------------------------------------------------------------------
 # %% gather activations
 en_acts, fr_acts = run_and_gather_acts(model, train_loader, layers=[0, 1])

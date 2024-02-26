@@ -309,9 +309,9 @@ def train_transform(
     optim: Optimizer,
     n_epochs: int,
     device: Optional[Union[str, t.device]] = None,
-) -> Union[Module, Tensor]:
+) -> Tuple[Union[Module, Tensor], List[float]]:
     """
-    Trains and evaluates the model, returning the learned transformation.
+    Trains and evaluates the model, returning the learned transformation and loss history.
 
     Args:
         model: The transformer model used for training.
@@ -320,12 +320,13 @@ def train_transform(
         initial_rotation: The initial transformation to be optimized.
         optim: The optimizer for the transformation.
         n_epochs: The number of epochs to train for.
+        use_wandb (bool, optional): If True, logs training metrics to Weights & Biases. Defaults to False.
 
     Returns:
-        The learned transformation after training.
+        The learned transformation after training and the loss history for logging.
     """
     if device is None:
-        model.cfg.device
+        device = model.cfg.device
     loss_history = []
     initial_rotation.to(
         device
@@ -336,7 +337,6 @@ def train_transform(
             fr_embed = fr_embed.to(device)
             optim.zero_grad()
             pred = word_pred_from_embeds(en_embed, initial_rotation)
-            metric = word_distance_metric(pred, fr_embed)
             loss = word_distance_metric(pred, fr_embed).mean()
             loss_history.append(loss.item())
             loss.backward()
@@ -344,7 +344,7 @@ def train_transform(
             epoch_pbar.set_description(f"Loss: {loss.item():.3f}")
     px.line(y=loss_history, title="Loss History").show()
     learned_rotation = initial_rotation
-    return learned_rotation
+    return learned_rotation, loss_history
 
 
 def evaluate_accuracy(
