@@ -3,10 +3,10 @@ from contextlib import contextmanager
 from datetime import datetime
 from functools import reduce
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Set
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 import torch as t
-from einops import einsum
+from einops import einsum, repeat
 from torch.utils.hooks import RemovableHandle
 
 
@@ -66,7 +66,7 @@ def percent_gpu_mem_used(total_gpu_mib: int = 49000) -> str:
 def run_prompt(
     model: t.nn.Module,
     prompt: str,
-    answer: Optional[str] = None,
+    answer: Optional[List[str]] = None,
     top_k: int = 10,
     prepend_bos: bool = False,
 ):
@@ -80,15 +80,17 @@ def run_prompt(
 def get_most_similar_embeddings(
     model: t.nn.Module,
     out: t.Tensor,
-    answer: Optional[str] = None,
+    answer: Optional[List[str]] = None,
     top_k: int = 10,
     apply_ln_final: bool = False,
     apply_unembed: bool = False,
     apply_embed: bool = False,
-):
+    print_results: bool = False,
+) -> Dict[int, Any]:
     assert not (apply_embed and apply_unembed), "Can't apply both embed and unembed"
+    results = {}
     show_answer_rank = answer is not None
-    answer = " cheese" if answer is None else answer
+    answer = [" cheese"] * 129 if answer is None else answer
     out = out.unsqueeze(0).unsqueeze(0) if out.ndim == 1 else out
     out = model.ln_final(out) if apply_ln_final else out
     if apply_embed:
@@ -99,30 +101,78 @@ def get_most_similar_embeddings(
         unembeded = model.unembed(out)
     else:
         unembeded = out
-    answer_token = model.to_tokens(answer, prepend_bos=False).squeeze()
+    answer_token = model.to_tokens(answer, prepend_bos=False)
     answer_str_token = model.to_str_tokens(answer, prepend_bos=False)
-    assert len(answer_str_token) == 1
     logits = unembeded.squeeze()  # type: ignore
     probs = logits.softmax(dim=-1)
 
     sorted_token_probs, sorted_token_values = probs.sort(descending=True)
+
     # Janky way to get the index of the token in the sorted list
     if answer is not None:
-        correct_rank = t.arange(len(sorted_token_values))[
-            (sorted_token_values == answer_token).cpu()
-        ].item()
-    else:
-        correct_rank = -1
-    if show_answer_rank:
-        print(
-            f'\n"{answer_str_token[0]}" token rank:',
-            f"{correct_rank: <8}",
-            f"\nLogit: {logits[answer_token].item():5.2f}",
-            f"Prob: {probs[answer_token].item():6.2%}",
-        )
-    for i in range(top_k):
-        print(
-            f"Top {i}th token. Logit: {logits[sorted_token_values[i]].item():5.2f}",
-            f"Prob: {sorted_token_probs[i].item():6.2%}",
-            f'Token: "{model.to_string(sorted_token_values[i])}"',
-        )
+        correct_rank = repeat(
+            t.arange(sorted_token_values.shape[-1]),
+            "d_vocab -> batch d_vocab",
+            batch=sorted_token_values.shape[0],
+        )[(sorted_token_values == answer_token).cpu()]
+
+    results = {}
+    # This loop compiles a results dictionary per batch, including rankings of correct
+    # answers (if any) and the top-k predicted tokens.
+    for batch_idx in range(sorted_token_values.shape[0]):
+        # Initialize a dictionary to hold results for the current batch.
+        word_results = {}
+        # If an answer is provided, calculate its rank and related information.
+        if show_answer_rank:
+            # Collect rankings for each answer token.
+            answer_ranks = [
+                {
+                    "token": token,
+                    "rank": correct_rank[idx].item(),
+                    "logit": logits[idx, answer_token[idx]].item(),
+                    "prob": probs[idx, answer_token[idx]].item(),
+                }
+                for idx, token in enumerate(answer_str_token)
+            ]
+            # Store the collected answer ranks in the results dictionary.
+            word_results["answer_rank"] = answer_ranks
+        # Identify and store the top-k tokens based on their probabilities.
+        top_tokens = [
+            {
+                "rank": i,
+                "logit": logits[batch_idx, sorted_token_values[batch_idx, i]].item(),
+                "prob": sorted_token_probs[batch_idx, i].item(),
+                "token": model.to_string(sorted_token_values[batch_idx, i]),
+            }
+            for i in range(top_k)
+        ]
+        word_results["top_tokens"] = top_tokens
+        # Assign results for the current batch to the main results dictionary.
+        results[batch_idx] = word_results
+    # Optionally print the results for each batch.
+    if print_results:
+        for key, batch_results in results.items():
+            print_most_similar_embeddings_dict(batch_results)
+            print()
+    return results
+
+
+def print_most_similar_embeddings_dict(
+    most_similar_embeds_dict: Dict[int, Any]
+) -> None:
+    for i in range(len(most_similar_embeds_dict)):
+        if "answer_rank" in most_similar_embeds_dict[i]:
+            for answer_rank in most_similar_embeds_dict[i]["answer_rank"]:
+                print(answer_rank)
+                print(
+                    f'\n"{answer_rank["token"]}" token rank:',
+                    f'{answer_rank["rank"]: <8}',
+                    f'\nLogit: {answer_rank["logit"]:5.2f}',
+                    f'Prob: {answer_rank["prob"]:6.2%}',
+                )
+        for top_token in most_similar_embeds_dict[i]["top_tokens"]:
+            print(
+                f"Top {top_token['rank']}th token. Logit: {top_token['logit']:5.2f}",
+                f"Prob: {top_token['prob']:6.2%}",
+                f'Token: "{top_token["token"]}"',
+            )

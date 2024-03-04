@@ -22,6 +22,8 @@ jaxtyping = "^0.2.25"
 debugpy = "^1.8.1"
 importmagic = "^0.1.7"
 epc = "^0.0.5"
+scikit-learn = "^1.4.1.post1"
+umap-learn = "^0.5.5"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.3.3"
@@ -39,12 +41,19 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
 # pyflakes, pycodestyle, isort
-select = ["F", "E", "W", "I001"]
+lint.select = ["F", "E", "W", "I001"]
+# ignoring module-import-not-at-top-of-file (E402) to allow for os.environ modifications
+# between import statement and F722 and for jaxtyping
+lint.ignore = ["E402", "F722"]
 
 [tool.pyright]
-ignore = ["datasets/ioi_generator.py", "datasets/greaterthan_generator.py", "datasets/docstring_generator.py"]
-reportMissingParameterType = true
-reportUnknownParameterType = true
+# reportMissingParameterType = true
+# reportUnknownParameterType = true
+venvPath = "."
+venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts=[
+    "--jaxtyping-packages=auto_steer,beartype.beartype",
+]
