@@ -10,6 +10,15 @@ from einops import einsum, repeat
 from torch.utils.hooks import RemovableHandle
 
 
+def get_default_device():
+    if t.cuda.is_available():
+        return t.device("cuda")
+    elif t.backends.mps.is_available():
+        return t.device("mps")
+    else:
+        return t.device("cpu")
+
+
 def repo_path_to_abs_path(path: str) -> Path:
     repo_abs_path = Path(__file__).parent.parent.parent.absolute()
     return repo_abs_path / path

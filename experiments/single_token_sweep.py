@@ -12,9 +12,9 @@ import torch as t
 import transformer_lens as tl
 
 import wandb
+from auto_steer.data import create_data_loaders
 from auto_steer.steering_utils import (
     calc_cos_sim_acc,
-    create_data_loaders,
     evaluate_accuracy,
     initialize_transform_and_optim,
     tokenize_texts,
@@ -176,6 +176,4 @@ def run_sweep_for_model(model_name: str):
 # Run sweeps for both models
 run_sweep_for_model("bloom-560m")
 run_sweep_for_model("bloom-3b")
-# %%
-
 # %%

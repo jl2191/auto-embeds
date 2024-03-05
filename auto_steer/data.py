@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import List, Optional, Tuple, Union, cast
 
 import torch as t
 import transformer_lens as tl
@@ -78,6 +78,7 @@ def create_data_loaders(
         (train_loader, test_loader),
     )
     return train_loader, test_loader
+
 
 def generate_tokens(
     model: tl.HookedTransformer,
@@ -165,4 +166,3 @@ def generate_google_words(
         en_strs_list.append(en_str)
         fr_strs_list.append(fr_str)
     return en_strs_list, fr_strs_list
-

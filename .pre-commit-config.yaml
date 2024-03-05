@@ -48,6 +48,7 @@ repos:
 exclude: |
   (?x)^(
       poetry.lock|
+      .vscode/.*|
       datasets/.*|
       tests/.*|
       auto_steer/utils/tensor_ops.py

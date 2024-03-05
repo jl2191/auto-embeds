@@ -1,17 +1,15 @@
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import plotly.express as px
 import torch as t
 import torch.nn as nn
 import transformer_lens as tl
-from einops import einsum
-from jaxtyping import Float
+from fancy_einsum import einsum
 from torch import Tensor
 from torch.optim import Optimizer
-from torch.utils.data import DataLoader, TensorDataset, random_split
-from word2word import Word2word
+from torch.utils.data import DataLoader
 
 from auto_steer.modules import (
     MeanTranslationTransform,
@@ -23,10 +21,13 @@ from auto_steer.modules import (
 )
 from auto_steer.utils.custom_tqdm import tqdm
 from auto_steer.utils.misc import (
+    get_default_device,
     get_most_similar_embeddings,
     print_most_similar_embeddings_dict,
     remove_hooks,
 )
+
+default_device = get_default_device()
 
 
 def initialize_transform_and_optim(
@@ -35,6 +36,7 @@ def initialize_transform_and_optim(
     mean_diff: Optional[Tensor] = None,
     transform_kwargs: Dict[str, Any] = {},
     optim_kwargs: Dict[str, Any] = {},
+    device: Optional[Union[str, t.device]] = default_device,
 ) -> Tuple[nn.Module, Optional[Optimizer]]:
     """
     Initializes a transformation and its corresponding optimizer based on the specified
@@ -44,16 +46,17 @@ def initialize_transform_and_optim(
     Args:
         d_model: The dimensionality of the model embeddings.
         transformation: The type of transformation to initialize.
-        en_act_resids: Optional tensor containing English activation residuals. Required
-        for mean-centred activation steering.
-        fr_act_resids: Optional tensor containing French activation residuals. Required
-        for mean-centred activation steering.
+        mean_diff: Optional tensor containing the mean difference for mean-centered
+        steering transformation.
         transform_kwargs: Dict containing kwargs for transformation initialization.
         optim_kwargs: Dict containing kwargs for optimizer initialization.
+        device: The device on which to allocate tensors. If None, defaults to
+        model.cfg.device.
 
     Returns:
         A tuple containing the transformation module and its optimizer.
     """
+    transform_kwargs["device"] = device
 
     if transformation == "identity":
         transform = nn.Identity(**transform_kwargs)
@@ -78,12 +81,16 @@ def initialize_transform_and_optim(
         transform = nn.Linear(d_model, d_model, bias=False, **transform_kwargs)
         optim = t.optim.Adam(transform.parameters(), **optim_kwargs)
 
-    elif transformation == "offset_linear_map":
+    elif transformation == "biased_linear_map":
         transform = nn.Linear(d_model, d_model, bias=True, **transform_kwargs)
         optim = t.optim.Adam(transform.parameters(), **optim_kwargs)
 
     elif transformation == "uncentered_linear_map":
         transform = UncenteredLinearMapTransform(d_model, **transform_kwargs)
+        optim = t.optim.Adam(list(transform.parameters()), **optim_kwargs)
+
+    elif transformation == "biased_uncentered_linear_map":
+        transform = UncenteredLinearMapTransform(d_model, bias=True, **transform_kwargs)
         optim = t.optim.Adam(list(transform.parameters()), **optim_kwargs)
 
     elif transformation == "rotation":
@@ -100,31 +107,6 @@ def initialize_transform_and_optim(
     else:
         raise Exception("the supplied transform was unrecognized")
     return transform, optim
-
-
-def word_pred_from_embeds(
-    embeds: Tensor, transformation: Union[nn.Module, Tensor], lerp: float = 1.0
-) -> Tensor:
-    """
-    Applies a specified transformation to the input embeddings.
-
-    Args:
-        embeds (Tensor): The input embeddings to be transformed.
-        transformation (Union[nn.Module, Tensor]): The transformation to be applied.
-        Can be a PyTorch module or a tensor.
-        lerp (float, optional): Linear interpolation factor. Defaults to 1.0, meaning
-        full rotation is applied.
-
-    Returns:
-        Tensor: The transformed embeddings after applying the transformation.
-    """
-
-    if isinstance(transformation, nn.Module):
-        return transformation(embeds)
-    else:
-        return einsum(
-            embeds, transformation, "batch pos d_model, d_model -> batch pos d_model"
-        )
 
 
 def word_distance_metric(a: t.Tensor, b: t.Tensor) -> t.Tensor:
@@ -188,7 +170,7 @@ def train_transform(
 def evaluate_accuracy(
     model: tl.HookedTransformer,
     test_loader: DataLoader[Tuple[Tensor, ...]],
-    learned_rotation: nn.Module,
+    transformation: nn.Module,
     exact_match: bool,
     device: Optional[Union[str, t.device]] = None,
     print_results: bool = False,
@@ -201,7 +183,7 @@ def evaluate_accuracy(
     Args:
         model: Transformer model for evaluation.
         test_loader: DataLoader for test dataset.
-        learned_rotation: Learned transformation.
+        transformation: Transformation module to be evaluated.
         exact_match: If True, requires exact matches between predicted and actual
         embeddings. If False, matches are correct if identical ignoring case
         differences.
@@ -233,7 +215,7 @@ def evaluate_accuracy(
         )
         fr_strs: List[str] = model.to_str_tokens(fr_logits.argmax(dim=-1))  # type: ignore
 
-        pred = word_pred_from_embeds(en_embeds, learned_rotation)
+        pred = transformation(en_embeds)
         pred_logits = einsum(
             pred,
             model.embed.W_E,
@@ -282,7 +264,7 @@ def evaluate_accuracy(
 
 def calc_cos_sim_acc(
     test_loader: DataLoader[Tuple[Tensor, ...]],
-    rotation: nn.Module,
+    transform: nn.Module,
     device: Optional[str] = None,
 ) -> float:
     """
@@ -290,19 +272,19 @@ def calc_cos_sim_acc(
 
     Args:
         test_loader: DataLoader for the testing dataset.
-        rotation: The learned transformation to be evaluated.
+        transform: The transformation module to be evaluated.
         device: The device to perform calculations on.
 
     Returns:
         The mean cosine similarity accuracy.
     """
     if device is not None:
-        rotation.to(device)
+        transform.to(device)
     cosine_sims = []
     for batch_idx, (en_embed, fr_embed) in enumerate(test_loader):
         en_embed = en_embed.to(device)
         fr_embed = fr_embed.to(device)
-        pred = word_pred_from_embeds(en_embed, rotation)
+        pred = transform(en_embed)
         cosine_sim = word_distance_metric(pred, fr_embed)
         cosine_sims.append(cosine_sim)
     return t.cat(cosine_sims).mean().item()
@@ -332,7 +314,7 @@ def read_file_lines(file_path: Union[str, Path], lines_count: int = 5000) -> Lis
 
 def tokenize_texts(
     model: tl.HookedTransformer,
-    texts: List[List[str]],
+    word_pairs: List[List[str]],
     padding_side: str = "right",
     pad_to_same_length: bool = True,
     padding_strategy: str = "longest",
@@ -348,7 +330,7 @@ def tokenize_texts(
 
     Args:
         model: The model with a tokenizer to process the texts.
-        texts: A list of text pairs to be tokenized.
+        word_pairs: A list of word pairs as lists to be tokenized.
         padding_side: The side ('right' or 'left') to apply padding.
         pad_to_same_length: Whether to pad texts to the same length.
         padding_strategy: The strategy ('longest', 'max_length', etc.) for padding.
@@ -370,65 +352,56 @@ def tokenize_texts(
     model.tokenizer.padding_side = padding_side
 
     if discard_if_same:
-        texts = [pair for pair in texts if pair[0] != pair[1]]
+        word_pairs = [pair for pair in word_pairs if pair[0] != pair[1]]
 
-    texts = [
+    word_pairs = [
         pair
-        for pair in texts
+        for pair in word_pairs
         if len(pair[0]) >= min_length and len(pair[1]) >= min_length
     ]
 
     if capture_diff_case:
         diff_case_texts = []
-        for pair in texts:
+        for pair in word_pairs:
             diff_case_texts.append([pair[0], pair[1]])
             diff_case_texts.append([pair[0].capitalize(), pair[1]])
             diff_case_texts.append([pair[0], pair[1].capitalize()])
             diff_case_texts.append([pair[0].capitalize(), pair[1].capitalize()])
-        texts = diff_case_texts
+        word_pairs = diff_case_texts
 
     if single_tokens_only:
-        filtered_texts = []
-        for pair in texts:
-            if capture_no_space:
-                uwu = model.tokenizer(pair[0], return_length=True)
-                assert uwu == uwu.data
-                tokenized_pair_0 = model.tokenizer(pair[0], return_length=True).data
-                tokenized_pair_1 = model.tokenizer(pair[1], return_length=True).data
+        pairs_to_filter = []
+        filtered_pairs = []
+        if capture_no_space:
+            pairs_to_filter.extend(word_pairs)
+        if capture_space:
+            word_pairs_w_space = [[f" {pair[0]}", f" {pair[1]}"] for pair in word_pairs]
+            pairs_to_filter.extend(word_pairs_w_space)
+        english_words, french_words = [list(words) for words in zip(*pairs_to_filter)]
+        en_word_tokens = model.tokenizer(english_words).data["input_ids"]
+        fr_word_tokens = model.tokenizer(french_words).data["input_ids"]
+        for en_word_tokens, fr_word_tokens, word_pair in zip(
+            en_word_tokens, fr_word_tokens, pairs_to_filter
+        ):
+            if len(en_word_tokens) == 1 and len(fr_word_tokens) == 1:
+                filtered_pairs.append(word_pair)
+        word_pairs = filtered_pairs
 
-                if (
-                    len(tokenized_pair_0["input_ids"]) == 1
-                    and len(tokenized_pair_1["input_ids"]) == 1
-                ):
-                    filtered_texts.append(pair)
-            if capture_space:
-                tokenized_pair_0 = model.tokenizer(" " + pair[0]).data
-                tokenized_pair_1 = model.tokenizer(" " + pair[1]).data
-                if (
-                    len(tokenized_pair_0["input_ids"]) == 1
-                    and len(tokenized_pair_1["input_ids"]) == 1
-                ):
-                    filtered_texts.append([f" {pair[0]}", f" {pair[1]}"])
-        texts = filtered_texts
-
-    # Add a space to the front of all the words in the texts list
-    # texts = [[f" {pair[0]}", f" {pair[1]}"] for pair in texts]
-
-    english_texts, french_texts = zip(*texts)
-    combined_texts = list(english_texts) + list(french_texts)
+    english_words, french_words = zip(*word_pairs)
+    combined_texts = list(english_words) + list(french_words)
+    # print(combined_texts[:30])
+    # print(len(combined_texts))
 
     tokenized = model.tokenizer(combined_texts, padding="longest", return_tensors="pt")
     num_pairs = tokenized.input_ids.shape[0]
     assert num_pairs % 2 == 0
     word_each = num_pairs // 2
-    toks = tokenized.input_ids
-    attn_masks = tokenized.attention_mask
-    en_toks = toks[:word_each]
-    en_attn_masks = attn_masks[:word_each]
-    fr_toks = toks[word_each:]
-    fr_attn_masks = attn_masks[word_each:]
+    tokens = tokenized.data["input_ids"]
+    attn_masks = tokenized.data["attention_mask"]
+    en_word_tokens, fr_word_tokens = tokens[:word_each], tokens[word_each:]
+    en_attn_masks, fr_attn_masks = attn_masks[:word_each], attn_masks[word_each:]
 
-    return en_toks, en_attn_masks, fr_toks, fr_attn_masks
+    return en_word_tokens, en_attn_masks, fr_word_tokens, fr_attn_masks
 
 
 def run_and_gather_acts(
@@ -514,7 +487,7 @@ def perform_translation_tests(
     fr_strs: List[str],
     layer_idx: int,
     gen_length: int,
-    transformation: Union[nn.Module, Tensor],
+    transformation: nn.Module,
 ) -> None:
     """
     Performs translation tests on a model by generating translations for English
@@ -591,7 +564,7 @@ def generate_translation_with_hook(
     test_str: str,
     gen_length: int,
     layer_idx: int,
-    transformation: Union[nn.Module, Tensor],
+    transformation: nn.Module,
 ) -> str:
     """
     Generates a translation for a given string using the model with a steering hook.
@@ -601,7 +574,7 @@ def generate_translation_with_hook(
         test_str (str): The string to translate.
         gen_length (int): The number of tokens to generate for the translation.
         layer_idx (int): The index of the layer to apply the steering hook.
-        transformation (Union[nn.Module, Tensor]): The transformation to apply using the
+        transformation (nn.Module): The transformation to apply using the
         steering hook.
 
     Returns:
@@ -628,7 +601,7 @@ def steering_hook(
     module: nn.Module,
     input: Tuple[t.Tensor],
     output: t.Tensor,
-    transformation: Union[nn.Module, Tensor],
+    transformation: nn.Module,
 ) -> t.Tensor:
     """
     Modifies a module's output during translation by applying a transformation.
@@ -641,7 +614,7 @@ def steering_hook(
         input (Tuple[t.Tensor]): Input tensors to the module, with the first tensor
                                  usually being the input embeddings.
         output (t.Tensor): The original output tensor of the module.
-        transformation (Union[nn.Module, Tensor]): The transformation to apply to the
+        transformation (nn.Module): The transformation to apply to the
                                                 output tensor, which could be a
                                                 learned matrix or another module.
 
@@ -650,6 +623,6 @@ def steering_hook(
                   original output in the model's forward pass.
     """
     prefix_toks, final_tok = input[0][:, :-1], input[0][:, -1]
-    rotated_final_tok = word_pred_from_embeds(final_tok, transformation)
+    rotated_final_tok = transformation(final_tok)
     out = t.cat([prefix_toks, rotated_final_tok.unsqueeze(1)], dim=1)
     return out
