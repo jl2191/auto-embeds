@@ -141,7 +141,7 @@ class RotationTransform(nn.Module):
         self, d_model: int, device: Optional[Union[str, t.device]] = default_device
     ):
         super().__init__()
-        # self.rotation_pre = nn.Linear(d_model, d_model, bias=False, device=device)
+        self.rotation_pre = nn.Linear(d_model, d_model, bias=False, device=device)
         self.rotation = t.nn.utils.parametrizations.orthogonal(
             nn.Linear(d_model, d_model, bias=False, device=device)
         )
@@ -161,9 +161,9 @@ class RotationTransform(nn.Module):
         return self.rotation(x)
 
 
-class OffsetRotationTransform(nn.Module):
+class BiasedRotationTransform(nn.Module):
     """
-    A nn.Module that applies an offset rotation transformation to the input tensor.
+    A nn.Module that applies an rotation transformation plus a bias to the input tensor.
 
     Args:
         d_model (int): The dimensionality of the model embeddings.
@@ -172,7 +172,7 @@ class OffsetRotationTransform(nn.Module):
 
     Attributes:
         rotation (t.nn.Linear): The rotation matrix.
-        offset (t.nn.Parameter): The offset vector.
+        bias (t.nn.Parameter): The bias vector.
     """
 
     def __init__(
@@ -181,10 +181,10 @@ class OffsetRotationTransform(nn.Module):
         super().__init__()
         self.rotation_pre = t.nn.Linear(d_model, d_model, bias=False, device=device)
         self.rotation = t.nn.utils.parametrizations.orthogonal(self.rotation_pre)
-        self.offset = nn.Parameter(t.empty(d_model, device=device))
+        self.bias = nn.Parameter(t.empty(d_model, device=device))
         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.rotation.weight)
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
-        nn.init.uniform_(self.offset, -bound, bound)
+        nn.init.uniform_(self.bias, -bound, bound)
 
     def forward(
         self, x: Float[Tensor, "batch d_model"]
@@ -198,12 +198,15 @@ class OffsetRotationTransform(nn.Module):
         Returns:
             Tensor: The transformed tensor.
         """
-        return self.rotation(x) + self.offset
+        return self.rotation(x) + self.bias
 
 
 class UncenteredRotationTransform(nn.Module):
     """
     A nn.Module that applies an uncentered rotation transformation to the input tensor.
+    The uncentered rotation transformation adds a learned "center" to the input, rotates
+    it via a learned rotation matrix, takes the learned center away and returns the
+    result.
 
     Args:
         d_model (int): The dimensionality of the model embeddings.
@@ -239,3 +242,42 @@ class UncenteredRotationTransform(nn.Module):
             Tensor: The transformed tensor.
         """
         return self.rotation(x + self.center) - self.center
+
+
+# losses ===============================================================================
+
+
+class CosineSimilarityLoss(nn.Module):
+    def forward(self, predictions: Tensor, targets: Tensor) -> Tensor:
+        return -nn.functional.cosine_similarity(predictions, targets, dim=-1).mean()
+
+
+class L1CosineSimilarityLoss(nn.Module):
+    def __init__(self, l1_lambda: float = 0.5):
+        super().__init__()
+        self.l1_lambda = l1_lambda
+
+    def forward(self, predictions: Tensor, targets: Tensor) -> Tensor:
+        cosine_loss = -nn.functional.cosine_similarity(
+            predictions, targets, dim=-1
+        ).mean()
+        l1_loss = nn.functional.l1_loss(predictions, targets).mean()
+        return cosine_loss + self.l1_lambda * l1_loss
+
+
+class L2CosineSimilarityLoss(nn.Module):
+    def __init__(self, l2_lambda: float = 0.5):
+        super().__init__()
+        self.l2_lambda = l2_lambda
+
+    def forward(self, predictions: Tensor, targets: Tensor) -> Tensor:
+        cosine_loss = -nn.functional.cosine_similarity(
+            predictions, targets, dim=-1
+        ).mean()
+        l2_loss = nn.functional.mse_loss(predictions, targets).mean()
+        return cosine_loss + self.l2_lambda * l2_loss
+
+
+class MSELoss(nn.Module):
+    def forward(self, predictions: Tensor, targets: Tensor) -> Tensor:
+        return nn.functional.mse_loss(predictions, targets)

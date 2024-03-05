@@ -31,7 +31,7 @@ batch = 10
         ("uncentered_linear_map", t.optim.Adam),
         ("biased_uncentered_linear_map", t.optim.Adam),
         ("rotation", t.optim.Adam),
-        ("offset_rotation", t.optim.Adam),
+        ("biased_rotation", t.optim.Adam),
         ("uncentered_rotation", t.optim.Adam),
     ],
 )
@@ -70,7 +70,6 @@ def test_identity_transformation():
     # The identity transformation should not change the input tensor
     tt.assert_close(input, actual)
     assert t.allclose(input, actual)
-
 
 def test_translation_transformation():
     translation_transform, _ = initialize_transform_and_optim(d_model, "translation")
@@ -151,7 +150,7 @@ def test_rotation_transformation():
     tt.assert_close(actual, expected)
 
     # Test rotation transformation with a 45-degree rotation matrix
-    angle = t.tensor(t.pi / 4, dtype=t.float)
+    angle = t.tensor(t.pi / 4, dtype=t.float, device=device)
     sin, cos = t.sin(angle), t.cos(angle)
     rotation_matrix = t.tensor([[cos, -sin], [sin, cos]], device=device)
     # Extend rotation_matrix to match d_model dimensions if necessary
@@ -181,7 +180,7 @@ def test_rotation_transformation():
     # Test that norm is preserved during rotation.
     transform, _ = initialize_transform_and_optim(d_model, "rotation")
     data = (
-        t.arange(d_model, dtype=t.float).unsqueeze(0).to(device)
+        t.arange(d_model, dtype=t.float, device=device).unsqueeze(0)
     )  # Add batch dimension
     expected = t.norm(data, p=2, dim=-1)
     actual = t.norm(transform(data), p=2, dim=-1)

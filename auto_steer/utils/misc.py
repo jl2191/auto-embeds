@@ -99,7 +99,9 @@ def get_most_similar_embeddings(
     assert not (apply_embed and apply_unembed), "Can't apply both embed and unembed"
     results = {}
     show_answer_rank = answer is not None
-    answer = [" cheese"] * 129 if answer is None else answer
+    answer = (
+        [" cheese"] * out.shape[0] if answer is None else answer
+    )  # out.shape = [batch, pos, d_model]
     out = out.unsqueeze(0).unsqueeze(0) if out.ndim == 1 else out
     out = model.ln_final(out) if apply_ln_final else out
     if apply_embed:

@@ -1,19 +1,20 @@
 #%%
 import json
 import os
-import jaxtyping
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import numpy as np
 import torch as t
 import transformer_lens as tl
-
 import wandb
+
 from auto_steer.data import create_data_loaders
 from auto_steer.steering_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
+    initialize_loss,
     initialize_transform_and_optim,
     tokenize_texts,
     train_transform,
@@ -29,7 +30,6 @@ t.cuda.manual_seed(1)
 # %load_ext autoreload
 # %load_ext line_profiler
 # %autoreload 2
-# %%timeit -n 3 -r 1
 # %%prun -s cumulative
 # %lprun -f get_most_similar_embeddings
 # %% model setup
@@ -53,6 +53,7 @@ with open(file_path, "r") as file:
 en_fr_pairs = [[pair["English"], pair["French"]] for pair in fr_en_pairs_file]
 
 # %%
+# %%timeit -n 3 -r 1
 en_toks, en_attn_mask, fr_toks, fr_attn_mask = tokenize_texts(
     model,
     en_fr_pairs,
@@ -65,9 +66,14 @@ en_toks, en_attn_mask, fr_toks, fr_attn_mask = tokenize_texts(
     capture_no_space=True,
 )
 # %%
-en_embeds = model.embed.W_E[en_toks].detach().clone()  # shape[batch, seq_len, d_model]
-fr_embeds = model.embed.W_E[fr_toks].detach().clone()  # shape[batch, seq_len, d_model]
-
+# en_embeds = model.embed.W_E[en_toks].detach().clone() # shape[batch, seq_len, d_model]
+# fr_embeds = model.embed.W_E[fr_toks].detach().clone() # shape[batch, seq_len, d_model]
+en_embeds = t.nn.functional.layer_norm(
+    model.embed.W_E[en_toks].detach().clone(), [d_model]
+)
+fr_embeds = t.nn.functional.layer_norm(
+    model.embed.W_E[fr_toks].detach().clone(), [d_model]
+)
 train_loader, test_loader = create_data_loaders(
     en_embeds,
     fr_embeds,
@@ -81,29 +87,37 @@ run = wandb.init(
 
 # %%
 transformation_names = [
-    "rotation",
     "identity",
     "translation",
     "linear_map",
-    "offset_linear_map",
-    "offset_rotation",
+    "biased_linear_map",
     "uncentered_linear_map",
-    "uncentered_rotation"
+    "biased_uncentered_linear_map",
+    "rotation",
+    "biased_rotation",
+    "uncentered_rotation",
 ]
 
 for transformation_name in transformation_names:
+    transform = None
+    optim = None
+
     transform, optim = initialize_transform_and_optim(
         d_model,
         transformation=transformation_name,
     )
+    loss_module = initialize_loss("cosine_similarity")
+
     if optim is not None:
         transform, loss_history = train_transform(
-            model,
-            train_loader,
-            transform,
-            optim,
-            100,
-            device,
+            model=model,
+            train_loader=train_loader,
+            test_loader=test_loader,
+            transform=transform,
+            optim=optim,
+            loss_module=loss_module,
+            n_epochs=100,
+            wandb=wandb,
         )
     else:
         print(f"nothing trained for {transformation_name}")

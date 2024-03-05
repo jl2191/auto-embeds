@@ -12,8 +12,10 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
 from auto_steer.modules import (
+    BiasedRotationTransform,
+    CosineSimilarityLoss,
     MeanTranslationTransform,
-    OffsetRotationTransform,
+    MSELoss,
     RotationTransform,
     TranslationTransform,
     UncenteredLinearMapTransform,
@@ -28,6 +30,25 @@ from auto_steer.utils.misc import (
 )
 
 default_device = get_default_device()
+
+
+def initialize_loss(loss: str, loss_kwargs: Dict[str, Any] = {}) -> nn.Module:
+    if loss == "t_cosine_similarity":
+        return nn.CosineEmbeddingLoss(**loss_kwargs)
+    elif loss == "t_l1_loss":
+        return nn.L1Loss(**loss_kwargs)
+    elif loss == "t_mse_loss":
+        return nn.MSELoss(**loss_kwargs)
+    elif loss == "mse_loss":
+        return MSELoss(**loss_kwargs)
+    elif loss == "cosine_similarity":
+        return CosineSimilarityLoss(**loss_kwargs)
+    elif loss == "l1_cosine_similarity":
+        return CosineSimilarityLoss(**loss_kwargs)
+    elif loss == "l2_cosine_similarity":
+        return CosineSimilarityLoss(**loss_kwargs)
+    else:
+        raise ValueError(f"Unsupported loss type: {loss}")
 
 
 def initialize_transform_and_optim(
@@ -78,34 +99,44 @@ def initialize_transform_and_optim(
         optim = None
 
     elif transformation == "linear_map":
-        transform = nn.Linear(d_model, d_model, bias=False, **transform_kwargs)
+        transform = nn.Linear(
+            d_model, d_model, bias=False, device=device, **transform_kwargs
+        )
         optim = t.optim.Adam(transform.parameters(), **optim_kwargs)
 
     elif transformation == "biased_linear_map":
-        transform = nn.Linear(d_model, d_model, bias=True, **transform_kwargs)
+        transform = nn.Linear(
+            d_model, d_model, bias=True, device=device, **transform_kwargs
+        )
         optim = t.optim.Adam(transform.parameters(), **optim_kwargs)
 
     elif transformation == "uncentered_linear_map":
-        transform = UncenteredLinearMapTransform(d_model, **transform_kwargs)
+        transform = UncenteredLinearMapTransform(
+            d_model, device=device, **transform_kwargs
+        )
         optim = t.optim.Adam(list(transform.parameters()), **optim_kwargs)
 
     elif transformation == "biased_uncentered_linear_map":
-        transform = UncenteredLinearMapTransform(d_model, bias=True, **transform_kwargs)
+        transform = UncenteredLinearMapTransform(
+            d_model, bias=True, device=device, **transform_kwargs
+        )
         optim = t.optim.Adam(list(transform.parameters()), **optim_kwargs)
 
     elif transformation == "rotation":
-        transform = RotationTransform(d_model, **transform_kwargs)
+        transform = RotationTransform(d_model, device=device, **transform_kwargs)
         optim = t.optim.Adam(list(transform.parameters()), **optim_kwargs)
 
-    elif transformation == "offset_rotation":
-        transform = OffsetRotationTransform(d_model, **transform_kwargs)
+    elif transformation == "biased_rotation":
+        transform = BiasedRotationTransform(d_model, device=device, **transform_kwargs)
         optim = t.optim.Adam(list(transform.parameters()), **optim_kwargs)
 
     elif transformation == "uncentered_rotation":
-        transform = UncenteredRotationTransform(d_model, **transform_kwargs)
+        transform = UncenteredRotationTransform(
+            d_model, device=device, **transform_kwargs
+        )
         optim = t.optim.Adam(list(transform.parameters()), **optim_kwargs)
     else:
-        raise Exception("the supplied transform was unrecognized")
+        raise Exception(f"the supplied transform '{transformation}' was unrecognized")
     return transform, optim
 
 
@@ -126,44 +157,82 @@ def word_distance_metric(a: t.Tensor, b: t.Tensor) -> t.Tensor:
 def train_transform(
     model: tl.HookedTransformer,
     train_loader: DataLoader[Tuple[Tensor, ...]],
+    test_loader: DataLoader[Tuple[Tensor, ...]],
     transform: nn.Module,
     optim: Optimizer,
+    loss_module: nn.Module,
     n_epochs: int,
+    plot_fig: bool = True,
     device: Optional[Union[str, t.device]] = None,
     wandb: Optional[Any] = None,
-) -> Tuple[nn.Module, List[float]]:
+) -> Tuple[nn.Module, Dict[str, List[Dict[str, Union[float, int]]]]]:
     """
-    Trains the transformation, returning the learned transformation and loss history.
+    Trains the transformation, returning the learned transformation and the train and
+    test loss history.
 
     Args:
         model: The transformer model used for training.
-        device: The device on which the model is allocated.
         train_loader: DataLoader for the training dataset.
+        test_loader: DataLoader for the test dataset.
         transform: The transformation module to be optimized.
         optim: The optimizer for the transformation.
+        loss_module: The loss function used for training.
         n_epochs: The number of epochs to train for.
+        plot_fig: If True, plots the training and test loss history.
+        device: The device on which the model is allocated.
         wandb: If provided, log training metrics to Weights & Biases.
 
     Returns:
-        The learned transformation after training and the loss history.
+        The learned transformation after training, the train and test loss history.
     """
     if device is None:
         device = model.cfg.device
-    loss_history = []
+    loss_history = {"train_loss": [], "test_loss": []}
     transform.to(device)
     for epoch in (epoch_pbar := tqdm(range(n_epochs))):
         for batch_idx, (en_embed, fr_embed) in enumerate(train_loader):
             en_embed, fr_embed = en_embed.to(device), fr_embed.to(device)
             optim.zero_grad()
             pred = transform(en_embed)
-            loss = word_distance_metric(pred, fr_embed).mean()
-            loss_history.append(loss.item())
-            loss.backward()
+            train_loss = loss_module(pred, fr_embed)
+            info_dict = {
+                "train_loss": train_loss.item(),
+                "batch": batch_idx,
+                "epoch": epoch,
+            }
+            loss_history["train_loss"].append(info_dict)
+            train_loss.backward()
             optim.step()
             if wandb:
-                wandb.log({"epoch": epoch, "loss": loss.item(), "batch_idx": batch_idx})
-            epoch_pbar.set_description(f"Loss: {loss.item():.3f}")
-    px.line(y=loss_history, title="Loss History").show()
+                wandb.log(info_dict)
+            epoch_pbar.set_description(f"train loss: {train_loss.item():.3f}")
+        # Calculate and log test loss at the end of each epoch
+        with t.no_grad():
+            total_test_loss = 0
+            for test_en_embed, test_fr_embed in test_loader:
+                test_en_embed = test_en_embed.to(device)
+                test_fr_embed = test_fr_embed.to(device)
+                test_pred = transform(test_en_embed)
+                test_loss = loss_module(test_pred, test_fr_embed)
+                total_test_loss += test_loss.item()
+            avg_test_loss = total_test_loss / len(test_loader)
+            info_dict = {"test_loss": avg_test_loss, "epoch": epoch}
+            loss_history["test_loss"].append(info_dict)
+            if wandb:
+                wandb.log(info_dict)
+    if plot_fig:
+        fig = px.line(title="Train and Test Loss")
+        fig.add_scatter(
+            x=[epoch_info["epoch"] for epoch_info in loss_history["train_loss"]],
+            y=[epoch_info["train_loss"] for epoch_info in loss_history["train_loss"]],
+            name="Train Loss",
+        )
+        fig.add_scatter(
+            x=[epoch_info["epoch"] for epoch_info in loss_history["test_loss"]],
+            y=[epoch_info["test_loss"] for epoch_info in loss_history["test_loss"]],
+            name="Test Loss",
+        )
+        fig.show()
     return transform, loss_history
 
 
@@ -203,23 +272,23 @@ def evaluate_accuracy(
         fr_embeds = fr_embeds.to(device)
 
         en_logits = einsum(
+            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
             en_embeds,
             model.embed.W_E,
-            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
         )
         en_strs: List[str] = model.to_str_tokens(en_logits.argmax(dim=-1))  # type: ignore
         fr_logits = einsum(
+            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
             fr_embeds,
             model.embed.W_E,
-            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
         )
         fr_strs: List[str] = model.to_str_tokens(fr_logits.argmax(dim=-1))  # type: ignore
 
         pred = transformation(en_embeds)
         pred_logits = einsum(
+            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
             pred,
             model.embed.W_E,
-            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
         )
         pred_top_strs = model.to_str_tokens(pred_logits.argmax(dim=-1))
         pred_top_strs = [
