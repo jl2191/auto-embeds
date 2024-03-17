@@ -8,12 +8,22 @@ import numpy as np
 import pytest
 import torch as t
 import torch.testing as tt
+from torch.utils.data import DataLoader, TensorDataset, random_split
 import transformer_lens as tl
 
 from auto_steer.steering_utils import (
     initialize_transform_and_optim,
-    tokenize_texts,
+    evaluate_accuracy,
+    initialize_loss,
+    train_transform,
+    calc_cos_sim_acc,
+    filter_word_pairs,
+    tokenize_word_pairs,
 )
+
+np.random.seed(1)
+t.manual_seed(1)
+t.cuda.manual_seed(1)
 
 model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
 d_model = model.cfg.d_model
@@ -70,6 +80,7 @@ def test_identity_transformation():
     # The identity transformation should not change the input tensor
     tt.assert_close(input, actual)
     assert t.allclose(input, actual)
+
 
 def test_translation_transformation():
     translation_transform, _ = initialize_transform_and_optim(d_model, "translation")
@@ -179,8 +190,8 @@ def test_rotation_transformation():
 
     # Test that norm is preserved during rotation.
     transform, _ = initialize_transform_and_optim(d_model, "rotation")
-    data = (
-        t.arange(d_model, dtype=t.float, device=device).unsqueeze(0)
+    data = t.arange(d_model, dtype=t.float, device=device).unsqueeze(
+        0
     )  # Add batch dimension
     expected = t.norm(data, p=2, dim=-1)
     actual = t.norm(transform(data), p=2, dim=-1)
@@ -202,22 +213,109 @@ def test_mean_translation_transformation():
 
 
 def test_tokenize_texts():
-    model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
     en_fr_pairs = [["hospital", "hôpital"], ["electronic", "électronique"]]
-    expected_en_toks = [" hospital", " Hospital", " electronic", " Electronic"]
-    expected_fr_toks = [" hôpital", " hôpital", " électronique", " électronique"]
-
-    actual_en_toks, en_attn_mask, actual_fr_toks, fr_attn_mask = tokenize_texts(
+    filtered_word_pairs = filter_word_pairs(
         model,
         en_fr_pairs,
-        padding_side="left",
-        single_tokens_only=True,
         discard_if_same=False,
-        min_length=3,
         capture_diff_case=True,
+        min_length=3,
         capture_space=True,
         capture_no_space=True,
     )
+    actual_en_toks, actual_fr_toks, _, _ = tokenize_word_pairs(
+        model, filtered_word_pairs
+    )
+
+    expected_en_toks = [" hospital", " Hospital", " electronic", " Electronic"]
+    expected_fr_toks = [" hôpital", " hôpital", " électronique", " électronique"]
 
     assert model.to_string(actual_en_toks) == expected_en_toks
     assert model.to_string(actual_fr_toks) == expected_fr_toks
+
+
+def test_train_transform():
+
+    device = model.cfg.device
+    d_model = model.cfg.d_model
+    n_toks = model.cfg.d_vocab_out
+
+    en_fr_pairs = [
+        ["hospital", "hôpital"],
+        ["electronic", "électronique"],
+        ["trajectory", "trajectoire"],
+        ["commissioner", "commissaire"],
+    ]
+
+    filtered_word_pairs = filter_word_pairs(
+        model,
+        en_fr_pairs,
+        discard_if_same=False,
+        capture_diff_case=True,
+        min_length=3,
+        capture_space=True,
+        capture_no_space=True,
+    )
+    print(filtered_word_pairs)
+
+    en_toks, fr_toks, _, _ = tokenize_word_pairs(model, filtered_word_pairs)
+
+    print(en_toks.shape)
+
+    en_embeds = model.embed.W_E[en_toks].detach().clone()
+    fr_embeds = model.embed.W_E[fr_toks].detach().clone()
+
+    train_dataset = TensorDataset(en_embeds[:2], fr_embeds[:2])
+    test_dataset = TensorDataset(en_embeds[2:], fr_embeds[2:])
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
+
+    transformation_names = [
+        "identity",
+        # "translation",
+        # "linear_map",
+        # "biased_linear_map",
+        # "uncentered_linear_map",
+        # "biased_uncentered_linear_map",
+        "rotation",
+        # "biased_rotation",
+        # "uncentered_rotation",
+    ]
+
+    trained_transforms = {}
+    for transformation_name in transformation_names:
+
+        transform = None
+        optim = None
+
+        transform, optim = initialize_transform_and_optim(
+            d_model,
+            transformation=transformation_name,
+        )
+
+        loss_module = initialize_loss("cosine_similarity")
+
+        if optim is not None:
+            transform, loss_history = train_transform(
+                model=model,
+                train_loader=train_loader,
+                test_loader=test_loader,
+                transform=transform,
+                optim=optim,
+                loss_module=loss_module,
+                n_epochs=5,
+                plot_fig=False,
+            )
+            trained_transforms[transformation_name] = transform
+
+    if "identity" in trained_transforms:
+        identity_transform = trained_transforms["identity"]
+        random_input_tensor = t.randn(batch, d_model, device=device)
+        transformed_tensor = identity_transform(random_input_tensor)
+        tt.assert_close(random_input_tensor, transformed_tensor)
+
+    if "rotation" in trained_transforms:
+        rotation = trained_transforms["rotation"]
+        actual_det = t.det(rotation(t.eye(d_model, device=device)))
+        expected_det = t.tensor(1.0, device=device)
+        tt.assert_close(actual_det, expected_det, atol=1e-4, rtol=1e-4)

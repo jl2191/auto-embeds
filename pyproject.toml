@@ -4,7 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["jl2191"]
 readme = "README.md"
-packages = [{include = "auto_steer"}]
+packages = [{ include = "auto_steer" }]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -12,18 +12,24 @@ torch = "^2.1.1"
 transformer-lens = "^1.13.0"
 einops = "^0.6.1"
 ordered-set = "^4.1.0"
-tqdm = {git = "https://github.com/UFO-101/tqdm.git"}
+tqdm = { git = "https://github.com/UFO-101/tqdm.git" }
 plotly = "^5.18.0"
-kaleido = "0.2.1"  # Improved renderer for plotly
+kaleido = "0.2.1"                                                # Improved renderer for plotly
 blobfile = "2.0.2"
 word2word = "^1.0.0"
-tracr = {git = "https://github.com/google-deepmind/tracr.git"}
+tracr = { git = "https://github.com/google-deepmind/tracr.git" }
 jaxtyping = "^0.2.25"
 debugpy = "^1.8.1"
 importmagic = "^0.1.7"
 epc = "^0.0.5"
 scikit-learn = "^1.4.1.post1"
 umap-learn = "^0.5.5"
+line-profiler = "^4.1.2"
+tensorboard = "^2.16.2"
+torch-tb-profiler = "^0.4.3"
+transformers-stream-generator = "^0.0.5"
+pyarrow-hotfix = "^0.6"
+tiktoken = "^0.6.0"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.3.3"
@@ -44,7 +50,11 @@ build-backend = "poetry.core.masonry.api"
 lint.select = ["F", "E", "W", "I001"]
 # ignoring module-import-not-at-top-of-file (E402) to allow for os.environ modifications
 # between import statement and F722 and for jaxtyping
-lint.ignore = ["E402", "F722"]
+lint.ignore = [
+    "E402",
+    "F722",
+    "F821", # Forward annotation false positive from jaxtyping. Should be caught by pyright
+]
 
 [tool.pyright]
 # reportMissingParameterType = true
@@ -54,6 +64,4 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts=[
-    "--jaxtyping-packages=auto_steer,beartype.beartype",
-]
+addopts = ["--jaxtyping-packages=auto_steer,beartype.beartype"]

@@ -98,10 +98,6 @@ def get_most_similar_embeddings(
 ) -> Dict[int, Any]:
     assert not (apply_embed and apply_unembed), "Can't apply both embed and unembed"
     results = {}
-    show_answer_rank = answer is not None
-    answer = (
-        [" cheese"] * out.shape[0] if answer is None else answer
-    )  # out.shape = [batch, pos, d_model]
     out = out.unsqueeze(0).unsqueeze(0) if out.ndim == 1 else out
     out = model.ln_final(out) if apply_ln_final else out
     if apply_embed:
@@ -112,15 +108,15 @@ def get_most_similar_embeddings(
         unembeded = model.unembed(out)
     else:
         unembeded = out
-    answer_token = model.to_tokens(answer, prepend_bos=False)
-    answer_str_token = model.to_str_tokens(answer, prepend_bos=False)
+
     logits = unembeded.squeeze()  # type: ignore
     probs = logits.softmax(dim=-1)
 
     sorted_token_probs, sorted_token_values = probs.sort(descending=True)
 
-    # Janky way to get the index of the token in the sorted list
     if answer is not None:
+        answer_token = model.to_tokens(answer, prepend_bos=False)
+        answer_str_token = model.to_str_tokens(answer, prepend_bos=False)
         correct_rank = repeat(
             t.arange(sorted_token_values.shape[-1]),
             "d_vocab -> batch d_vocab",
@@ -134,16 +130,16 @@ def get_most_similar_embeddings(
         # Initialize a dictionary to hold results for the current batch.
         word_results = {}
         # If an answer is provided, calculate its rank and related information.
-        if show_answer_rank:
+        if answer is not None:
             # Collect rankings for each answer token.
             answer_ranks = [
                 {
                     "token": token,
-                    "rank": correct_rank[idx].item(),
-                    "logit": logits[idx, answer_token[idx]].item(),
-                    "prob": probs[idx, answer_token[idx]].item(),
+                    "rank": correct_rank[idx].item(),  # type: ignore
+                    "logit": logits[idx, answer_token[idx]].item(),  # type: ignore
+                    "prob": probs[idx, answer_token[idx]].item(),  # type: ignore
                 }
-                for idx, token in enumerate(answer_str_token)
+                for idx, token in enumerate(answer_str_token)  # type: ignore
             ]
             # Store the collected answer ranks in the results dictionary.
             word_results["answer_rank"] = answer_ranks

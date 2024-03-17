@@ -103,7 +103,6 @@ class UncenteredLinearMapTransform(nn.Module):
     ):
         super().__init__()
         self.linear_map = t.nn.Linear(d_model, d_model, bias=bias, device=device)
-
         self.center = nn.Parameter(t.empty(d_model, device=device))
         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.linear_map.weight)
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
@@ -142,13 +141,22 @@ class RotationTransform(nn.Module):
     ):
         super().__init__()
         self.rotation_pre = nn.Linear(d_model, d_model, bias=False, device=device)
+        # using orthogonal_map=cayley as it seems more performant
         self.rotation = t.nn.utils.parametrizations.orthogonal(
-            nn.Linear(d_model, d_model, bias=False, device=device)
+            self.rotation_pre, orthogonal_map="cayley"
         )
+        # janky way to ensure that random initialisation of linear layer means that the
+        # orthogonal matrix has a positive determinant (that there is no reflection
+        # going on)
+        while self.rotation.weight.clone().detach().det() < 0:
+            self.rotation_pre = nn.Linear(d_model, d_model, bias=False, device=device)
+            self.rotation = t.nn.utils.parametrizations.orthogonal(
+                self.rotation_pre, orthogonal_map="cayley"
+            )
 
     def forward(
-        self, x: Union[Float[Tensor, "batch d_model"], Float[Tensor, "batch d_model"]]
-    ) -> Union[Float[Tensor, "batch d_model"], Float[Tensor, "batch d_model"]]:
+        self, x: Union[Float[Tensor, "... d_model"], Float[Tensor, "... d_model"]]
+    ) -> Union[Float[Tensor, "... d_model"], Float[Tensor, "... d_model"]]:
         """
         Applies the rotation transformation to the input tensor.
 
@@ -181,6 +189,9 @@ class BiasedRotationTransform(nn.Module):
         super().__init__()
         self.rotation_pre = t.nn.Linear(d_model, d_model, bias=False, device=device)
         self.rotation = t.nn.utils.parametrizations.orthogonal(self.rotation_pre)
+        while self.rotation.weight.clone().detach().det() < 0:
+            self.rotation_pre = nn.Linear(d_model, d_model, bias=False, device=device)
+            self.rotation = t.nn.utils.parametrizations.orthogonal(self.rotation_pre)
         self.bias = nn.Parameter(t.empty(d_model, device=device))
         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.rotation.weight)
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
@@ -224,6 +235,9 @@ class UncenteredRotationTransform(nn.Module):
         super().__init__()
         self.rotation_pre = t.nn.Linear(d_model, d_model, bias=False, device=device)
         self.rotation = t.nn.utils.parametrizations.orthogonal(self.rotation_pre)
+        while self.rotation.weight.clone().detach().det() < 0:
+            self.rotation_pre = nn.Linear(d_model, d_model, bias=False, device=device)
+            self.rotation = t.nn.utils.parametrizations.orthogonal(self.rotation_pre)
         self.center = nn.Parameter(t.empty(d_model, device=device))
         fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.rotation.weight)
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0

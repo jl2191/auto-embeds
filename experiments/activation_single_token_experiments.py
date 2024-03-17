@@ -5,24 +5,26 @@ import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-import random
-
-import numpy as np
 import torch as t
+from torch.utils.data import TensorDataset, DataLoader
+import random
+import numpy as np
 import transformer_lens as tl
 from IPython.core.getipython import get_ipython
-from torch.utils.data import DataLoader, TensorDataset, random_split
+import wandb
 
-# from auto_steer.data import create_data_loaders
 from auto_steer.steering_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
-    filter_word_pairs,
-    initialize_loss,
     initialize_transform_and_optim,
-    run_and_gather_acts,
-    tokenize_word_pairs,
     train_transform,
+    run_and_gather_acts,
+    filter_word_pairs,
+    tokenize_word_pairs,
+    save_acts,
+    load_test_strings,
+    initialize_loss,
+    perform_steering_tests,
 )
 from auto_steer.utils.misc import repo_path_to_abs_path
 
@@ -34,7 +36,7 @@ try:
     get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore
     get_ipython().run_line_magic("load_ext", "line_profiler")  # type: ignore
     get_ipython().run_line_magic("autoreload", "2")  # type: ignore
-except Exception:
+except:
     pass
 
 # %% model setup
@@ -47,15 +49,10 @@ datasets_folder = repo_path_to_abs_path("datasets")
 model_caches_folder = repo_path_to_abs_path("datasets/model_caches")
 token_caches_folder = repo_path_to_abs_path("datasets/token_caches")
 
-model.tokenizer.padding_side = "left"  # type: ignore
 # %% -----------------------------------------------------------------------------------
-
 file_path = f"{datasets_folder}/wikdict/2_extracted/eng-fra.json"
 with open(file_path, "r") as file:
-    wikdict_pairs = json.load(file)
-
-word_pairs = wikdict_pairs
-# %%
+    word_pairs = json.load(file)
 random.seed(1)
 random.shuffle(word_pairs)
 split_index = int(len(word_pairs) * 0.95)
@@ -69,11 +66,11 @@ train_word_pairs = filter_word_pairs(
     min_length=4,
     # capture_diff_case=True,
     capture_space=True,
-    # capture_no_space=True,
+    capture_no_space=True,
     print_pairs=True,
     print_number=True,
     max_token_id=100_000,
-    # most_common_english=True,
+    most_common_english=True,
     # most_common_french=True,
 )
 
@@ -84,11 +81,11 @@ test_word_pairs = filter_word_pairs(
     min_length=4,
     # capture_diff_case=True,
     capture_space=True,
-    # capture_no_space=True,
+    capture_no_space=True,
     # print_pairs=True,
     print_number=True,
     max_token_id=100_000,
-    # most_common_english=True,
+    most_common_english=True,
     # most_common_french=True,
 )
 
@@ -119,7 +116,6 @@ t.save(
     f"{token_caches_folder}/wikdict-test-en-fr-tokens.pt",
 )
 # %%
-
 train_data = t.load(f"{token_caches_folder}/wikdict-train-en-fr-tokens.pt")
 test_data = t.load(f"{token_caches_folder}/wikdict-test-en-fr-tokens.pt")
 
@@ -172,15 +168,15 @@ test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
 # %%
 
 transformation_names = [
-    # "identity",
-    # "translation",
+    "identity",
+    "translation",
     "linear_map",
-    # "biased_linear_map",
-    # "uncentered_linear_map",
-    # "biased_uncentered_linear_map",
-    # "rotation",
-    # "biased_rotation",
-    # "uncentered_rotation",
+    "biased_linear_map",
+    "uncentered_linear_map",
+    "biased_uncentered_linear_map",
+    "rotation",
+    "biased_rotation",
+    "uncentered_rotation",
 ]
 
 for transformation_name in transformation_names:
@@ -190,7 +186,8 @@ for transformation_name in transformation_names:
     transform, optim = initialize_transform_and_optim(
         d_model,
         transformation=transformation_name,
-        optim_kwargs={"lr": 2e-4},
+        # optim_kwargs={"lr": 2e-4},
+        optim_kwargs={"lr": 2e-4, "weight_decay": 2e-5},
     )
     loss_module = initialize_loss("cosine_similarity")
 
@@ -202,7 +199,7 @@ for transformation_name in transformation_names:
             transform=transform,
             optim=optim,
             loss_module=loss_module,
-            n_epochs=50,
+            n_epochs=200,
             # wandb=wandb,
         )
     else:
@@ -221,72 +218,59 @@ for transformation_name in transformation_names:
     print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
 # %% -----------------------------------------------------------------------------------
-# %% gather the residuals when europarl dataset is fed into model
+# %% gather activations
 
-layers = [0, 1, 12, 18, 22, 23]
+train_dataset = TensorDataset(
+    train_en_toks, train_fr_toks, train_en_mask, train_fr_mask
+)
+train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
+test_dataset = TensorDataset(test_en_toks, test_fr_toks, test_en_mask, test_fr_mask)
+test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
 
-en_europarl_file = f"{datasets_folder}/europarl-v7.fr-en.en"
-fr_europarl_file = f"{datasets_folder}/europarl-v7.fr-en.fr"
-
-with open(en_europarl_file, "r") as f:
-    en_euro_strings = [
-        f.readline()[:-1] + " " + f.readline()[:-1] for _ in range(1000)
-    ][1:]
-with open(fr_europarl_file, "r") as f:
-    fr_euro_strings = [
-        f.readline()[:-1] + " " + f.readline()[:-1] for _ in range(1000)
-    ][1:]
-
-# padded_sequences = model.tokenizer(
-#     tuple(en_euro_strings),
-#     tuple(fr_euro_strings),
-#     padding="longest",
-#     return_tensors="pt",
-# )  # type: ignore
-# en_tokenized = model.tokenizer(en_euro_strings, padding=True, return_tensors="pt")
-# fr_tokenized = model.tokenizer(fr_euro_strings, padding=True, return_tensors="pt")
-# en_toks, en_mask = en_tokenized["input_ids"], en_tokenized["attention_mask"]
-# fr_toks, fr_mask = fr_tokenized["input_ids"], fr_tokenized["attention_mask"]
-
-combined_texts = en_euro_strings + fr_euro_strings
-
-tokenized = model.tokenizer(
-    combined_texts, padding="longest", return_tensors="pt"
-)  # type: ignore
-
-num_pairs = tokenized.input_ids.shape[0]
-assert num_pairs % 2 == 0
-word_each = num_pairs // 2
-tokens = tokenized.data["input_ids"]
-attn_masks = tokenized.data["attention_mask"]
-en_tokens, fr_tokens = tokens[:word_each], tokens[word_each:]
-en_mask, fr_mask = attn_masks[:word_each], attn_masks[word_each:]
-
-train_dataset = TensorDataset(en_tokens, fr_tokens, en_mask, fr_mask)
-train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-
-en_resids, fr_resids = run_and_gather_acts(model, train_loader, layers=layers)
+train_en_resids, train_fr_resids = run_and_gather_acts(
+    model, train_loader, layers=[0, 1, 12, 18, 22, 23]
+)
+test_en_resids, test_fr_resids = run_and_gather_acts(
+    model, test_loader, layers=[0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23]
+)
 # %% save activations
-t.save(
-    en_resids, f"{model_caches_folder}/bloom-560m-wikdict-en-resids-layers-{layers}.pt"
-)
-t.save(
-    fr_resids, f"{model_caches_folder}/bloom-560m-wikdict-fr-resids-layers-{layers}.pt"
-)
+filename_base = "bloom-560m-wikdict-train"
+save_acts(model_caches_folder, filename_base, train_en_resids, train_fr_resids)
+filename_base = "bloom-560m-wikdict-test"
+save_acts(model_caches_folder, filename_base, test_en_resids, test_fr_resids)
+
 # %% load activations
-en_resids = t.load(
-    f"{model_caches_folder}/bloom-560m-wikdict-en-resids-layers-{layers}.pt"
+train_en_resids = t.load(
+    f"{model_caches_folder}/bloom-560m-wikdict-train-en-layers-[0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23].pt"
 )
-fr_resids = t.load(
-    f"{model_caches_folder}/bloom-560m-wikdict-fr-resids-layers-{layers}.pt"
+train_fr_resids = t.load(
+    f"{model_caches_folder}/bloom-560m-wikdict-train-fr-layers-[0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23].pt"
+)
+test_en_resids = t.load(
+    f"{model_caches_folder}/bloom-560m-wikdict-test-en-layers-[0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23].pt"
+)
+test_fr_resids = t.load(
+    f"{model_caches_folder}/bloom-560m-wikdict-test-fr-layers-[0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23].pt"
 )
 
 # %%
-# en_resids = {layer: t.cat(en_resids[layer], dim=0) for layer in en_resids}
-# fr_resids = {layer: t.cat(fr_resids[layer], dim=0) for layer in fr_resids}
+train_en_resids = {
+    layer: t.cat(train_en_resids[layer], dim=0) for layer in train_en_resids
+}
+train_fr_resids = {
+    layer: t.cat(train_fr_resids[layer], dim=0) for layer in train_fr_resids
+}
+test_en_resids = {
+    layer: t.cat(test_en_resids[layer], dim=0) for layer in test_en_resids
+}
+test_fr_resids = {
+    layer: t.cat(test_fr_resids[layer], dim=0) for layer in test_fr_resids
+}
 
-# %%
-layer = 23
+# %% train en to fr residual in layers [0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23]
+
+results = {"train": {}, "test": {}}
+
 transformation_names = [
     # "identity",
     # "translation",
@@ -299,62 +283,92 @@ transformation_names = [
     # "uncentered_rotation",
 ]
 for transformation_name in transformation_names:
-    full_resids_dataset = TensorDataset(en_resids[layer], fr_resids[layer])
-    train_dataset, test_dataset = random_split(full_resids_dataset, [0.95, 0.05])
-    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
 
-    transform = None
-    optim = None
+    results["train"][transformation_name] = {}
+    results["test"][transformation_name] = {}
 
-    transform, optim = initialize_transform_and_optim(
-        d_model,
-        transformation=transformation_name,
-        optim_kwargs={"lr": 2e-4, "weight_decay": 1e-5},
-        # optim_kwargs={"lr": 1e-4, "weight_decay": 1e-5}
-        # optim_kwargs={"lr": 5e-4}
-        # optim_kwargs={"lr": 2e-4}
-        # optim_kwargs={"lr": 1e-4}
-        # optim_kwargs={"lr": 5e-4, "weight_decay": 2e-5}
-    )
+    for layer in train_en_resids:
 
-    loss_module = initialize_loss("cosine_similarity")
+        train_dataset = TensorDataset(train_en_resids[layer], train_fr_resids[layer])
+        train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
+        test_dataset = TensorDataset(test_en_resids[layer], test_fr_resids[layer])
+        test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
 
-    if optim is not None:
-        transform, loss_history = train_transform(
-            model=model,
-            train_loader=train_loader,
-            test_loader=test_loader,
-            transform=transform,
-            optim=optim,
-            loss_module=loss_module,
-            n_epochs=100,
-            # wandb=wandb,
+        transform = None
+        optim = None
+
+        transform, optim = initialize_transform_and_optim(
+            d_model,
+            transformation=transformation_name,
+            optim_kwargs={"lr": 2e-4, "weight_decay": 1e-5},
+            # optim_kwargs={"lr": 1e-4, "weight_decay": 1e-5}
+            # optim_kwargs={"lr": 5e-4}
+            # optim_kwargs={"lr": 2e-4}
+            # optim_kwargs={"lr": 1e-4}
+            # optim_kwargs={"lr": 5e-4, "weight_decay": 2e-5}
         )
-    else:
-        print(f"nothing trained for {transformation_name}")
 
-    accuracy = evaluate_accuracy(
-        model, test_loader, transform, exact_match=False, print_results=True
+        loss_module = initialize_loss("cosine_similarity")
+
+        if optim is not None:
+            transform, loss_history = train_transform(
+                model=model,
+                train_loader=train_loader,
+                test_loader=test_loader,
+                transform=transform,
+                optim=optim,
+                loss_module=loss_module,
+                n_epochs=50,
+                # wandb=wandb,
+            )
+        else:
+            print(f"nothing trained for {transformation_name}")
+
+        # accuracy = evaluate_accuracy(
+        #     model, test_loader, transform, exact_match=False, print_results=True
+        # )
+
+        test_loss = calc_cos_sim_acc(test_loader, transform)
+
+        print(f"{transformation_name}:")
+        print(f"layer number: {layer}")
+        print("test loss:", calc_cos_sim_acc(test_loader, transform))
+
+        results["test"][transformation_name][layer] = test_loss
+
+# %%
+for transformation_name in results["test"]:
+    for layer in results["test"][transformation_name]:
+        print(
+            f"Transformation {transformation_name}, Layer {layer}, Test Loss: {results['test'][transformation_name][layer]:.2f}%"
+        )
+        print()
+
+import plotly.graph_objects as go
+
+# Extract layer numbers and their corresponding accuracies for both transformations
+layer_numbers = sorted(list(results["test"][list(results["test"].keys())[0]].keys()))
+transformation_names = list(results["test"].keys())
+
+# Prepare data for plotting
+data = []
+for transformation_name in transformation_names:
+    test_loss = [results["test"][transformation_name][layer] for layer in layer_numbers]
+    data.append(
+        go.Scatter(
+            x=layer_numbers,
+            y=test_loss,
+            mode="lines+markers",
+            name=transformation_name,
+        )
     )
-    print(f"Correct Percentage: {accuracy * 100:.2f}%")
 
-    test_loss = calc_cos_sim_acc(test_loader, transform)
-
-    print(f"{transformation_name}:")
-    print(f"layer number: {layer}")
-    print("test loss:", calc_cos_sim_acc(test_loader, transform))
-
-# %% -----------------------------------------------------------------------------------
-# %%
-# perform_steering_tests(
-#     model,
-#     en_euro_strings,
-#     fr_euro_strings,
-#     layer_idx=0,
-#     gen_length=20,
-#     transformation=transform,
-#     positions_to_steer="all",
-#     num_tests=3,
-# )
-# %%
+# Create the plot
+fig = go.Figure(data=data)
+fig.update_layout(
+    title="Test Loss by Layer Number",
+    xaxis_title="Layer Number",
+    yaxis_title="Test Loss (Cosine Similarity)",
+    legend_title="Transformation Type",
+)
+fig.show()
