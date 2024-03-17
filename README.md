@@ -44,6 +44,4 @@ This project utilizes and modifies dictionary files for its experiments, adherin
 
 - **WikDict**: Incorporates dictionaries available under the Creative Commons BY-SA 3.0 license. For more information, please visit the [WikDict Downloads Page](https://www.wikdict.com/page/download).
 
-## AutoEmbeds
-
 We're thrilled to share that, aside from the dictionary files and their derivatives, this repository is open-sourced under the MIT license. We warmly invite you to explore, modify, and distribute the software as you see fit. For more details, please refer to the LICENSE file in this repository.
