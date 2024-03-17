@@ -161,8 +161,3 @@ cython_debug/
 
 # wandb
 wandb/
-
-# auto_embeds specific
-datasets/*
-!datasets/**/*.py
-!datasets/**/*.json
