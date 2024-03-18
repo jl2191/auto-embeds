@@ -1,22 +1,11 @@
 # %%
 import json
-import os
-import glob
-import random
-import torch as t
-from torch.utils.data import TensorDataset, DataLoader
+
 import transformer_lens as tl
 
 from auto_embeds.embed_utils import (
-    calc_cos_sim_acc,
-    evaluate_accuracy,
-    initialize_loss,
-    initialize_transform_and_optim,
-    train_transform,
     filter_word_pairs,
-    tokenize_word_pairs,
 )
-
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
 model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
