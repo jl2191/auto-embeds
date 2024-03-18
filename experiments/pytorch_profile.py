@@ -1,33 +1,24 @@
 # %%
-import json
 import os
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-import torch as t
-from torch.utils.data import TensorDataset, DataLoader
-import random
+
 import numpy as np
+import torch as t
 import transformer_lens as tl
 from IPython.core.getipython import get_ipython
-import wandb
+from torch.utils.data import DataLoader, TensorDataset
 
-from auto_steer.utils.custom_tqdm import tqdm
-from auto_steer.steering_utils import (
+from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
-    initialize_transform_and_optim,
-    train_transform,
-    run_and_gather_acts,
-    filter_word_pairs,
-    tokenize_word_pairs,
-    save_acts,
-    load_test_strings,
     initialize_loss,
-    perform_steering_tests,
+    initialize_transform_and_optim,
 )
-from auto_steer.utils.misc import repo_path_to_abs_path
+from auto_embeds.utils.custom_tqdm import tqdm
+from auto_embeds.utils.misc import repo_path_to_abs_path
 
 np.random.seed(1)
 t.manual_seed(1)
@@ -36,10 +27,9 @@ try:
     get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore
     get_ipython().run_line_magic("load_ext", "line_profiler")  # type: ignore
     get_ipython().run_line_magic("autoreload", "2")  # type: ignore
-except:
+except Exception:
     pass
 
-from torch.profiler import profile, record_function, ProfilerActivity
 
 t.backends.cuda.matmul.allow_tf32 = True
 
@@ -172,73 +162,58 @@ test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
 # )
 # %%
 
-transformation_names = [
-    # "identity",
-    # "translation",
-    # "linear_map",
-    # "biased_linear_map",
-    # "uncentered_linear_map",
-    # "biased_uncentered_linear_map",
-    "rotation",
-    # "biased_rotation",
-    # "uncentered_rotation",
-]
+transformation_name = "rotation"
+transform, optim = initialize_transform_and_optim(
+    d_model,
+    transformation=transformation_name,
+    # optim_kwargs={"lr": 2e-4},
+    optim_kwargs={"lr": 2e-4},
+)
+transform = transform
+loss_module = initialize_loss("cosine_similarity")
 
-for transformation_name in transformation_names:
-    transform = None
-    optim = None
+n_epochs = 15
+loss_history = {"train_loss": [], "test_loss": []}
 
-    transform, optim = initialize_transform_and_optim(
-        d_model,
-        transformation=transformation_name,
-        # optim_kwargs={"lr": 2e-4},
-        optim_kwargs={"lr": 2e-4},
-    )
-    transform = transform
-    loss_module = initialize_loss("cosine_similarity")
+with t.profiler.profile(
+    schedule=t.profiler.schedule(wait=1, warmup=1, active=5, repeat=1),
+    on_trace_ready=t.profiler.tensorboard_trace_handler("./log/rotation"),
+    record_shapes=True,
+    profile_memory=True,
+    with_stack=True,
+) as prof:
+    # with profile(activities=[
+    #     ProfilerActivity.CPU,
+    #     ProfilerActivity.CUDA
+    # ]) as prof:
+    for epoch in (epoch_pbar := tqdm(range(n_epochs))):
+        for batch_idx, (en_embed, fr_embed) in enumerate(train_loader):
+            optim.zero_grad()  # type: ignore
+            pred = transform(en_embed)
+            train_loss = loss_module(pred.squeeze(), fr_embed.squeeze())
+            info_dict = {
+                "train_loss": train_loss.item(),
+                "batch": batch_idx,
+                "epoch": epoch,
+            }
+            loss_history["train_loss"].append(info_dict)
+            train_loss.backward()
+            optim.step()  # type: ignore
+            prof.step()
+            epoch_pbar.set_description(f"train loss: {train_loss.item():.3f}")
+# prof.export_chrome_trace("trace.json")
 
-    n_epochs = 15
-    loss_history = {"train_loss": [], "test_loss": []}
-
-    if optim is not None:
-        with t.profiler.profile(
-            schedule=t.profiler.schedule(wait=1, warmup=1, active=5, repeat=1),
-            on_trace_ready=t.profiler.tensorboard_trace_handler("./log/rotation"),
-            record_shapes=True,
-            profile_memory=True,
-            with_stack=True,
-        ) as prof:
-            # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
-            for epoch in (epoch_pbar := tqdm(range(n_epochs))):
-                for batch_idx, (en_embed, fr_embed) in enumerate(train_loader):
-                    optim.zero_grad()
-                    pred = transform(en_embed)
-                    train_loss = loss_module(pred.squeeze(), fr_embed.squeeze())
-                    info_dict = {
-                        "train_loss": train_loss.item(),
-                        "batch": batch_idx,
-                        "epoch": epoch,
-                    }
-                    loss_history["train_loss"].append(info_dict)
-                    train_loss.backward()
-                    optim.step()
-                    prof.step()
-                    epoch_pbar.set_description(f"train loss: {train_loss.item():.3f}")
-        # prof.export_chrome_trace("trace.json")
-    else:
-        print(f"nothing trained for {transformation_name}")
-
-    print(f"{transformation_name}:")
-    accuracy = evaluate_accuracy(
-        model,
-        test_loader,
-        transform,
-        exact_match=False,
-        print_results=True,
-    )
-    print(f"{transformation_name}:")
-    print(f"Correct Percentage: {accuracy * 100:.2f}%")
-    print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
+print(f"{transformation_name}:")
+accuracy = evaluate_accuracy(
+    model,
+    test_loader,
+    transform,
+    exact_match=False,
+    print_results=True,
+)
+print(f"{transformation_name}:")
+print(f"Correct Percentage: {accuracy * 100:.2f}%")
+print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
 # %%
 print(
@@ -247,59 +222,3 @@ print(
     )
 )
 # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
-
-# %%
-transformation_names = [
-    # "identity",
-    # "translation",
-    # "linear_map",
-    # "biased_linear_map",
-    # "uncentered_linear_map",
-    # "biased_uncentered_linear_map",
-    "rotation",
-    # "biased_rotation",
-    # "uncentered_rotation",
-]
-
-for transformation_name in transformation_names:
-    transform = None
-    optim = None
-
-    transform, optim = initialize_transform_and_optim(
-        d_model,
-        transformation=transformation_name,
-        # optim_kwargs={"lr": 2e-4},
-        optim_kwargs={"lr": 2e-4},
-    )
-    loss_module = initialize_loss("cosine_similarity")
-
-    loss_history = {"train_loss": [], "test_loss": []}
-
-    if optim is not None:
-        t.compile(train_transform)
-        transform, _ = train_transform(
-            model=model,
-            train_loader=train_loader,
-            test_loader=test_loader,
-            transform=transform,
-            optim=optim,
-            loss_module=loss_module,
-            n_epochs=100,
-            plot_fig=True,
-        )
-    else:
-        print(f"nothing trained for {transformation_name}")
-
-    print(f"{transformation_name}:")
-    accuracy = evaluate_accuracy(
-        model,
-        test_loader,
-        transform,
-        exact_match=False,
-        print_results=True,
-    )
-    print(f"{transformation_name}:")
-    print(f"Correct Percentage: {accuracy * 100:.2f}%")
-    print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
-
-# %%

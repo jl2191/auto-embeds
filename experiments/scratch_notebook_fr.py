@@ -5,28 +5,24 @@ import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-import torch as t
-from torch.utils.data import TensorDataset, DataLoader
 import random
+
 import numpy as np
+import torch as t
 import transformer_lens as tl
 from IPython.core.getipython import get_ipython
-import wandb
+from torch.utils.data import DataLoader, TensorDataset
 
-from auto_steer.steering_utils import (
+from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
-    initialize_transform_and_optim,
-    train_transform,
-    run_and_gather_acts,
     filter_word_pairs,
-    tokenize_word_pairs,
-    save_acts,
-    load_test_strings,
     initialize_loss,
-    perform_steering_tests,
+    initialize_transform_and_optim,
+    tokenize_word_pairs,
+    train_transform,
 )
-from auto_steer.utils.misc import repo_path_to_abs_path
+from auto_embeds.utils.misc import repo_path_to_abs_path
 
 ipython = get_ipython()
 np.random.seed(1)
@@ -36,7 +32,7 @@ try:
     get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore
     get_ipython().run_line_magic("load_ext", "line_profiler")  # type: ignore
     get_ipython().run_line_magic("autoreload", "2")  # type: ignore
-except:
+except Exception:
     pass
 
 # %% model setup

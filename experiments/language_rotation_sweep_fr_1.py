@@ -1,25 +1,24 @@
 # %%
 import json
-import os
-import time
 import random
+import time
 
 import numpy as np
 import torch as t
 import transformer_lens as tl
 import wandb
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.utils.data import DataLoader, TensorDataset
 
-from auto_steer.steering_utils import (
+from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
+    filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
-    filter_word_pairs,
     tokenize_word_pairs,
     train_transform,
 )
-from auto_steer.utils.misc import repo_path_to_abs_path
+from auto_embeds.utils.misc import repo_path_to_abs_path
 
 
 def run_sweep_for_model(

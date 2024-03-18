@@ -4,7 +4,7 @@ import glob
 from lxml import etree
 import json
 import os
-from auto_steer.utils.misc import repo_path_to_abs_path
+from auto_embeds.utils.misc import repo_path_to_abs_path
 
 unprocessed_directory = repo_path_to_abs_path("datasets/wikdict/1_raw")
 extracted_directory = repo_path_to_abs_path("datasets/wikdict/2_extracted")
@@ -55,11 +55,11 @@ def process_files(directory):
 
 process_files(unprocessed_directory)
 """
-Exported 267379 word pairs to '/root/auto-steer/datasets/wikdict/2_extracted/eng-fin.json'
-Exported 186975 word pairs to '/root/auto-steer/datasets/wikdict/2_extracted/eng-fra.json'
-Exported 114113 word pairs to '/root/auto-steer/datasets/wikdict/2_extracted/eng-jpn.json'
-Exported 143160 word pairs to '/root/auto-steer/datasets/wikdict/2_extracted/eng-pol.json'
-Exported 241820 word pairs to '/root/auto-steer/datasets/wikdict/2_extracted/eng-rus.json'
-Exported 76567 word pairs to '/root/auto-steer/datasets/wikdict/2_extracted/eng-tur.json'
+Exported 267379 word pairs to '/root/auto-embeds/datasets/wikdict/2_extracted/eng-fin.json'
+Exported 186975 word pairs to '/root/auto-embeds/datasets/wikdict/2_extracted/eng-fra.json'
+Exported 114113 word pairs to '/root/auto-embeds/datasets/wikdict/2_extracted/eng-jpn.json'
+Exported 143160 word pairs to '/root/auto-embeds/datasets/wikdict/2_extracted/eng-pol.json'
+Exported 241820 word pairs to '/root/auto-embeds/datasets/wikdict/2_extracted/eng-rus.json'
+Exported 76567 word pairs to '/root/auto-embeds/datasets/wikdict/2_extracted/eng-tur.json'
 """
 # %%

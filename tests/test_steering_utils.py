@@ -11,7 +11,7 @@ import torch.testing as tt
 from torch.utils.data import DataLoader, TensorDataset, random_split
 import transformer_lens as tl
 
-from auto_steer.steering_utils import (
+from auto_embeds.embed_utils import (
     initialize_transform_and_optim,
     evaluate_accuracy,
     initialize_loss,
@@ -31,6 +31,8 @@ device = model.cfg.device
 batch = 10
 
 
+
+# %%
 @pytest.mark.parametrize(
     "transformation,expected_optim_type",
     [
@@ -308,14 +310,16 @@ def test_train_transform():
             )
             trained_transforms[transformation_name] = transform
 
-    if "identity" in trained_transforms:
-        identity_transform = trained_transforms["identity"]
-        random_input_tensor = t.randn(batch, d_model, device=device)
-        transformed_tensor = identity_transform(random_input_tensor)
-        tt.assert_close(random_input_tensor, transformed_tensor)
+        if transformation_name == "identity":
+            with t.no_grad():
+                expected = t.randn(batch, d_model, device=device)
+                actual = transform(expected)
+                tt.assert_close(actual, expected)
 
-    if "rotation" in trained_transforms:
-        rotation = trained_transforms["rotation"]
-        actual_det = t.det(rotation(t.eye(d_model, device=device)))
-        expected_det = t.tensor(1.0, device=device)
-        tt.assert_close(actual_det, expected_det, atol=1e-4, rtol=1e-4)
+        if transformation_name == "rotation":
+            with t.no_grad():
+                actual = t.det(transform(t.eye(d_model, device=device)))
+                expected = t.tensor(1.0, device=device)
+                tt.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+
+test_train_transform()

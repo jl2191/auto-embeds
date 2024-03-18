@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "auto-steer"
+name = "auto-embeds"
 version = "0.1.0"
 description = ""
 authors = ["jl2191"]
 readme = "README.md"
-packages = [{ include = "auto_steer" }]
+packages = [{ include = "auto_embeds" }]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -64,4 +64,4 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--jaxtyping-packages=auto_steer,beartype.beartype"]
+addopts = ["--jaxtyping-packages=auto_embeds,beartype.beartype"]

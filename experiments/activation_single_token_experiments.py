@@ -5,28 +5,26 @@ import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-import torch as t
-from torch.utils.data import TensorDataset, DataLoader
 import random
+
 import numpy as np
+import torch as t
 import transformer_lens as tl
 from IPython.core.getipython import get_ipython
-import wandb
+from torch.utils.data import DataLoader, TensorDataset
 
-from auto_steer.steering_utils import (
+from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
-    initialize_transform_and_optim,
-    train_transform,
-    run_and_gather_acts,
     filter_word_pairs,
-    tokenize_word_pairs,
-    save_acts,
-    load_test_strings,
     initialize_loss,
-    perform_steering_tests,
+    initialize_transform_and_optim,
+    run_and_gather_acts,
+    save_acts,
+    tokenize_word_pairs,
+    train_transform,
 )
-from auto_steer.utils.misc import repo_path_to_abs_path
+from auto_embeds.utils.misc import repo_path_to_abs_path
 
 ipython = get_ipython()
 np.random.seed(1)
@@ -36,7 +34,7 @@ try:
     get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore
     get_ipython().run_line_magic("load_ext", "line_profiler")  # type: ignore
     get_ipython().run_line_magic("autoreload", "2")  # type: ignore
-except:
+except Exception:
     pass
 
 # %% model setup
@@ -219,6 +217,7 @@ for transformation_name in transformation_names:
 
 # %% -----------------------------------------------------------------------------------
 # %% gather activations
+collection_layers = [0, 1, 12, 18, 22, 23]
 
 train_dataset = TensorDataset(
     train_en_toks, train_fr_toks, train_en_mask, train_fr_mask
@@ -228,10 +227,10 @@ test_dataset = TensorDataset(test_en_toks, test_fr_toks, test_en_mask, test_fr_m
 test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
 
 train_en_resids, train_fr_resids = run_and_gather_acts(
-    model, train_loader, layers=[0, 1, 12, 18, 22, 23]
+    model, train_loader, layers=collection_layers
 )
 test_en_resids, test_fr_resids = run_and_gather_acts(
-    model, test_loader, layers=[0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23]
+    model, test_loader, layers=collection_layers
 )
 # %% save activations
 filename_base = "bloom-560m-wikdict-train"
@@ -241,16 +240,16 @@ save_acts(model_caches_folder, filename_base, test_en_resids, test_fr_resids)
 
 # %% load activations
 train_en_resids = t.load(
-    f"{model_caches_folder}/bloom-560m-wikdict-train-en-layers-[0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23].pt"
+    f"{model_caches_folder}/bloom-560m-wikdict-train-en-layers-{collection_layers}.pt"
 )
 train_fr_resids = t.load(
-    f"{model_caches_folder}/bloom-560m-wikdict-train-fr-layers-[0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23].pt"
+    f"{model_caches_folder}/bloom-560m-wikdict-train-fr-layers-{collection_layers}.pt"
 )
 test_en_resids = t.load(
-    f"{model_caches_folder}/bloom-560m-wikdict-test-en-layers-[0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23].pt"
+    f"{model_caches_folder}/bloom-560m-wikdict-test-en-layers-{collection_layers}.pt"
 )
 test_fr_resids = t.load(
-    f"{model_caches_folder}/bloom-560m-wikdict-test-fr-layers-[0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23].pt"
+    f"{model_caches_folder}/bloom-560m-wikdict-test-fr-layers-{collection_layers}.pt"
 )
 
 # %%
@@ -267,7 +266,7 @@ test_fr_resids = {
     layer: t.cat(test_fr_resids[layer], dim=0) for layer in test_fr_resids
 }
 
-# %% train en to fr residual in layers [0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 19, 22, 23]
+# %% train en to fr residual
 
 results = {"train": {}, "test": {}}
 
@@ -339,10 +338,11 @@ for transformation_name in transformation_names:
 # %%
 for transformation_name in results["test"]:
     for layer in results["test"][transformation_name]:
+        result = results["test"][transformation_name][layer]
         print(
-            f"Transformation {transformation_name}, Layer {layer}, Test Loss: {results['test'][transformation_name][layer]:.2f}%"
+            f"Transformation {transformation_name}, Layer {layer}, "
+            f"Test Loss: {result:.2f}%\n"
         )
-        print()
 
 import plotly.graph_objects as go
 

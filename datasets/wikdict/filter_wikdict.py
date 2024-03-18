@@ -11,7 +11,7 @@ import random
 import numpy as np
 import transformer_lens as tl
 
-from auto_steer.steering_utils import (
+from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
     initialize_transform_and_optim,
@@ -20,7 +20,7 @@ from auto_steer.steering_utils import (
     tokenize_word_pairs,
     initialize_loss,
 )
-from auto_steer.utils.misc import repo_path_to_abs_path
+from auto_embeds.utils.misc import repo_path_to_abs_path
 
 np.random.seed(1)
 t.manual_seed(1)

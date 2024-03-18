@@ -12,13 +12,13 @@ import torch.nn as nn
 import transformer_lens as tl
 from torch.utils.data import DataLoader, TensorDataset
 
-from auto_steer.steering_utils import (
+from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
     filter_word_pairs,
     tokenize_word_pairs,
 )
-from auto_steer.utils.misc import repo_path_to_abs_path
+from auto_embeds.utils.misc import repo_path_to_abs_path
 
 # %%
 np.random.seed(1)

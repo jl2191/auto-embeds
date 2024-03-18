@@ -7,7 +7,7 @@ import torch as t
 from torch.utils.data import TensorDataset, DataLoader
 import transformer_lens as tl
 
-from auto_steer.steering_utils import (
+from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
     initialize_loss,
@@ -18,7 +18,7 @@ from auto_steer.steering_utils import (
     tokenize_word_pairs,
 )
 
-from auto_steer.utils.misc import repo_path_to_abs_path
+from auto_embeds.utils.misc import repo_path_to_abs_path
 
 model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
 

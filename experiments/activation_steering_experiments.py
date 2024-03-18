@@ -13,8 +13,8 @@ import transformer_lens as tl
 from IPython.core.getipython import get_ipython
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
-# from auto_steer.data import create_data_loaders
-from auto_steer.steering_utils import (
+# from auto_embeds.data import create_data_loaders
+from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
     filter_word_pairs,
@@ -24,7 +24,7 @@ from auto_steer.steering_utils import (
     tokenize_word_pairs,
     train_transform,
 )
-from auto_steer.utils.misc import repo_path_to_abs_path
+from auto_embeds.utils.misc import repo_path_to_abs_path
 
 ipython = get_ipython()
 np.random.seed(1)
