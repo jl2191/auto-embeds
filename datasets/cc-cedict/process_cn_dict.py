@@ -1,31 +1,30 @@
 # %%
+import glob
 import json
 import os
-import glob
 import random
+
 import torch as t
-from torch.utils.data import TensorDataset, DataLoader
 import transformer_lens as tl
+from torch.utils.data import DataLoader, TensorDataset
 
 from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
+    filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
-    train_transform,
-    generate_new_embeddings_from_noise,
-    filter_word_pairs,
     tokenize_word_pairs,
+    train_transform,
 )
-
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
-model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
+model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
 
 device = model.cfg.device
 d_model = model.cfg.d_model
 n_toks = model.cfg.d_vocab_out
-extracted_dict_folder = repo_path_to_abs_path("datasets/wikdict/2_extracted")
+extracted_dict_folder = repo_path_to_abs_path("datasets/cc-cedict/")
 dict_file_paths = sorted(glob.glob(f"{extracted_dict_folder}/*.json"))
 
 langs = []
@@ -38,13 +37,12 @@ for dict_file_path in dict_file_paths:
     langs.append([src_lang, tgt_lang])
 
 with open(
-    repo_path_to_abs_path("datasets/cc-cedict-zh-en.json"),
+    repo_path_to_abs_path("datasets/cc-cedict/cc-cedict-zh-en.json"),
     "r",
     encoding="utf-8",
 ) as file:
     word_pairs = json.load(file)
 print(f"Loaded {len(word_pairs)} entries from the dictionary.")
-# all_en_fr_pairs =
 for word_pair in word_pairs:
     print(word_pair)
 

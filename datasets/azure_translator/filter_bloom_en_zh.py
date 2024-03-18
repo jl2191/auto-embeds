@@ -43,15 +43,15 @@ filtered_word_pairs = filter_word_pairs(
     capture_no_space=True,
     print_pairs=True,
     print_number=True,
-    max_token_id=200_000,
+    # max_token_id=200_000,
     # most_common_english=True,
     # most_common_french=True,
 )
 
-file_name = repo_path_to_abs_path("datasets/azure_translator/bloom-zh-en-en-only.json")
-english_words = {pair[1].strip().lower() for pair in filtered_word_pairs}
+file_name = repo_path_to_abs_path("datasets/azure_translator/bloom-zh-en-zh-only.json")
+chinese_words = {pair[0].strip().lower() for pair in filtered_word_pairs}
 with open(file_name, "w", encoding="utf-8") as f:
-    json.dump(list(english_words), f, ensure_ascii=False, indent=4)
+    json.dump(list(chinese_words), f, ensure_ascii=False, indent=4)
 
-print(f"Saved all unique English words to the current directory as {file_name}")
+print(f"Saved all unique Chinese words to the current directory as {file_name}")
 # %%

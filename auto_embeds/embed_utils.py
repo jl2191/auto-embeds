@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 from functools import partial
 from pathlib import Path
@@ -317,9 +318,9 @@ def evaluate_accuracy(
                 if print_results:
                     result_emoji = "✅" if correct else "❌"
                     print(
-                        f"English: \"{en_str}\"\n"
-                        f"French: \"{fr_str}\"\n"
-                        f"Predicted: \"{pred_top_str}\" {result_emoji}"
+                        f'English: "{en_str}"\n'
+                        f'French: "{fr_str}"\n'
+                        f'Predicted: "{pred_top_str}" {result_emoji}'
                     )
                     if print_top_preds:
                         print("Top Predictions:")
@@ -805,3 +806,63 @@ def generate_new_embeddings_from_noise(
     new_embeddings = t.cat([embedding_matrix, new_embeddings], dim=0)
     assert new_embeddings.shape[0] == embedding_matrix.shape[0] * (num_copies + 1)
     return new_embeddings
+
+
+def mark_correct(
+    model: tl.HookedTransformer,
+    transformation: nn.Module,
+    test_loader: DataLoader[Tuple[Tensor, ...]],
+    acceptable_translations_path: Union[str, Path],
+) -> float:
+    """Marks translations as correct from an Azure JSON file.
+
+    Args:
+        model: The model whose tokenizer we are using.
+        transformation: The transformation module to evaluate.
+        test_loader: DataLoader for the test dataset.
+        acceptable_translations_path: Path to the JSON file containing acceptable
+            translations from Azure Translator.
+
+    Returns:
+        The accuracy of the translations as a float.
+    """
+    # Load acceptable translations from JSON file
+    with open(acceptable_translations_path, "r") as file:
+        acceptable_translations = json.load(file)
+
+    # Convert list of acceptable translations to a more accessible format
+    translations_dict = {}
+    for item in acceptable_translations:
+        source = item["normalizedSource"]
+        translations = [trans["normalizedTarget"] for trans in item["translations"]]
+        translations_dict[source] = translations
+
+    correct_count = 0
+    total_count = 0
+
+    with t.no_grad():
+        for batch in test_loader:
+            en_embeds, fr_embeds = batch
+            pred = transformation(en_embeds)
+            pred_logits = einops.einsum(
+                pred,
+                model.embed.W_E,
+                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
+            )
+            pred_top_strs = model.to_str_tokens(pred_logits.argmax(dim=-1))
+            pred_top_strs = [
+                item if isinstance(item, str) else item[0] for item in pred_top_strs
+            ]
+
+            en_strs = model.to_str_tokens(en_embeds.argmax(dim=-1))
+
+            for en_str, pred_str in zip(en_strs, pred_top_strs):
+                if (
+                    en_str in translations_dict
+                    and pred_str in translations_dict[en_str]
+                ):
+                    correct_count += 1
+                total_count += 1
+
+    accuracy = correct_count / total_count if total_count > 0 else 0
+    return accuracy

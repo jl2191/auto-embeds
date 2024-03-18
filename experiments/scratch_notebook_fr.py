@@ -60,13 +60,13 @@ train_word_pairs = filter_word_pairs(
     model,
     train_en_fr_pairs,
     discard_if_same=True,
-    min_length=6,
+    min_length=3,
     # capture_diff_case=True,
     capture_space=True,
-    capture_no_space=True,
+    # capture_no_space=True,
     print_pairs=True,
     print_number=True,
-    max_token_id=100_000,
+    # max_token_id=100_000,
     # most_common_english=True,
     # most_common_french=True,
 )
@@ -75,13 +75,13 @@ test_word_pairs = filter_word_pairs(
     model,
     test_en_fr_pairs,
     discard_if_same=True,
-    min_length=6,
+    min_length=3,
     # capture_diff_case=True,
     capture_space=True,
-    capture_no_space=True,
+    # capture_no_space=True,
     # print_pairs=True,
     print_number=True,
-    max_token_id=100_000,
+    # max_token_id=100_000,
     # most_common_english=True,
     # most_common_french=True,
 )
@@ -184,8 +184,7 @@ for transformation_name in transformation_names:
     transform, optim = initialize_transform_and_optim(
         d_model,
         transformation=transformation_name,
-        optim_kwargs={"lr": 2e-4},
-        # optim_kwargs={"lr": 2e-4, "weight_decay": 1e-4},
+        optim_kwargs={"lr": 2e-5},
     )
     loss_module = initialize_loss("cosine_similarity")
 
