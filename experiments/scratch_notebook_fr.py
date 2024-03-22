@@ -21,6 +21,7 @@ from auto_embeds.embed_utils import (
     initialize_transform_and_optim,
     tokenize_word_pairs,
     train_transform,
+    mark_correct,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
@@ -50,21 +51,25 @@ file_path = f"{datasets_folder}/wikdict/2_extracted/eng-fra.json"
 # file_path = f"{datasets_folder}/cc-cedict/cedict-zh-en.json"
 with open(file_path, "r") as file:
     word_pairs = json.load(file)
-random.seed(1)
-random.shuffle(word_pairs)
-split_index = int(len(word_pairs) * 0.95)
-train_en_fr_pairs = word_pairs[:split_index]
-test_en_fr_pairs = word_pairs[split_index:]
+# random.seed(1)
+# random.shuffle(word_pairs)
+split_index = int(len(word_pairs) * 0.8)
+
+test_split_start = int(len(word_pairs) * 0.4)
+test_split_end = int(len(word_pairs) * 0.5)
+
+test_en_fr_pairs = word_pairs[test_split_start:test_split_end]
+train_en_fr_pairs = [word_pair for word_pair in word_pairs if word_pair not in test_en_fr_pairs]
 
 train_word_pairs = filter_word_pairs(
     model,
     train_en_fr_pairs,
     discard_if_same=True,
-    min_length=3,
+    min_length=4,
     # capture_diff_case=True,
     capture_space=True,
     # capture_no_space=True,
-    print_pairs=True,
+    # print_pairs=True,
     print_number=True,
     # max_token_id=100_000,
     # most_common_english=True,
@@ -75,7 +80,7 @@ test_word_pairs = filter_word_pairs(
     model,
     test_en_fr_pairs,
     discard_if_same=True,
-    min_length=3,
+    min_length=4,
     # capture_diff_case=True,
     capture_space=True,
     # capture_no_space=True,
@@ -92,39 +97,6 @@ train_en_toks, train_fr_toks, train_en_mask, train_fr_mask = tokenize_word_pairs
 test_en_toks, test_fr_toks, test_en_mask, test_fr_mask = tokenize_word_pairs(
     model, test_word_pairs
 )
-# %%
-t.save(
-    {
-        "en_toks": train_en_toks,
-        "fr_toks": train_fr_toks,
-        "en_mask": train_en_mask,
-        "fr_mask": train_fr_mask,
-    },
-    f"{token_caches_folder}/wikdict-train-en-fr-tokens.pt",
-)
-
-t.save(
-    {
-        "en_toks": test_en_toks,
-        "fr_toks": test_fr_toks,
-        "en_mask": test_en_mask,
-        "fr_mask": test_fr_mask,
-    },
-    f"{token_caches_folder}/wikdict-test-en-fr-tokens.pt",
-)
-# %%
-train_data = t.load(f"{token_caches_folder}/wikdict-train-en-fr-tokens.pt")
-test_data = t.load(f"{token_caches_folder}/wikdict-test-en-fr-tokens.pt")
-
-train_en_toks = train_data["en_toks"]
-train_fr_toks = train_data["fr_toks"]
-train_en_mask = train_data["en_mask"]
-train_fr_mask = train_data["fr_mask"]
-
-test_en_toks = test_data["en_toks"]
-test_fr_toks = test_data["fr_toks"]
-test_en_mask = test_data["en_mask"]
-test_fr_mask = test_data["fr_mask"]
 
 # %%
 train_en_embeds = (
@@ -165,6 +137,10 @@ test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
 # )
 # %%
 
+translation_file = repo_path_to_abs_path(
+    "datasets/azure_translator/bloom-en-fr-all-translations.json"
+)
+
 transformation_names = [
     # "identity",
     # "translation",
@@ -178,13 +154,14 @@ transformation_names = [
 ]
 
 for transformation_name in transformation_names:
+
     transform = None
     optim = None
 
     transform, optim = initialize_transform_and_optim(
         d_model,
         transformation=transformation_name,
-        optim_kwargs={"lr": 2e-5},
+        optim_kwargs={"lr": 2e-4},
     )
     loss_module = initialize_loss("cosine_similarity")
 
@@ -208,11 +185,66 @@ for transformation_name in transformation_names:
         test_loader,
         transform,
         exact_match=False,
-        print_results=True,
+        # print_results=True,
         # print_top_preds=False,
     )
     print(f"{transformation_name}:")
     print(f"Correct Percentage: {accuracy * 100:.2f}%")
     print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
+
 # %%
+mark_correct(
+    model=model,
+    transformation=transform,
+    test_loader=test_loader,
+    acceptable_translations_path=translation_file,
+    print_results=True
+)
+
+# %%
+import einops
+from auto_embeds.embed_utils import get_most_similar_embeddings
+with t.no_grad():
+    for batch in test_loader:
+        en_embeds, fr_embeds = batch
+        en_logits = einops.einsum(
+            en_embeds,
+            model.embed.W_E,
+            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
+        )
+        en_strs = model.to_str_tokens(en_logits.argmax(dim=-1))  # type: ignore
+        fr_logits = einops.einsum(
+            fr_embeds,
+            model.embed.W_E,
+            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
+        )
+        fr_strs = model.to_str_tokens(fr_logits.argmax(dim=-1))  # type: ignore
+        with t.no_grad():
+            pred = transform(en_embeds)
+        pred_logits = einops.einsum(
+            pred,
+            model.embed.W_E,
+            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
+        )
+        pred_top_strs = model.to_str_tokens(pred_logits.argmax(dim=-1))
+        pred_top_strs = [
+            item if isinstance(item, str) else item[0] for item in pred_top_strs
+        ]
+        assert all(isinstance(item, str) for item in pred_top_strs)
+        most_similar_embeds = get_most_similar_embeddings(
+            model,
+            out=pred,
+            top_k=4,
+            apply_embed=True,
+        )
+        total = 0
+        same = 0
+        for i, pred_top_str in enumerate(pred_top_strs):
+            en_str = en_strs[i]
+            fr_str = fr_strs[i]
+            if pred_top_str == en_str:
+                same += 1
+            total += 1
+
+print(same/total)

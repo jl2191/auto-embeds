@@ -15,15 +15,15 @@ d_model = model.cfg.d_model
 n_toks = model.cfg.d_vocab_out
 
 with open(
-    repo_path_to_abs_path("datasets/cc-cedict/cc-cedict-zh-en.json"),
+    repo_path_to_abs_path("datasets/cc-cedict/cc-cedict-zh-en-parsed.json"),
     "r",
     encoding="utf-8",
 ) as file:
     word_pairs = json.load(file)
 print(f"Loaded {len(word_pairs)} entries from the dictionary.")
 # all_en_fr_pairs =
-for word_pair in word_pairs:
-    print(word_pair)
+# for word_pair in word_pairs:
+    # print(word_pair)
 
 # %%
 # random.seed(1)
@@ -41,7 +41,7 @@ filtered_word_pairs = filter_word_pairs(
     # capture_diff_case=True,
     capture_space=True,
     capture_no_space=True,
-    print_pairs=True,
+    # print_pairs=True,
     print_number=True,
     # max_token_id=200_000,
     # most_common_english=True,
@@ -54,4 +54,3 @@ with open(file_name, "w", encoding="utf-8") as f:
     json.dump(list(chinese_words), f, ensure_ascii=False, indent=4)
 
 print(f"Saved all unique Chinese words to the current directory as {file_name}")
-# %%

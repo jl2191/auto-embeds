@@ -60,7 +60,7 @@ all_en_fr_pairs = fr_en_pairs_file
 # %%timeit -n 3 -r 1
 random.seed(1)
 random.shuffle(all_en_fr_pairs)
-split_index = int(len(all_en_fr_pairs) * 0.95)
+split_index = int(len(all_en_fr_pairs) * 0.97)
 train_en_fr_pairs = all_en_fr_pairs[:split_index]
 test_en_fr_pairs = all_en_fr_pairs[split_index:]
 
@@ -74,7 +74,7 @@ train_word_pairs = filter_word_pairs(
     # capture_no_space=True,
     print_pairs=True,
     print_number=True,
-    max_token_id=80_000,
+    # max_token_id=80_000,
     # most_common_english=True,
     # most_common_french=True,
 )
@@ -89,7 +89,7 @@ test_word_pairs = filter_word_pairs(
     # capture_no_space=True,
     # print_pairs=True,
     print_number=True,
-    max_token_id=80_000,
+    # max_token_id=80_000,
     # most_common_english=True,
     # most_common_french=True,
 )
@@ -124,12 +124,12 @@ test_fr_embeds = (
 # )
 
 train_dataset = TensorDataset(train_en_embeds, train_fr_embeds)
-train_loader = DataLoader(train_dataset, batch_size=256, shuffle=True)
+train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
 
 print(test_en_embeds.shape)
 print(test_fr_embeds.shape)
 test_dataset = TensorDataset(test_en_embeds, test_fr_embeds)
-test_loader = DataLoader(test_dataset, batch_size=256, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
 
 X = train_en_embeds.detach().clone().squeeze()
 Y = train_fr_embeds.detach().clone().squeeze()
@@ -211,6 +211,7 @@ accuracy = evaluate_accuracy(
 )
 print(f"Correct Percentage: {accuracy * 100:.2f}%")
 print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
+
 # %% analytical solution for the translation
 
 T = t.mean(Y - X, dim=0)

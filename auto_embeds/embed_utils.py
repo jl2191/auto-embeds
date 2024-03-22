@@ -261,7 +261,7 @@ def evaluate_accuracy(
             differences.
         device: Model's device. Defaults to None.
         print_results: If True, prints translation attempts/results. Defaults to False.
-        print_top_preds: If True and print_results=True, prints top predictions.
+2       print_top_preds: If True and print_results=True, prints top predictions.
             Defaults to True.
 
     Returns:
@@ -302,10 +302,6 @@ def evaluate_accuracy(
                 top_k=4,
                 apply_embed=True,
             )
-
-            # print(most_similar_embeds)
-            # print_most_similar_embeddings_dict(most_similar_embeds)
-
             for i, pred_top_str in enumerate(pred_top_strs):
                 fr_str = fr_strs[i]
                 en_str = en_strs[i]
@@ -813,6 +809,8 @@ def mark_correct(
     transformation: nn.Module,
     test_loader: DataLoader[Tuple[Tensor, ...]],
     acceptable_translations_path: Union[str, Path],
+    print_results: bool = False,
+    print_top_preds:bool = True,
 ) -> float:
     """Marks translations as correct from an Azure JSON file.
 
@@ -822,7 +820,9 @@ def mark_correct(
         test_loader: DataLoader for the test dataset.
         acceptable_translations_path: Path to the JSON file containing acceptable
             translations from Azure Translator.
-
+        print_results: Whether to print marking results.
+        print_top_preds: If True and print_results=True, prints top predictions.
+            Defaults to True.
     Returns:
         The accuracy of the translations as a float.
     """
@@ -834,7 +834,7 @@ def mark_correct(
     translations_dict = {}
     for item in acceptable_translations:
         source = item["normalizedSource"]
-        translations = [trans["normalizedTarget"] for trans in item["translations"]]
+        translations = [trans["normalizedTarget"] for trans in item["translations"] if trans["normalizedTarget"] is not None]
         translations_dict[source] = translations
 
     correct_count = 0
@@ -843,7 +843,20 @@ def mark_correct(
     with t.no_grad():
         for batch in test_loader:
             en_embeds, fr_embeds = batch
-            pred = transformation(en_embeds)
+            en_logits = einops.einsum(
+                en_embeds,
+                model.embed.W_E,
+                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
+            )
+            en_strs: List[str] = model.to_str_tokens(en_logits.argmax(dim=-1))  # type: ignore
+            fr_logits = einops.einsum(
+                fr_embeds,
+                model.embed.W_E,
+                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
+            )
+            fr_strs: List[str] = model.to_str_tokens(fr_logits.argmax(dim=-1))  # type: ignore
+            with t.no_grad():
+                pred = transformation(en_embeds)
             pred_logits = einops.einsum(
                 pred,
                 model.embed.W_E,
@@ -853,16 +866,42 @@ def mark_correct(
             pred_top_strs = [
                 item if isinstance(item, str) else item[0] for item in pred_top_strs
             ]
-
-            en_strs = model.to_str_tokens(en_embeds.argmax(dim=-1))
-
-            for en_str, pred_str in zip(en_strs, pred_top_strs):
-                if (
-                    en_str in translations_dict
-                    and pred_str in translations_dict[en_str]
-                ):
-                    correct_count += 1
-                total_count += 1
-
-    accuracy = correct_count / total_count if total_count > 0 else 0
+            assert all(isinstance(item, str) for item in pred_top_strs)
+            most_similar_embeds = get_most_similar_embeddings(
+                model,
+                out=pred,
+                top_k=4,
+                apply_embed=True,
+            )
+            for i, pred_top_str in enumerate(pred_top_strs):
+                correct = None
+                total_marked = 0
+                en_str = en_strs[i]
+                fr_str = fr_strs[i]
+                word_found = (en_str.strip() in translations_dict)
+                if word_found:
+                    all_acceptable_translations = translations_dict[en_str.strip()]
+                    correct = (pred_top_str.strip() in all_acceptable_translations or pred_top_str.strip()+"s" in all_acceptable_translations or pred_top_str.strip()[:-1] in all_acceptable_translations)
+                    correct_count += correct
+                    total_marked += 1
+                if print_results:
+                    result_emoji = "✅" if correct else "❌"
+                    print(
+                        f'English: "{en_str}"\n'
+                        f'Target: "{fr_str}"\n'
+                        f'Predicted: "{pred_top_str}" {result_emoji}'
+                    )
+                    if word_found:
+                        print(
+                            f'Check: Found {[target for target in translations_dict[en_str.strip()]]}'
+                            )
+                    else:
+                        print("Check: Not Found")
+                    if print_top_preds:
+                        print("Top Predictions:")
+                        current_most_similar_embeds = {0: most_similar_embeds[i]}
+                        print_most_similar_embeddings_dict(current_most_similar_embeds)
+                    print()
+            total_count += total_marked
+    accuracy = correct_count / total_count
     return accuracy

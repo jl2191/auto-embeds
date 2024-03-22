@@ -40,67 +40,52 @@ token_caches_folder = repo_path_to_abs_path("datasets/token_caches")
 file_path = f"{datasets_folder}/wikdict/2_extracted/eng-fra.json"
 with open(file_path, "r") as file:
     word_pairs = json.load(file)
-random.seed(1)
-random.shuffle(word_pairs)
-split_index = int(len(word_pairs) * 0.95)
-train_en_fr_pairs = word_pairs[:split_index]
-test_en_fr_pairs = word_pairs[split_index:]
 
-train_word_pairs = filter_word_pairs(
+all_word_pairs = filter_word_pairs(
     model,
-    train_en_fr_pairs,
-    single_tokens_only=True,
+    word_pairs,
     discard_if_same=True,
-    min_length=4,
+    min_length=3,
     # capture_diff_case=True,
     capture_space=True,
-    capture_no_space=True,
-    print_pairs=True,
-    print_number=True,
-    max_token_id=100_000,
-    # most_common_english=True,
-    # most_common_french=True,
-)
-
-test_word_pairs = filter_word_pairs(
-    model,
-    test_en_fr_pairs,
-    single_tokens_only=True,
-    discard_if_same=True,
-    min_length=4,
-    # capture_diff_case=True,
-    capture_space=True,
-    capture_no_space=True,
+    # capture_no_space=True,
     # print_pairs=True,
     print_number=True,
-    max_token_id=100_000,
+    # max_token_id=200_000,
     # most_common_english=True,
     # most_common_french=True,
 )
 
-train_en_toks, train_fr_toks, train_en_mask, train_fr_mask = tokenize_word_pairs(
-    model, train_word_pairs
-)
-test_en_toks, test_fr_toks, test_en_mask, test_fr_mask = tokenize_word_pairs(
-    model, test_word_pairs
-)
-# %%
-t.save(
-    {
-        "en_toks": train_en_toks,
-        "fr_toks": train_fr_toks,
-        "en_mask": train_en_mask,
-        "fr_mask": train_fr_mask,
-    },
-    f"{token_caches_folder}/wikdict-train-en-fr-tokens.pt",
-)
+filtered_save_path = repo_path_to_abs_path("datasets/wikdict/3_filtered/eng-fra.json")
+with open(filtered_save_path, 'w') as f:
+    json.dump(all_word_pairs, f)
 
-t.save(
-    {
-        "en_toks": test_en_toks,
-        "fr_toks": test_fr_toks,
-        "en_mask": test_en_mask,
-        "fr_mask": test_fr_mask,
-    },
-    f"{token_caches_folder}/wikdict-test-en-fr-tokens.pt",
-)
+# %%
+for word_pair in all_word_pairs:
+    print(word_pair)
+# train_en_toks, train_fr_toks, train_en_mask, train_fr_mask = tokenize_word_pairs(
+#     model, train_word_pairs
+# )
+# test_en_toks, test_fr_toks, test_en_mask, test_fr_mask = tokenize_word_pairs(
+#     model, test_word_pairs
+# )
+# %%
+# t.save(
+#     {
+#         "en_toks": train_en_toks,
+#         "fr_toks": train_fr_toks,
+#         "en_mask": train_en_mask,
+#         "fr_mask": train_fr_mask,
+#     },
+#     f"{token_caches_folder}/wikdict-train-en-fr-tokens.pt",
+# )
+
+# t.save(
+#     {
+#         "en_toks": test_en_toks,
+#         "fr_toks": test_fr_toks,
+#         "en_mask": test_en_mask,
+#         "fr_mask": test_fr_mask,
+#     },
+#     f"{token_caches_folder}/wikdict-test-en-fr-tokens.pt",
+# )
