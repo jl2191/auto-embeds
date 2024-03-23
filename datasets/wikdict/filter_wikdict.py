@@ -51,9 +51,9 @@ all_word_pairs = filter_word_pairs(
     # capture_no_space=True,
     # print_pairs=True,
     print_number=True,
-    # max_token_id=200_000,
-    # most_common_english=True,
-    # most_common_french=True,
+    max_token_id=100_000,
+    most_common_english=True,
+    most_common_french=True,
 )
 
 filtered_save_path = repo_path_to_abs_path("datasets/wikdict/3_filtered/eng-fra.json")

@@ -40,37 +40,33 @@ token_caches_folder = repo_path_to_abs_path("datasets/token_caches")
 file_path = f"{datasets_folder}/muse/2_extracted/en-fr.json"
 with open(file_path, "r") as file:
     word_pairs = json.load(file)
-
+word_pairs.sort(key=lambda pair: pair[0])
 print(len(word_pairs))
 filtered_word_pairs = [word_pair for word_pair in word_pairs if word_pair[0] != word_pair[1]]
 word_pairs = filtered_word_pairs
+
 print(len(word_pairs))
-for word_pair in word_pairs:
-    print(word_pair)
+# for word_pair in word_pairs:
+#     print(word_pair)
 
 all_word_pairs = filter_word_pairs(
     model,
     word_pairs,
     discard_if_same=True,
     min_length=3,
-    # capture_diff_case=True,
-    capture_space=True,
-    # capture_no_space=True,
-    # print_pairs=True,
-    print_number=True,
-    # max_token_id=200_000,
-    most_common_english=True,
-    most_common_french=True,
-)
+        capture_space=True,
+        print_pairs=True,
+        print_number=True,
+        most_common_english=True,
+        most_common_french=True,
+        acceptable_overlap=0.7,
+    )
 
+# %% saving
 filtered_save_path = repo_path_to_abs_path("datasets/muse/3_filtered/en-fr.json")
 with open(filtered_save_path, 'w') as f:
     json.dump(all_word_pairs, f)
 
-# %%
-for word_pair in all_word_pairs:
-    print(word_pair)
-print(len(all_word_pairs))
 
 # train_en_toks, train_fr_toks, train_en_mask, train_fr_mask = tokenize_word_pairs(
 #     model, train_word_pairs

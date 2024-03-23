@@ -30,6 +30,7 @@ from auto_embeds.utils.misc import (
     print_most_similar_embeddings_dict,
     remove_hooks,
 )
+from difflib import SequenceMatcher
 
 default_device = get_default_device()
 
@@ -234,6 +235,7 @@ def train_transform(
             y=[epoch_info["test_loss"] for epoch_info in loss_history["test_loss"]],
             name="Test Loss",
         )
+        fig.write_image("plot.png")
         fig.show()
     return transform, loss_history
 
@@ -368,6 +370,7 @@ def filter_word_pairs(
     print_number: bool = False,
     most_common_english: bool = False,
     most_common_french: bool = False,
+    acceptable_overlap: Optional[float] = 1.0,
 ) -> List[List[str]]:
     """Filters and tokenizes Source-Target word pairs.
 
@@ -389,6 +392,12 @@ def filter_word_pairs(
             aggregate token ID in cases of multiple translations for English.
         most_common_french: When true, prefers the translation pair with the lowest
             aggregate token ID in cases of multiple translations for French.
+        acceptable_overlap: The maximum acceptable similarity between word pairs before
+            they are merged by taking the one with the lowest aggregate token ID. Should
+            be used with most_common_english and most_common_french for performance
+            reasons as the metric used, the Levenshtein distance can be quite slow to
+            compute so it is good to filter out words that are identical first.
+            
 
     Returns:
         A list of filtered word pairs that tokenize into single tokens.
@@ -425,7 +434,7 @@ def filter_word_pairs(
     if capture_space:
         word_pairs_w_space = [[f" {pair[0]}", f" {pair[1]}"] for pair in word_pairs]
         pairs_to_filter.extend(word_pairs_w_space)
-
+    
     english_words, french_words = [
         list(words) for words in zip(*pairs_to_filter, strict=True)
     ]
@@ -454,10 +463,12 @@ def filter_word_pairs(
         and max(pair[0][0], pair[1][0]) < max_token_id
     ]
 
+    import difflib
     if most_common_english:
         most_common = {}
-        for en_token, fr_token, (en_word, fr_word) in pairs_to_filter:
-            token_sum_current = sum(en_token + fr_token)
+        # add on token sums without removing existing information
+        pairs_to_filter = [[sum(word_pair[0] + word_pair[1]), *word_pair] for word_pair in pairs_to_filter]
+        for token_sum_current, en_token, fr_token, (en_word, fr_word) in pairs_to_filter:
             if en_word in most_common:
                 token_sum_existing, _, _, _ = most_common[en_word]
                 if token_sum_current < token_sum_existing:
@@ -487,8 +498,9 @@ def filter_word_pairs(
 
     if most_common_french:
         most_common = {}
-        for en_token, fr_token, (en_word, fr_word) in pairs_to_filter:
-            token_sum_current = sum(en_token + fr_token)
+        # add on token sums without removing existing information
+        pairs_to_filter = [[sum(word_pair[0] + word_pair[1]), *word_pair] for word_pair in pairs_to_filter]
+        for token_sum_current, en_token, fr_token, (en_word, fr_word) in pairs_to_filter:
             if fr_word in most_common:
                 token_sum_existing, _, _, _ = most_common[fr_word]
                 if token_sum_current < token_sum_existing:
@@ -521,6 +533,35 @@ def filter_word_pairs(
         word_pair for [en_tokens, fr_tokens, word_pair] in pairs_to_filter
     ]
     word_pairs = filtered_pairs
+
+    if acceptable_overlap is not None:
+        from Levenshtein import distance as levenshtein_distance
+
+        # Pre-calculate the aggregate token ids for each pair and add it as a new entry
+        for pair in pairs_to_filter:
+            pair.insert(0, pair[0][0] + pair[1][0])
+
+        filtered_pairs = []
+        while pairs_to_filter:
+            current_pair = pairs_to_filter.pop(0)
+            current_id_sum, current_en_token, current_fr_token, current_words = current_pair
+            current_en_word, current_fr_word = current_words
+            most_similar_pair = current_pair
+            most_similar_id_sum = current_id_sum
+
+            for other_pair in pairs_to_filter[:]:
+                other_id_sum, other_en_token, other_fr_token, other_words = other_pair
+                other_en_word, other_fr_word = other_words
+                en_similarity_ratio = 1 - levenshtein_distance(current_en_word, other_en_word) / max(len(current_en_word), len(other_en_word))
+                fr_similarity_ratio = 1 - levenshtein_distance(current_fr_word, other_fr_word) / max(len(current_fr_word), len(other_fr_word))
+                if en_similarity_ratio >= acceptable_overlap and fr_similarity_ratio >= acceptable_overlap and other_id_sum < most_similar_id_sum:
+                    most_similar_pair = other_pair
+                    most_similar_id_sum = other_id_sum
+                    pairs_to_filter.remove(other_pair)
+
+            filtered_pairs.append(most_similar_pair[3])
+
+        word_pairs = filtered_pairs
 
     if print_pairs:
         for pair in word_pairs:

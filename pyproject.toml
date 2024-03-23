@@ -30,6 +30,7 @@ torch-tb-profiler = "^0.4.3"
 transformers-stream-generator = "^0.0.5"
 pyarrow-hotfix = "^0.6"
 tiktoken = "^0.6.0"
+levenshtein = "^0.25.0"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.3.3"

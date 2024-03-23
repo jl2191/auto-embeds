@@ -47,55 +47,31 @@ model_caches_folder = repo_path_to_abs_path("datasets/model_caches")
 token_caches_folder = repo_path_to_abs_path("datasets/token_caches")
 
 # %% -----------------------------------------------------------------------------------
-file_path = f"{datasets_folder}/wikdict/2_extracted/eng-fra.json"
+file_path = f"{datasets_folder}/muse/3_filtered/en-fr.json"
 # file_path = f"{datasets_folder}/cc-cedict/cedict-zh-en.json"
 with open(file_path, "r") as file:
     word_pairs = json.load(file)
+
 # random.seed(1)
 # random.shuffle(word_pairs)
-split_index = int(len(word_pairs) * 0.8)
+split_index = int(len(word_pairs) * 0.97)
 
-test_split_start = int(len(word_pairs) * 0.4)
-test_split_end = int(len(word_pairs) * 0.5)
+train_en_fr_pairs = word_pairs[:split_index]
+test_en_fr_pairs = word_pairs[split_index:]
 
-test_en_fr_pairs = word_pairs[test_split_start:test_split_end]
-train_en_fr_pairs = [word_pair for word_pair in word_pairs if word_pair not in test_en_fr_pairs]
+# split_index = int(len(word_pairs) * 0.8)
 
-train_word_pairs = filter_word_pairs(
-    model,
-    train_en_fr_pairs,
-    discard_if_same=True,
-    min_length=4,
-    # capture_diff_case=True,
-    capture_space=True,
-    # capture_no_space=True,
-    # print_pairs=True,
-    print_number=True,
-    # max_token_id=100_000,
-    # most_common_english=True,
-    # most_common_french=True,
-)
+# test_split_start = int(len(word_pairs) * 0.4)
+# test_split_end = int(len(word_pairs) * 0.5)
 
-test_word_pairs = filter_word_pairs(
-    model,
-    test_en_fr_pairs,
-    discard_if_same=True,
-    min_length=4,
-    # capture_diff_case=True,
-    capture_space=True,
-    # capture_no_space=True,
-    # print_pairs=True,
-    print_number=True,
-    # max_token_id=100_000,
-    # most_common_english=True,
-    # most_common_french=True,
-)
+# test_en_fr_pairs = word_pairs[test_split_start:test_split_end]
+# train_en_fr_pairs = [word_pair for word_pair in word_pairs if word_pair not in test_en_fr_pairs]
 
 train_en_toks, train_fr_toks, train_en_mask, train_fr_mask = tokenize_word_pairs(
-    model, train_word_pairs
+    model, train_en_fr_pairs
 )
 test_en_toks, test_fr_toks, test_en_mask, test_fr_mask = tokenize_word_pairs(
-    model, test_word_pairs
+    model, test_en_fr_pairs
 )
 
 # %%
@@ -138,7 +114,7 @@ test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
 # %%
 
 translation_file = repo_path_to_abs_path(
-    "datasets/azure_translator/bloom-en-fr-all-translations.json"
+    "datasets/muse/4_azure_validation/en-fr.json"
 )
 
 transformation_names = [
@@ -161,7 +137,8 @@ for transformation_name in transformation_names:
     transform, optim = initialize_transform_and_optim(
         d_model,
         transformation=transformation_name,
-        optim_kwargs={"lr": 2e-4},
+        # optim_kwargs={"lr": 2e-4},
+        optim_kwargs={"lr": 2e-4, "weight_decay": 2e-4},
     )
     loss_module = initialize_loss("cosine_similarity")
 
@@ -174,6 +151,7 @@ for transformation_name in transformation_names:
             optim=optim,
             loss_module=loss_module,
             n_epochs=100,
+            plot_fig=True,
             # wandb=wandb,
         )
     else:
@@ -185,8 +163,8 @@ for transformation_name in transformation_names:
         test_loader,
         transform,
         exact_match=False,
-        # print_results=True,
-        # print_top_preds=False,
+        print_results=True,
+        print_top_preds=False,
     )
     print(f"{transformation_name}:")
     print(f"Correct Percentage: {accuracy * 100:.2f}%")

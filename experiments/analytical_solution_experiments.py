@@ -17,6 +17,7 @@ from auto_embeds.embed_utils import (
     evaluate_accuracy,
     filter_word_pairs,
     tokenize_word_pairs,
+    mark_correct
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
@@ -49,7 +50,7 @@ cache_folder = repo_path_to_abs_path("datasets/activation_cache")
 # # 38597 english-french pairs in total
 # all_en_fr_pairs = [[pair["English"], pair["French"]] for pair in fr_en_pairs_file]
 with open(
-    repo_path_to_abs_path("datasets/wikdict/2_extracted/eng-fra.json"),
+    repo_path_to_abs_path("datasets/muse/3_filtered/en-fr.json"),
     "r",
     encoding="utf-8",
 ) as file:
@@ -64,38 +65,8 @@ split_index = int(len(all_en_fr_pairs) * 0.97)
 train_en_fr_pairs = all_en_fr_pairs[:split_index]
 test_en_fr_pairs = all_en_fr_pairs[split_index:]
 
-train_word_pairs = filter_word_pairs(
-    model,
-    train_en_fr_pairs,
-    discard_if_same=True,
-    min_length=4,
-    # capture_diff_case=True,
-    capture_space=True,
-    # capture_no_space=True,
-    print_pairs=True,
-    print_number=True,
-    # max_token_id=80_000,
-    # most_common_english=True,
-    # most_common_french=True,
-)
-
-test_word_pairs = filter_word_pairs(
-    model,
-    test_en_fr_pairs,
-    discard_if_same=True,
-    min_length=4,
-    # capture_diff_case=True,
-    capture_space=True,
-    # capture_no_space=True,
-    # print_pairs=True,
-    print_number=True,
-    # max_token_id=80_000,
-    # most_common_english=True,
-    # most_common_french=True,
-)
-
-train_en_toks, train_fr_toks, _, _ = tokenize_word_pairs(model, train_word_pairs)
-test_en_toks, test_fr_toks, _, _ = tokenize_word_pairs(model, test_word_pairs)
+train_en_toks, train_fr_toks, _, _ = tokenize_word_pairs(model, train_en_fr_pairs)
+test_en_toks, test_fr_toks, _, _ = tokenize_word_pairs(model, test_en_fr_pairs)
 
 train_en_embeds = (
     model.embed.W_E[train_en_toks].detach().clone()
@@ -161,6 +132,18 @@ accuracy = evaluate_accuracy(
 print(f"Correct Percentage: {accuracy * 100:.2f}%")
 print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
+#%%
+translation_file = repo_path_to_abs_path(
+    "datasets/muse/4_azure_validation/en-fr.json"
+)
+
+mark_correct(
+    model=model,
+    transformation=transform,
+    test_loader=test_loader,
+    acceptable_translations_path=translation_file,
+    print_results=True
+)
 
 # %% rotate then translate
 def align_embeddings_with_translation(X, Y):
