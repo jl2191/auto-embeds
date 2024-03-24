@@ -12,6 +12,7 @@ import transformer_lens as tl
 from torch import Tensor
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
+from Levenshtein import distance as levenshtein_distance
 
 from auto_embeds.modules import (
     BiasedRotationTransform,
@@ -169,6 +170,7 @@ def train_transform(
     loss_module: nn.Module,
     n_epochs: int,
     plot_fig: bool = True,
+    save_fig: bool = False,
     device: Optional[Union[str, t.device]] = None,
     wandb: Optional[Any] = None,
 ) -> Tuple[nn.Module, Dict[str, List[Dict[str, Union[float, int]]]]]:
@@ -223,7 +225,7 @@ def train_transform(
             loss_history["test_loss"].append(info_dict)
             if wandb:
                 wandb.log(info_dict)
-    if plot_fig:
+    if plot_fig or save_fig:
         fig = px.line(title="Train and Test Loss")
         fig.add_scatter(
             x=[epoch_info["epoch"] for epoch_info in loss_history["train_loss"]],
@@ -235,8 +237,10 @@ def train_transform(
             y=[epoch_info["test_loss"] for epoch_info in loss_history["test_loss"]],
             name="Test Loss",
         )
-        fig.write_image("plot.png")
-        fig.show()
+        if plot_fig:
+            fig.show()
+        if save_fig:
+            fig.write_image("plot.png")
     return transform, loss_history
 
 
@@ -535,7 +539,6 @@ def filter_word_pairs(
     word_pairs = filtered_pairs
 
     if acceptable_overlap is not None:
-        from Levenshtein import distance as levenshtein_distance
 
         # Pre-calculate the aggregate token ids for each pair and add it as a new entry
         for pair in pairs_to_filter:
@@ -554,7 +557,7 @@ def filter_word_pairs(
                 other_en_word, other_fr_word = other_words
                 en_similarity_ratio = 1 - levenshtein_distance(current_en_word, other_en_word) / max(len(current_en_word), len(other_en_word))
                 fr_similarity_ratio = 1 - levenshtein_distance(current_fr_word, other_fr_word) / max(len(current_fr_word), len(other_fr_word))
-                if en_similarity_ratio >= acceptable_overlap and fr_similarity_ratio >= acceptable_overlap and other_id_sum < most_similar_id_sum:
+                if (en_similarity_ratio >= acceptable_overlap or fr_similarity_ratio >= acceptable_overlap) and other_id_sum < most_similar_id_sum:
                     most_similar_pair = other_pair
                     most_similar_id_sum = other_id_sum
                     pairs_to_filter.remove(other_pair)
