@@ -12,10 +12,10 @@ import torch.nn as nn
 import transformer_lens as tl
 from torch.utils.data import DataLoader, TensorDataset
 
+from auto_embeds.data import get_dataset_path
 from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
-    filter_word_pairs,
     tokenize_word_pairs,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
@@ -49,7 +49,7 @@ cache_folder = repo_path_to_abs_path("datasets/activation_cache")
 # # 38597 english-french pairs in total
 # all_en_fr_pairs = [[pair["English"], pair["French"]] for pair in fr_en_pairs_file]
 with open(
-    repo_path_to_abs_path("datasets/muse/3_filtered/en-fr.json"),
+    get_dataset_path("muse_en_fr_filtered"),
     "r",
     encoding="utf-8",
 ) as file:
@@ -131,6 +131,7 @@ accuracy = evaluate_accuracy(
 )
 print(f"Correct Percentage: {accuracy * 100:.2f}%")
 print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
+
 
 # %% rotate then translate
 def align_embeddings_with_translation(X, Y):

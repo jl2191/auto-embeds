@@ -38,7 +38,8 @@ except Exception:
 
 # %% model setup
 # model = tl.HookedTransformer.from_pretrained_no_processing("mistral-7b")
-model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
+# model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
+model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
 device = model.cfg.device
 d_model = model.cfg.d_model
 n_toks = model.cfg.d_vocab_out
@@ -47,13 +48,14 @@ model_caches_folder = repo_path_to_abs_path("datasets/model_caches")
 token_caches_folder = repo_path_to_abs_path("datasets/token_caches")
 
 # %% -----------------------------------------------------------------------------------
-file_path = f"{datasets_folder}/muse/3_filtered/en-fr.json"
-# file_path = f"{datasets_folder}/cc-cedict/cedict-zh-en.json"
+# file_path = f"{datasets_folder}/muse/3_filtered/en-fr.json"
+# file_path = f"{datasets_folder}/wikdict/3_filtered/eng-fra.json"
+file_path = f"{datasets_folder}/wikdict-azure-en-fr.json"
 with open(file_path, "r") as file:
     word_pairs = json.load(file)
 
-# random.seed(1)
-# random.shuffle(word_pairs)
+random.seed(1)
+random.shuffle(word_pairs)
 split_index = int(len(word_pairs) * 0.97)
 
 train_en_fr_pairs = word_pairs[:split_index]
@@ -67,6 +69,25 @@ test_en_fr_pairs = word_pairs[split_index:]
 # test_en_fr_pairs = word_pairs[test_split_start:test_split_end]
 # train_en_fr_pairs = [word_pair for word_pair in word_pairs if word_pair not in test_en_fr_pairs]
 
+
+# %% filtering
+all_word_pairs = filter_word_pairs(
+    model,
+    word_pairs,
+    discard_if_same=True,
+    # min_length=6,
+    # capture_diff_case=True,
+    capture_space=True,
+    # capture_no_space=True,
+    print_pairs=True,
+    print_number=True,
+    # max_token_id=100_000,
+    # most_common_english=True,
+    # most_common_french=True,
+    # acceptable_overlap=0.8,
+)
+
+#%%
 train_en_toks, train_fr_toks, train_en_mask, train_fr_mask = tokenize_word_pairs(
     model, train_en_fr_pairs
 )
@@ -103,10 +124,10 @@ test_fr_embeds = (
 
 print(train_en_embeds.shape)
 train_dataset = TensorDataset(train_en_embeds, train_fr_embeds)
-train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
+train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
 test_dataset = TensorDataset(test_en_embeds, test_fr_embeds)
-test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=64, shuffle=True)
 # %%
 # run = wandb.init(
 #     project="single_token_tests",
@@ -114,7 +135,9 @@ test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
 # %%
 
 translation_file = repo_path_to_abs_path(
-    "datasets/muse/4_azure_validation/en-fr.json"
+    # "datasets/muse/4_azure_validation/en-fr.json"
+    "datasets/wikdict/4_azure_validation/eng-fra.json"
+    # "datasets/wikdict-azure-en-fr.json"
 )
 
 transformation_names = [
@@ -137,8 +160,8 @@ for transformation_name in transformation_names:
     transform, optim = initialize_transform_and_optim(
         d_model,
         transformation=transformation_name,
-        # optim_kwargs={"lr": 2e-4},
-        optim_kwargs={"lr": 2e-4, "weight_decay": 2e-4},
+        # optim_kwargs={"lr": 1e-4},
+        optim_kwargs={"lr": 1e-4, "weight_decay": 1e-5},
     )
     loss_module = initialize_loss("cosine_similarity")
 
@@ -151,7 +174,8 @@ for transformation_name in transformation_names:
             optim=optim,
             loss_module=loss_module,
             n_epochs=100,
-            plot_fig=True,
+            plot_fig=False,
+            save_fig=True
             # wandb=wandb,
         )
     else:
@@ -180,6 +204,29 @@ mark_correct(
     print_results=True
 )
 
+# %%
+translation_file = repo_path_to_abs_path(
+    # "datasets/muse/4_azure_validation/en-fr.json"
+    "datasets/wikdict/4_azure_validation/eng-fra.json"
+    # "datasets/wikdict-azure-en-fr.json"
+)
+# Load acceptable translations from JSON file
+with open(translation_file, "r") as file:
+    acceptable_translations = json.load(file)
+
+# Convert list of acceptable translations to a more accessible format
+translations_list = []
+for item in acceptable_translations:
+    source = item["normalizedSource"]
+    top_translation = next((trans["normalizedTarget"] for trans in item["translations"] if trans["normalizedTarget"] is not None), None)
+    if top_translation:
+        translations_list.append([source, top_translation])
+
+print(len(translations_list))
+    
+wikdict_azure_save_path = repo_path_to_abs_path("datasets/wikdict-azure-en-fr.json")
+with open(wikdict_azure_save_path, 'w') as f:
+    json.dump(translations_list, f)
 # %%
 import einops
 from auto_embeds.embed_utils import get_most_similar_embeddings

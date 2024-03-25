@@ -27,7 +27,8 @@ print(f"Loaded {len(word_pairs)} entries from the dictionary.")
 
 # %%
 # random.seed(1)
-# # all_en_fr_pairs.sort(key=lambda pair: pair[0])
+# all_en_fr_pairs.sort(key=lambda pair: pair[0])
+# word_pairs.sort(key=lambda pair: pair[1])
 # random.shuffle(word_pairs)
 # split_index = int(len(word_pairs) * 0.95)
 # train_en_fr_pairs = word_pairs[:split_index]
@@ -41,13 +42,16 @@ filtered_word_pairs = filter_word_pairs(
     # capture_diff_case=True,
     capture_space=True,
     capture_no_space=True,
-    # print_pairs=True,
+    print_pairs=True,
     print_number=True,
     # max_token_id=200_000,
-    # most_common_english=True,
-    # most_common_french=True,
+    most_common_english=True,
+    most_common_french=True,
+    acceptable_overlap=0.8,
 )
 
+filtered_word_pairs.sort(key=lambda pair: pair[1])
+# %%
 file_name = repo_path_to_abs_path("datasets/azure_translator/bloom-zh-en-zh-only.json")
 chinese_words = {pair[0].strip().lower() for pair in filtered_word_pairs}
 with open(file_name, "w", encoding="utf-8") as f:

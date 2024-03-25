@@ -13,7 +13,7 @@ import transformer_lens as tl
 from IPython.core.getipython import get_ipython
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
-# from auto_embeds.data import create_data_loaders
+from auto_embeds.data import get_dataset_path
 from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
@@ -49,8 +49,7 @@ token_caches_folder = repo_path_to_abs_path("datasets/token_caches")
 
 model.tokenizer.padding_side = "left"  # type: ignore
 # %% -----------------------------------------------------------------------------------
-
-file_path = f"{datasets_folder}/wikdict/2_extracted/eng-fra.json"
+file_path = get_dataset_path("wikdict_filtered_en_fr")
 with open(file_path, "r") as file:
     wikdict_pairs = json.load(file)
 

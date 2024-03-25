@@ -13,15 +13,16 @@ import transformer_lens as tl
 from IPython.core.getipython import get_ipython
 from torch.utils.data import DataLoader, TensorDataset
 
+from auto_embeds.data import get_dataset_path
 from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
     filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
+    mark_correct,
     tokenize_word_pairs,
     train_transform,
-    mark_correct
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
@@ -47,8 +48,7 @@ model_caches_folder = repo_path_to_abs_path("datasets/model_caches")
 token_caches_folder = repo_path_to_abs_path("datasets/token_caches")
 
 # %% -----------------------------------------------------------------------------------
-# file_path = f"{datasets_folder}/wikdict/2_extracted/eng-fra.json"
-file_path = f"{datasets_folder}/cc-cedict/cc-cedict-zh-en-parsed.json"
+file_path = get_dataset_path("cc_cedict_zh_en_parsed")
 with open(file_path, "r") as file:
     word_pairs = json.load(file)
 random.seed(1)
@@ -229,5 +229,5 @@ mark_correct(
     transformation=transform,
     test_loader=test_loader,
     acceptable_translations_path=translation_file,
-    print_results=True
-    )
+    print_results=True,
+)

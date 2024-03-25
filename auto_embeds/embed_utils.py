@@ -1,5 +1,7 @@
+import difflib
 import json
 from collections import defaultdict
+from difflib import SequenceMatcher
 from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -9,11 +11,12 @@ import plotly.express as px
 import torch as t
 import torch.nn as nn
 import transformer_lens as tl
+from Levenshtein import distance as levenshtein_distance
 from torch import Tensor
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
-from Levenshtein import distance as levenshtein_distance
 
+from auto_embeds.data import get_dataset_path
 from auto_embeds.modules import (
     BiasedRotationTransform,
     CosineSimilarityLoss,
@@ -31,7 +34,6 @@ from auto_embeds.utils.misc import (
     print_most_similar_embeddings_dict,
     remove_hooks,
 )
-from difflib import SequenceMatcher
 
 default_device = get_default_device()
 
@@ -254,24 +256,24 @@ def evaluate_accuracy(
     print_top_preds: bool = True,
 ) -> float:
     """Evaluates the accuracy of the learned transformation by comparing the predicted
-    embeddings to the actual French embeddings.
+        embeddings to the actual French embeddings.
 
-    It supports requiring exact matches or allowing for case-insensitive comparisons.
+        It supports requiring exact matches or allowing for case-insensitive comparisons.
 
-    Args:
-        model: Transformer model for evaluation.
-        test_loader: DataLoader for test dataset.
-        transformation: Transformation module to be evaluated.
-        exact_match: If True, requires exact matches between predicted and actual
-            embeddings. If False, matches are correct if identical ignoring case
-            differences.
-        device: Model's device. Defaults to None.
-        print_results: If True, prints translation attempts/results. Defaults to False.
-2       print_top_preds: If True and print_results=True, prints top predictions.
-            Defaults to True.
+        Args:
+            model: Transformer model for evaluation.
+            test_loader: DataLoader for test dataset.
+            transformation: Transformation module to be evaluated.
+            exact_match: If True, requires exact matches between predicted and actual
+                embeddings. If False, matches are correct if identical ignoring case
+                differences.
+            device: Model's device. Defaults to None.
+            print_results: If True, prints translation attempts/results. Defaults to False.
+    2       print_top_preds: If True and print_results=True, prints top predictions.
+                Defaults to True.
 
-    Returns:
-        The accuracy of the learned transformation as a float.
+        Returns:
+            The accuracy of the learned transformation as a float.
     """
     with t.no_grad():
         correct_count = 0
@@ -372,9 +374,11 @@ def filter_word_pairs(
     capture_no_space: bool = False,
     print_pairs: bool = False,
     print_number: bool = False,
+    verbose_count: bool = False,
     most_common_english: bool = False,
     most_common_french: bool = False,
-    acceptable_overlap: Optional[float] = 1.0,
+    acceptable_english_overlap: Optional[float] = 1.0,
+    acceptable_french_overlap: Optional[float] = 1.0,
 ) -> List[List[str]]:
     """Filters and tokenizes Source-Target word pairs.
 
@@ -392,16 +396,16 @@ def filter_word_pairs(
         capture_no_space: Tokenizes the text without adding a leading space.
         print_pairs: Enables printing of each word pair processed.
         print_number: Outputs the total count of word pairs processed.
+        verbose_count: Outputs the count of word pairs at each filtering step.
         most_common_english: When true, prefers the translation pair with the lowest
             aggregate token ID in cases of multiple translations for English.
         most_common_french: When true, prefers the translation pair with the lowest
             aggregate token ID in cases of multiple translations for French.
         acceptable_overlap: The maximum acceptable similarity between word pairs before
-            they are merged by taking the one with the lowest aggregate token ID. Should
+            they are merged by taking the one with the lowest aggregate token ID. Can
             be used with most_common_english and most_common_french for performance
             reasons as the metric used, the Levenshtein distance can be quite slow to
             compute so it is good to filter out words that are identical first.
-            
 
     Returns:
         A list of filtered word pairs that tokenize into single tokens.
@@ -412,8 +416,12 @@ def filter_word_pairs(
     if model.tokenizer is None or not callable(model.tokenizer):
         raise ValueError("model.tokenizer is not set or not callable")
 
+    print(f"Initial length: {len(word_pairs)}")
+
     if discard_if_same:
         word_pairs = [pair for pair in word_pairs if pair[0].lower() != pair[1].lower()]
+        if verbose_count:
+            print(f"After discard_if_same: {len(word_pairs)}")
 
     word_pairs = [
         pair
@@ -429,16 +437,22 @@ def filter_word_pairs(
             diff_case_pairs.append([pair[0], pair[1].capitalize()])
             diff_case_pairs.append([pair[0].capitalize(), pair[1].capitalize()])
         word_pairs = diff_case_pairs
+        if verbose_count:
+            print(f"After capture_diff_case: {len(word_pairs)}")
 
     pairs_to_filter = []
 
     if capture_no_space:
         pairs_to_filter.extend(word_pairs)
+        if verbose_count:
+            print(f"After capture/no_space: {len(pairs_to_filter)}")
 
     if capture_space:
         word_pairs_w_space = [[f" {pair[0]}", f" {pair[1]}"] for pair in word_pairs]
         pairs_to_filter.extend(word_pairs_w_space)
-    
+        if verbose_count:
+            print(f"After capture_space: {len(pairs_to_filter)}")
+
     english_words, french_words = [
         list(words) for words in zip(*pairs_to_filter, strict=True)
     ]
@@ -456,23 +470,35 @@ def filter_word_pairs(
             en_tokens, fr_tokens, pairs_to_filter
         )
     ]
+
     pairs_to_filter = pairs_to_filter_with_tokens
 
-    # remove any word pairs that don't both tokenize to a single token and that are
-    # above max_token_id
     pairs_to_filter = [
-        pair
-        for pair in pairs_to_filter
-        if all(len(token) == 1 for token in pair[:2])
-        and max(pair[0][0], pair[1][0]) < max_token_id
+        pair for pair in pairs_to_filter if all(len(token) == 1 for token in pair[:2])
+    ]
+    if verbose_count:
+        print(f"After filtering for single tokens only: {len(pairs_to_filter)}")
+
+    pairs_to_filter = [
+        pair for pair in pairs_to_filter if max(pair[0][0], pair[1][0]) < max_token_id
     ]
 
-    import difflib
+    if verbose_count:
+        print(f"After max_token_id: {len(pairs_to_filter)}")
+
+    # add on token sums without removing existing information
+    pairs_to_filter = [
+        [sum(word_pair[0] + word_pair[1]), *word_pair] for word_pair in pairs_to_filter
+    ]
+
     if most_common_english:
         most_common = {}
-        # add on token sums without removing existing information
-        pairs_to_filter = [[sum(word_pair[0] + word_pair[1]), *word_pair] for word_pair in pairs_to_filter]
-        for token_sum_current, en_token, fr_token, (en_word, fr_word) in pairs_to_filter:
+        for (
+            token_sum_current,
+            en_token,
+            fr_token,
+            (en_word, fr_word),
+        ) in pairs_to_filter:
             if en_word in most_common:
                 token_sum_existing, _, _, _ = most_common[en_word]
                 if token_sum_current < token_sum_existing:
@@ -489,9 +515,8 @@ def filter_word_pairs(
                     en_token,
                     fr_token,
                 )
-        # discarding the token_sum now that we are done
         pairs_to_filter = [
-            [en_token, fr_token, [en_word, fr_word]]
+            [token_sum, en_token, fr_token, [en_word, fr_word]]
             for en_word, (
                 token_sum,
                 fr_word,
@@ -499,12 +524,17 @@ def filter_word_pairs(
                 fr_token,
             ) in most_common.items()
         ]
+        if verbose_count:
+            print(f"After most_common_english: {len(pairs_to_filter)}")
 
     if most_common_french:
         most_common = {}
-        # add on token sums without removing existing information
-        pairs_to_filter = [[sum(word_pair[0] + word_pair[1]), *word_pair] for word_pair in pairs_to_filter]
-        for token_sum_current, en_token, fr_token, (en_word, fr_word) in pairs_to_filter:
+        for (
+            token_sum_current,
+            en_token,
+            fr_token,
+            (en_word, fr_word),
+        ) in pairs_to_filter:
             if fr_word in most_common:
                 token_sum_existing, _, _, _ = most_common[fr_word]
                 if token_sum_current < token_sum_existing:
@@ -521,50 +551,83 @@ def filter_word_pairs(
                     en_token,
                     fr_token,
                 )
-        # discarding the token_sum now that we are done
         pairs_to_filter = [
-            [en_token, fr_token, [en_word, fr_word]]
-            for fr_word, (
+            [token_sum, en_token, fr_token, [en_word, fr_word]]
+            for en_word, (
                 token_sum,
-                en_word,
+                fr_word,
                 en_token,
                 fr_token,
             ) in most_common.items()
         ]
+        if verbose_count:
+            print(f"After most_common_french: {len(pairs_to_filter)}")
 
-    # extracting just the word pairs out again
-    filtered_pairs = [
-        word_pair for [en_tokens, fr_tokens, word_pair] in pairs_to_filter
-    ]
-    word_pairs = filtered_pairs
-
-    if acceptable_overlap is not None:
-
-        # Pre-calculate the aggregate token ids for each pair and add it as a new entry
-        for pair in pairs_to_filter:
-            pair.insert(0, pair[0][0] + pair[1][0])
-
+    if acceptable_english_overlap != 1.0:
         filtered_pairs = []
         while pairs_to_filter:
             current_pair = pairs_to_filter.pop(0)
-            current_id_sum, current_en_token, current_fr_token, current_words = current_pair
-            current_en_word, current_fr_word = current_words
+            current_id_sum, current_en_token, current_fr_token, current_words = (
+                current_pair
+            )
+            current_en_word, _ = current_words
             most_similar_pair = current_pair
             most_similar_id_sum = current_id_sum
 
             for other_pair in pairs_to_filter[:]:
-                other_id_sum, other_en_token, other_fr_token, other_words = other_pair
-                other_en_word, other_fr_word = other_words
-                en_similarity_ratio = 1 - levenshtein_distance(current_en_word, other_en_word) / max(len(current_en_word), len(other_en_word))
-                fr_similarity_ratio = 1 - levenshtein_distance(current_fr_word, other_fr_word) / max(len(current_fr_word), len(other_fr_word))
-                if (en_similarity_ratio >= acceptable_overlap or fr_similarity_ratio >= acceptable_overlap) and other_id_sum < most_similar_id_sum:
+                other_id_sum, _, _, other_words = other_pair
+                other_en_word, _ = other_words
+                en_similarity_ratio = 1 - levenshtein_distance(
+                    current_en_word, other_en_word
+                ) / max(len(current_en_word), len(other_en_word))
+                if (
+                    en_similarity_ratio >= acceptable_english_overlap
+                    and other_id_sum < most_similar_id_sum
+                ):
                     most_similar_pair = other_pair
                     most_similar_id_sum = other_id_sum
                     pairs_to_filter.remove(other_pair)
+            filtered_pairs.append(most_similar_pair)
+        if verbose_count:
+            print(f"After acceptable_english_overlap: {len(filtered_pairs)}")
 
-            filtered_pairs.append(most_similar_pair[3])
+        pairs_to_filter = filtered_pairs
 
-        word_pairs = filtered_pairs
+    if acceptable_french_overlap != 1.0:
+        filtered_pairs = []
+        while pairs_to_filter:
+            current_pair = pairs_to_filter.pop(0)
+            current_id_sum, current_en_token, current_fr_token, current_words = (
+                current_pair
+            )
+            _, current_fr_word = current_words
+            most_similar_pair = current_pair
+            most_similar_id_sum = current_id_sum
+
+            for other_pair in pairs_to_filter[:]:
+                other_id_sum, _, _, other_words = other_pair
+                _, other_fr_word = other_words
+                fr_similarity_ratio = 1 - levenshtein_distance(
+                    current_fr_word, other_fr_word
+                ) / max(len(current_fr_word), len(other_fr_word))
+                if (
+                    fr_similarity_ratio >= acceptable_french_overlap
+                    and other_id_sum < most_similar_id_sum
+                ):
+                    most_similar_pair = other_pair
+                    most_similar_id_sum = other_id_sum
+                    pairs_to_filter.remove(other_pair)
+            filtered_pairs.append(most_similar_pair)
+        if verbose_count:
+            print(f"After acceptable_french_overlap: {len(filtered_pairs)}")
+
+        pairs_to_filter = filtered_pairs
+
+    # extracting just the word pairs out again (discarding id_sum and token_ids)
+    filtered_pairs = [
+        word_pair for [id_sum, en_tokens, fr_tokens, word_pair] in pairs_to_filter
+    ]
+    word_pairs = filtered_pairs
 
     if print_pairs:
         for pair in word_pairs:
@@ -854,7 +917,7 @@ def mark_correct(
     test_loader: DataLoader[Tuple[Tensor, ...]],
     acceptable_translations_path: Union[str, Path],
     print_results: bool = False,
-    print_top_preds:bool = True,
+    print_top_preds: bool = True,
 ) -> float:
     """Marks translations as correct from an Azure JSON file.
 
@@ -878,11 +941,15 @@ def mark_correct(
     translations_dict = {}
     for item in acceptable_translations:
         source = item["normalizedSource"]
-        translations = [trans["normalizedTarget"] for trans in item["translations"] if trans["normalizedTarget"] is not None]
+        translations = [
+            trans["normalizedTarget"]
+            for trans in item["translations"]
+            if trans["normalizedTarget"] is not None
+        ]
         translations_dict[source] = translations
 
     correct_count = 0
-    total_count = 0
+    total_marked = 0
 
     with t.no_grad():
         for batch in test_loader:
@@ -919,13 +986,16 @@ def mark_correct(
             )
             for i, pred_top_str in enumerate(pred_top_strs):
                 correct = None
-                total_marked = 0
                 en_str = en_strs[i]
                 fr_str = fr_strs[i]
-                word_found = (en_str.strip() in translations_dict)
+                word_found = en_str.strip() in translations_dict
                 if word_found:
                     all_acceptable_translations = translations_dict[en_str.strip()]
-                    correct = (pred_top_str.strip() in all_acceptable_translations or pred_top_str.strip()+"s" in all_acceptable_translations or pred_top_str.strip()[:-1] in all_acceptable_translations)
+                    correct = (
+                        pred_top_str.strip() in all_acceptable_translations
+                        or pred_top_str.strip() + "s" in all_acceptable_translations
+                        or pred_top_str.strip()[:-1] in all_acceptable_translations
+                    )
                     correct_count += correct
                     total_marked += 1
                 if print_results:
@@ -937,8 +1007,8 @@ def mark_correct(
                     )
                     if word_found:
                         print(
-                            f'Check: Found {[target for target in translations_dict[en_str.strip()]]}'
-                            )
+                            f"Check: Found {[target for target in translations_dict[en_str.strip()]]}"
+                        )
                     else:
                         print("Check: Not Found")
                     if print_top_preds:
@@ -946,6 +1016,5 @@ def mark_correct(
                         current_most_similar_embeds = {0: most_similar_embeds[i]}
                         print_most_similar_embeddings_dict(current_most_similar_embeds)
                     print()
-            total_count += total_marked
-    accuracy = correct_count / total_count
+    accuracy = correct_count / total_marked
     return accuracy

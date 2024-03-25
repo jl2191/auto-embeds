@@ -1,9 +1,97 @@
+# Mapping of dataset names to their file locations
+from pathlib import Path
 from typing import Optional, Tuple, Union
 
 import torch as t
 import transformer_lens as tl
 from torch import Tensor
 from word2word import Word2word
+
+from auto_embeds.utils.misc import repo_path_to_abs_path
+
+DATASETS = {
+    # cc-cedict dataset
+    "cc_cedict_zh_en_raw": repo_path_to_abs_path("datasets/cc-cedict/cedict_ts.u8"),
+    "cc_cedict_zh_en_parsed": repo_path_to_abs_path(
+        "datasets/cc-cedict/cc-cedict-zh-en-parsed.json"
+    ),
+    "cc_cedict_zh_en_filtered": repo_path_to_abs_path(
+        "datasets/cc-cedict/cc-cedict-zh-en-filtered.json"
+    ),
+    # facebook muse en-fr dataset
+    "muse_en_fr_raw": repo_path_to_abs_path("datasets/muse/en-fr/1_raw/en-fr.txt"),
+    "muse_en_fr_extracted": repo_path_to_abs_path(
+        "datasets/muse/en-fr/2_extracted/en-fr.json"
+    ),
+    "muse_en_fr_filtered": repo_path_to_abs_path(
+        "datasets/muse/en-fr/3_filtered/en-fr.json"
+    ),
+    "muse_en_fr_azure_validation": repo_path_to_abs_path(
+        "datasets/muse/en-fr/4_azure_validation/en-fr.json"
+    ),
+    # facebook muse zh-en dataset
+    "muse_zh_en_raw_train": repo_path_to_abs_path(
+        "datasets/muse/zh-en/1_raw/muse-zh-en-train.txt"
+    ),
+    "muse_zh_en_raw_test": repo_path_to_abs_path(
+        "datasets/muse/zh-en/1_raw/muse-zh-en-test.txt"
+    ),
+    "muse_zh_en_extracted_train": repo_path_to_abs_path(
+        "datasets/muse/zh-en/2_extracted/muse-zh-en-train.json"
+    ),
+    "muse_zh_en_extracted_test": repo_path_to_abs_path(
+        "datasets/muse/zh-en/2_extracted/muse-zh-en-test.json"
+    ),
+    "muse_zh_en_filtered_train": repo_path_to_abs_path(
+        "datasets/muse/zh-en/3_filtered/muse-zh-en-train.json"
+    ),
+    "muse_zh_en_filtered_test": repo_path_to_abs_path(
+        "datasets/muse/zh-en/3_filtered/muse-zh-en-test.json"
+    ),
+    "muse_zh_en_azure_validation_train": repo_path_to_abs_path(
+        "datasets/muse/zh-en/4_azure_validation/muse-zh-en-train.json"
+    ),
+    "muse_zh_en_azure_validation_test": repo_path_to_abs_path(
+        "datasets/muse/zh-en/4_azure_validation/muse-zh-en-test.json"
+    ),
+    # azure dataset
+    "azure_translator_bloom_zh_en_zh_only": repo_path_to_abs_path(
+        "datasets/azure_translator/bloom-zh-en-zh-only.json"
+    ),
+    "azure_translator_bloom_zh_en_all_translations": repo_path_to_abs_path(
+        "datasets/azure_translator/bloom-zh-en-all-translations.json"
+    ),
+    # wikdict dataset
+    "wikdict_en_fr_filtered": repo_path_to_abs_path(
+        "datasets/wikdict/3_filtered/eng-fra.json"
+    ),
+}
+
+
+def get_dataset_path(name: str) -> Path:
+    """Retrieves the file path for a specified dataset using its logical identifier.
+
+    This function serves as a centralized method for accessing the paths to various
+    datasets and dictionary files within the project. It utilizes the `DATASETS`
+    dictionary, which maps each dataset to a unique identifier, allowing for
+    modification and expansion of dataset locations.
+
+    Parameters:
+    - name (str): The logical identifier of the dataset whose path is to be retrieved.
+
+    Raises:
+    - KeyError: If the dataset name is not found in the DATASETS dictionary.
+
+    Returns:
+    - Path: The absolute file path of the specified dataset.
+
+    Example:
+        from auto_embeds.data import get_dataset_path
+        input_file_path = get_dataset_path("muse_en_fr_raw")
+    """
+    if name not in DATASETS:
+        raise KeyError(f"Dataset name '{name}' not found.")
+    return DATASETS[name]
 
 
 def generate_embeddings(
