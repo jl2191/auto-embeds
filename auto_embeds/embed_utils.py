@@ -553,9 +553,9 @@ def filter_word_pairs(
                 )
         pairs_to_filter = [
             [token_sum, en_token, fr_token, [en_word, fr_word]]
-            for en_word, (
+            for fr_word, (
                 token_sum,
-                fr_word,
+                en_word,
                 en_token,
                 fr_token,
             ) in most_common.items()
