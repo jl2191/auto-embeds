@@ -19,9 +19,9 @@ from auto_embeds.embed_utils import (
     filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
+    mark_correct,
     tokenize_word_pairs,
     train_transform,
-    mark_correct,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
@@ -38,8 +38,8 @@ except Exception:
 
 # %% model setup
 # model = tl.HookedTransformer.from_pretrained_no_processing("mistral-7b")
-# model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
-model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
+model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
+# model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
 device = model.cfg.device
 d_model = model.cfg.d_model
 n_toks = model.cfg.d_vocab_out
@@ -50,7 +50,7 @@ token_caches_folder = repo_path_to_abs_path("datasets/token_caches")
 # %% -----------------------------------------------------------------------------------
 # file_path = f"{datasets_folder}/muse/3_filtered/en-fr.json"
 # file_path = f"{datasets_folder}/wikdict/3_filtered/eng-fra.json"
-file_path = f"{datasets_folder}/wikdict-azure-en-fr.json"
+file_path = f"{datasets_folder}/wikdict/2_extracted/eng-fra.json"
 with open(file_path, "r") as file:
     word_pairs = json.load(file)
 
@@ -82,12 +82,17 @@ all_word_pairs = filter_word_pairs(
     print_pairs=True,
     print_number=True,
     # max_token_id=100_000,
-    # most_common_english=True,
-    # most_common_french=True,
+    most_common_english=True,
+    most_common_french=True,
     # acceptable_overlap=0.8,
 )
 
-#%%
+random.seed(1)
+random.shuffle(all_word_pairs)
+split_index = int(len(all_word_pairs) * 0.97)
+train_en_fr_pairs = all_word_pairs[:split_index]
+test_en_fr_pairs = all_word_pairs[split_index:]
+# %%
 train_en_toks, train_fr_toks, train_en_mask, train_fr_mask = tokenize_word_pairs(
     model, train_en_fr_pairs
 )
@@ -175,7 +180,7 @@ for transformation_name in transformation_names:
             loss_module=loss_module,
             n_epochs=100,
             plot_fig=False,
-            save_fig=True
+            save_fig=True,
             # wandb=wandb,
         )
     else:
@@ -194,15 +199,13 @@ for transformation_name in transformation_names:
     print(f"Correct Percentage: {accuracy * 100:.2f}%")
     print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
-
-# %%
-mark_correct(
-    model=model,
-    transformation=transform,
-    test_loader=test_loader,
-    acceptable_translations_path=translation_file,
-    print_results=True
-)
+    mark_correct(
+        model=model,
+        transformation=transform,
+        test_loader=test_loader,
+        acceptable_translations_path=translation_file,
+        print_results=True,
+    )
 
 # %%
 translation_file = repo_path_to_abs_path(
@@ -218,58 +221,19 @@ with open(translation_file, "r") as file:
 translations_list = []
 for item in acceptable_translations:
     source = item["normalizedSource"]
-    top_translation = next((trans["normalizedTarget"] for trans in item["translations"] if trans["normalizedTarget"] is not None), None)
+    top_translation = next(
+        (
+            trans["normalizedTarget"]
+            for trans in item["translations"]
+            if trans["normalizedTarget"] is not None
+        ),
+        None,
+    )
     if top_translation:
         translations_list.append([source, top_translation])
 
 print(len(translations_list))
-    
-wikdict_azure_save_path = repo_path_to_abs_path("datasets/wikdict-azure-en-fr.json")
-with open(wikdict_azure_save_path, 'w') as f:
-    json.dump(translations_list, f)
-# %%
-import einops
-from auto_embeds.embed_utils import get_most_similar_embeddings
-with t.no_grad():
-    for batch in test_loader:
-        en_embeds, fr_embeds = batch
-        en_logits = einops.einsum(
-            en_embeds,
-            model.embed.W_E,
-            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-        )
-        en_strs = model.to_str_tokens(en_logits.argmax(dim=-1))  # type: ignore
-        fr_logits = einops.einsum(
-            fr_embeds,
-            model.embed.W_E,
-            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-        )
-        fr_strs = model.to_str_tokens(fr_logits.argmax(dim=-1))  # type: ignore
-        with t.no_grad():
-            pred = transform(en_embeds)
-        pred_logits = einops.einsum(
-            pred,
-            model.embed.W_E,
-            "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-        )
-        pred_top_strs = model.to_str_tokens(pred_logits.argmax(dim=-1))
-        pred_top_strs = [
-            item if isinstance(item, str) else item[0] for item in pred_top_strs
-        ]
-        assert all(isinstance(item, str) for item in pred_top_strs)
-        most_similar_embeds = get_most_similar_embeddings(
-            model,
-            out=pred,
-            top_k=4,
-            apply_embed=True,
-        )
-        total = 0
-        same = 0
-        for i, pred_top_str in enumerate(pred_top_strs):
-            en_str = en_strs[i]
-            fr_str = fr_strs[i]
-            if pred_top_str == en_str:
-                same += 1
-            total += 1
 
-print(same/total)
+wikdict_azure_save_path = repo_path_to_abs_path("datasets/wikdict-azure-en-fr.json")
+with open(wikdict_azure_save_path, "w") as f:
+    json.dump(translations_list, f)

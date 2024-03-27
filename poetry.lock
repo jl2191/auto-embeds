@@ -4207,6 +4207,7 @@ files = [
 ]
 
 [package.dependencies]
+ipywidgets = {version = ">=7.5.1,<9", optional = true, markers = "extra == \"jupyter\""}
 markdown-it-py = ">=2.2.0"
 pygments = ">=2.13.0,<3.0.0"
 
@@ -5948,4 +5949,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "bd827603ebe3c6a91c6e9476d8b181eb5af7d14008a821492f012147f474fd0a"
+content-hash = "77e313819a24923e3e0b0276a63d87d4300122fed105f7346844eaec88c200c3"

@@ -45,10 +45,10 @@ all_word_pairs = filter_word_pairs(
     print_number=True,
     verbose_count=True,
     # max_token_id=100_000,
-    most_common_english=True,
-    most_common_french=True,
-    acceptable_english_overlap=0.8,
-    acceptable_french_overlap=0.8,
+    # most_common_english=True,
+    # most_common_french=True,
+    # acceptable_english_overlap=0.8,
+    # acceptable_french_overlap=0.8,
 )
 
 # %% saving
@@ -187,3 +187,32 @@ mark = mark_correct(
 )
 
 print(mark)
+
+# %%
+
+import torch
+
+
+def pairwise_cosine_similarity(single_embedding, embedding_set):
+    """
+    Computes the pairwise cosine similarity between a single embedding and a set of many other embeddings.
+
+    Args:
+    - single_embedding (torch.Tensor): A single embedding tensor of shape (embedding_dim,).
+    - embedding_set (torch.Tensor): A tensor containing a set of embeddings of shape (num_embeddings, embedding_dim).
+
+    Returns:
+    - torch.Tensor: A tensor containing the cosine similarity scores between the single embedding and each embedding in the set.
+    """
+    # Normalize the single embedding and the embedding set along the embedding dimension
+    single_embedding_norm = single_embedding / single_embedding.norm(
+        dim=0, keepdim=True
+    )
+    embedding_set_norm = embedding_set / embedding_set.norm(dim=1, keepdim=True)
+
+    # Compute the cosine similarity
+    cosine_similarities = torch.mm(
+        embedding_set_norm, single_embedding_norm.unsqueeze(1)
+    )
+
+    return cosine_similarities.squeeze()

@@ -58,22 +58,23 @@ all_word_pairs = filter_word_pairs(
     discard_if_same=True,
     min_length=6,
     capture_space=True,
-    capture_no_space=False,
+    # capture_no_space=False,
+    verbose_count=True,
     print_pairs=True,
     print_number=True,
-    most_common_english=True,
-    most_common_french=True,
+    # most_common_english=True,
+    # most_common_french=True,
     # acceptable_english_overlap=0.8,
     # acceptable_french_overlap=0.8,
 )
 
 # %% saving
-filtered_save_path = repo_path_to_abs_path("datasets/muse/en-fr/3_filtered/en-fr.json")
-with open(filtered_save_path, "w") as f:
-    json.dump(all_word_pairs, f)
+# filtered_save_path = repo_path_to_abs_path("datasets/muse/en-fr/3_filtered/en-fr.json")
+# with open(filtered_save_path, "w") as f:
+#     json.dump(all_word_pairs, f)
 
-#     f"{token_caches_folder}/wikdict-test-en-fr-tokens.pt",
-# )
+# #     f"{token_caches_folder}/wikdict-test-en-fr-tokens.pt",
+# # )
 
 # %% code for quick training if required (commented out by default)
 from auto_embeds.embed_utils import tokenize_word_pairs  # noqa: I001

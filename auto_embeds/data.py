@@ -62,6 +62,9 @@ DATASETS = {
         "datasets/azure_translator/bloom-zh-en-all-translations.json"
     ),
     # wikdict dataset
+    "wikdict_en_fr_extracted": repo_path_to_abs_path(
+        "datasets/wikdict/2_extracted/eng-fra.json"
+    ),
     "wikdict_en_fr_filtered": repo_path_to_abs_path(
         "datasets/wikdict/3_filtered/eng-fra.json"
     ),
@@ -69,25 +72,23 @@ DATASETS = {
 
 
 def get_dataset_path(name: str) -> Path:
-    """Retrieves the file path for a specified dataset using its logical identifier.
+    """
+    Fetches the absolute path for a given dataset identifier.
 
-    This function serves as a centralized method for accessing the paths to various
-    datasets and dictionary files within the project. It utilizes the `DATASETS`
-    dictionary, which maps each dataset to a unique identifier, allowing for
-    modification and expansion of dataset locations.
-
-    Parameters:
-    - name (str): The logical identifier of the dataset whose path is to be retrieved.
+    Args:
+        name (str): The identifier of the dataset to retrieve the path for.
 
     Raises:
-    - KeyError: If the dataset name is not found in the DATASETS dictionary.
+        KeyError: If the specified dataset identifier does not exist in the DATASETS
+            dictionary.
 
     Returns:
-    - Path: The absolute file path of the specified dataset.
+        Path: The absolute path of the dataset corresponding to the given identifier.
 
     Example:
-        from auto_embeds.data import get_dataset_path
-        input_file_path = get_dataset_path("muse_en_fr_raw")
+        >>> from auto_embeds.data import get_dataset_path
+        >>> dataset_path = get_dataset_path("muse_en_fr_raw")
+        >>> print(dataset_path)
     """
     if name not in DATASETS:
         raise KeyError(f"Dataset name '{name}' not found.")

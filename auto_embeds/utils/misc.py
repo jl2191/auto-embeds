@@ -109,7 +109,7 @@ def get_most_similar_embeddings(
     else:
         unembeded = out
 
-    logits = unembeded.squeeze()  # type: ignore
+    logits = unembeded.squeeze(0)  # type: ignore
     probs = logits.softmax(dim=-1)
 
     sorted_token_probs, sorted_token_values = probs.sort(descending=True)
@@ -183,3 +183,35 @@ def print_most_similar_embeddings_dict(
                 f"Prob: {top_token['prob']:6.2%}",
                 f'Token: "{top_token["token"]}"',
             )
+
+
+def calculate_gradient_color(
+    value: float, min_value: float, max_value: float, reverse: bool = False
+) -> str:
+    """
+    Calculates the gradient color based on the value's magnitude within a range for rich
+    printing library.
+
+    This function normalizes the input value to a range between 0 and 1 based on the
+    minimum and maximum values provided. It then calculates the red and green color
+    components to represent the value on a gradient from red (low) to green (high).
+    Optionally, the gradient can be reversed.
+
+    Args:
+        value: The value for which to calculate the gradient color.
+        min_value: The minimum value in the range.
+        max_value: The maximum value in the range.
+        reverse: If True, reverses the gradient direction (default is False).
+
+    Returns:
+        A string representing the hex color code for the gradient.
+    """
+    # Normalize value to a range between 0 and 1
+    normalized = (value - min_value) / (max_value - min_value)
+    if reverse:
+        normalized = 1 - normalized
+    # Calculate red and green components, blue is kept to 0 for simplicity
+    red = int(255 * (1 - normalized))
+    green = int(255 * normalized)
+    # Format as hex color
+    return f"#{red:02x}{green:02x}00"

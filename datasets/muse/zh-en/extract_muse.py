@@ -28,3 +28,5 @@ def extract_and_save_json(raw_file_path, save_file_path):
 
 extract_and_save_json(train_raw_file, train_extracted_save_file)
 extract_and_save_json(test_raw_file, test_extracted_save_file)
+
+# %%

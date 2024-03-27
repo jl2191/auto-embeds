@@ -46,11 +46,12 @@ train_word_pairs = filter_word_pairs(
     train_word_pairs,
     discard_if_same=True,
     # capture_diff_case=True,
-    min_length=1,
+    min_length=2,
     capture_space=False,
     capture_no_space=True,
     print_pairs=True,
     print_number=True,
+    verbose_count=True,
     # most_common_english=True,
     # most_common_french=True,
 )
@@ -60,7 +61,7 @@ test_word_pairs = filter_word_pairs(
     test_word_pairs,
     discard_if_same=True,
     # capture_diff_case=True,
-    min_length=1,
+    min_length=2,
     # capture_space=False,
     capture_no_space=True,
     # print_pairs=True,
@@ -155,7 +156,7 @@ for transformation_name in transformation_names:
         transformation=transformation_name,
         # optim_kwargs={"lr": 1e-4},
         # optim_kwargs={"lr": 6e-5},
-        optim_kwargs={"lr": 1e-4, "weight_decay": 2e-5},
+        optim_kwargs={"lr": 8e-5, "weight_decay": 2e-5},
     )
     loss_module = initialize_loss("cosine_similarity")
 
