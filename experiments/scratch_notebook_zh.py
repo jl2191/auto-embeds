@@ -228,6 +228,6 @@ mark_translation(
     model=model,
     transformation=transform,
     test_loader=test_loader,
-    allowed_translations_path=translation_file,
+    azure_translations_path=translation_file,
     print_results=True,
 )

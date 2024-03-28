@@ -37,7 +37,7 @@ all_word_pairs = filter_word_pairs(
     model,
     word_pairs,
     discard_if_same=True,
-    min_length=6,
+    min_length=3,
     # capture_diff_case=True,
     capture_space=True,
     # capture_no_space=True,
@@ -182,7 +182,7 @@ mark = mark_translation(
     model=model,
     transformation=transform,
     test_loader=test_loader,
-    allowed_translations_path=translation_file,
+    azure_translations_path=translation_file,
     print_results=True,
 )
 
