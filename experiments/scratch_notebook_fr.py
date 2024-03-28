@@ -203,7 +203,7 @@ for transformation_name in transformation_names:
         model=model,
         transformation=transform,
         test_loader=test_loader,
-        acceptable_translations_path=translation_file,
+        allowed_translations_path=translation_file,
         print_results=True,
     )
 
@@ -215,11 +215,11 @@ translation_file = repo_path_to_abs_path(
 )
 # Load acceptable translations from JSON file
 with open(translation_file, "r") as file:
-    acceptable_translations = json.load(file)
+    allowed_translations = json.load(file)
 
 # Convert list of acceptable translations to a more accessible format
 translations_list = []
-for item in acceptable_translations:
+for item in allowed_translations:
     source = item["normalizedSource"]
     top_translation = next(
         (

@@ -191,6 +191,6 @@ for transformation_name in transformation_names:
     #     model=model,
     #     transformation=transform,
     #     test_loader=test_loader,
-    #     acceptable_translations_path=translation_file,
+    #     allowed_translations_path=translation_file,
     #     print_results=True,
     # )
