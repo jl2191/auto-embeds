@@ -269,7 +269,7 @@ def evaluate_accuracy(
                 differences.
             device: Model's device. Defaults to None.
             print_results: If True, prints translation attempts/results. Defaults to False.
-    2       print_top_preds: If True and print_results=True, prints top predictions.
+            print_top_preds: If True and print_results=True, prints top predictions.
                 Defaults to True.
 
         Returns:

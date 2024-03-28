@@ -79,6 +79,7 @@ token_caches_folder = repo_path_to_abs_path("datasets/token_caches")
 file_path = get_dataset_path("wikdict_en_fr_extracted")
 with open(file_path, "r") as file:
     word_pairs = json.load(file)
+
 all_word_pairs = filter_word_pairs(
     model,
     word_pairs,
@@ -96,21 +97,20 @@ all_word_pairs = filter_word_pairs(
     # acceptable_overlap=0.8,
 )
 
-
 # %%
 # we can be more confident in our results if we randomly select a word, and calculate
 # the cosine similarity between this word and all the rest and take the top 300 to be
 # the test set
+
 # Ensure model.tokenizer is not None and is callable to satisfy linter
 if model.tokenizer is None or not callable(model.tokenizer):
     raise ValueError("model.tokenizer is not set or not callable")
 
-random.seed(1)
+random.seed(2)
 random.shuffle(all_word_pairs)
 word_pairs = all_word_pairs
-# random_word_pair_index = random.randint(0, len(word_pairs) - 1)
-random_word_pair_index = 4
-random_word_pair = word_pairs[random_word_pair_index]
+random_word_pair_index = random.randint(0, len(word_pairs) - 1)
+random_word_pair = word_pairs.pop(random_word_pair_index)
 random_word_src = random_word_pair[0]
 random_word_tgt = random_word_pair[1]
 print(f"random word pair is {random_word_pair}")
@@ -119,45 +119,47 @@ print(f"random word pair is {random_word_pair}")
 random_word_src_tok = model.tokenizer(
     random_word_src, return_tensors="pt", add_special_tokens=False
 ).data["input_ids"]
-
 random_word_tgt_tok = model.tokenizer(
     random_word_tgt, return_tensors="pt", add_special_tokens=False
 ).data["input_ids"]
 
 # embed random word pair
-# these should have shape[d_model]
 random_word_src_embed = model.embed.W_E[random_word_src_tok].detach().clone().squeeze()
 random_word_tgt_embed = model.embed.W_E[random_word_tgt_tok].detach().clone().squeeze()
+# these should have shape[d_model]
 
-# tokenize all the word pairs (these will still have our random pair in it)
-src_toks, tgt_toks, src_mask, tgt_mask = tokenize_word_pairs(model, all_word_pairs)
-all_toks = t.cat((src_toks, tgt_toks), dim=0)
+# tokenize all the other word pairs
+src_toks, tgt_toks, src_mask, tgt_mask = tokenize_word_pairs(model, word_pairs)
+other_toks = t.cat((src_toks, tgt_toks), dim=0)
 
-# embed all the word pairs
+# embed all the other word pairs as well
 src_embeds = model.embed.W_E[src_toks].detach().clone().squeeze()
 tgt_embeds = model.embed.W_E[tgt_toks].detach().clone().squeeze()
-all_embeds = t.cat((src_embeds, tgt_embeds), dim=0)
+other_embeds = t.cat((src_embeds, tgt_embeds), dim=0)
 
+
+random_word_src_embed_cos_sims = t.cosine_similarity(
+    random_word_src_embed, other_embeds, dim=-1
+)  # this should return shape[31712]
 # random_word_src_embed has shape[1024]
 # other_embeds has shape[31712, 1024]
-random_word_src_embed_cos_sims = t.cosine_similarity(
-    random_word_src_embed, all_embeds, dim=-1
-)  # this should return shape[31712]
-
 random_word_tgt_embed_cos_sims = t.cosine_similarity(
-    random_word_tgt_embed, all_embeds, dim=-1
+    random_word_tgt_embed, other_embeds, dim=-1
 )  # this should return shape[31712]
-
 # Rank the cosine similarities and get the indices of the top 200
-_, src_top_200_cos_sim_indices = t.topk(random_word_src_embed_cos_sims, 200)
-_, tgt_top_200_cos_sim_indices = t.topk(random_word_tgt_embed_cos_sims, 200)
+src_top_200_cos_sims = t.topk(random_word_src_embed_cos_sims, 200, largest=True)
+tgt_top_200_cos_sims = t.topk(random_word_tgt_embed_cos_sims, 200, largest=True)
 
 # Calculate Euclidean distances
-euc_dists_src = t.pairwise_distance(random_word_src_embed.unsqueeze(0), all_embeds, p=2)
-euc_dists_tgt = t.pairwise_distance(random_word_tgt_embed.unsqueeze(0), all_embeds, p=2)
+src_euc_dists = t.pairwise_distance(
+    random_word_src_embed.unsqueeze(0), other_embeds, p=2
+)
+tgt_euc_dists = t.pairwise_distance(
+    random_word_tgt_embed.unsqueeze(0), other_embeds, p=2
+)
 # Rank the Euclidean distances and get the indices of the top 200
-_, src_top_200_euc_dist_indices = t.topk(euc_dists_src, 200, largest=False)
-_, tgt_top_200_euc_dist_indices = t.topk(euc_dists_tgt, 200, largest=False)
+src_top_200_euc_dists = t.topk(src_euc_dists, 200, largest=False)
+tgt_top_200_euc_dists = t.topk(tgt_euc_dists, 200, largest=False)
 
 
 def generate_top_word_pairs_table(
@@ -233,42 +235,42 @@ def generate_top_word_pairs_table(
 table_cos_sim_src = generate_top_word_pairs_table(
     model,
     random_word_src,
-    all_toks,
-    src_top_200_cos_sim_indices,
-    euc_dists_src,
+    other_toks,
+    tgt_top_200_cos_sims.indices,
+    src_euc_dists,
     random_word_src_embed_cos_sims,
     sort_by="cos_sim",
-    display_limit=30,  # Updated call
+    display_limit=30,
 )
 table_euc_dist_src = generate_top_word_pairs_table(
     model,
     random_word_src,
-    all_toks,
-    src_top_200_euc_dist_indices,
-    euc_dists_src,
+    other_toks,
+    src_top_200_euc_dists.indices,
+    src_euc_dists,
     random_word_src_embed_cos_sims,
     sort_by="euc_dist",
-    display_limit=30,  # Updated call
+    display_limit=30,
 )
 table_cos_sim_tgt = generate_top_word_pairs_table(
     model,
     random_word_tgt,
-    all_toks,
-    tgt_top_200_cos_sim_indices,
-    euc_dists_tgt,
+    other_toks,
+    tgt_top_200_cos_sims.indices,
+    tgt_euc_dists,
     random_word_tgt_embed_cos_sims,
     sort_by="cos_sim",
-    display_limit=30,  # Updated call
+    display_limit=30,
 )
 table_euc_dist_tgt = generate_top_word_pairs_table(
     model,
     random_word_tgt,
-    all_toks,
-    tgt_top_200_euc_dist_indices,
-    euc_dists_tgt,
+    other_toks,
+    tgt_top_200_euc_dists.indices,
+    tgt_euc_dists,
     random_word_tgt_embed_cos_sims,
     sort_by="euc_dist",
-    display_limit=30,  # Updated call
+    display_limit=30,
 )
 
 # print the tables
@@ -311,7 +313,8 @@ def test_hypothesis(model, src_toks, tgt_toks, other_toks, other_embeds):
         src_embed = model.embed.W_E[src_tok].detach().clone().squeeze(0)
         # shape [d_model]
 
-        # Exclude the current source token from other_toks and other_embeds to avoid self-matching
+        # Exclude the current source token from other_toks and other_embeds to avoid
+        # self-matching
         valid_indices = (other_toks != src_tok).squeeze(-1)
         # the mask valid_indices should be of shape [batch]
 
@@ -373,54 +376,55 @@ def test_hypothesis(model, src_toks, tgt_toks, other_toks, other_embeds):
     return results
 
 
-# Assuming src_toks and tgt_toks are tensors containing the token IDs for source and target languages
+# Assuming src_toks and tgt_toks are tensors containing the token IDs for source and
+# target languages
 assert src_toks.shape == tgt_toks.shape
-assert all_toks.shape[0] == all_embeds.shape[0]
+assert other_toks.shape[0] == other_embeds.shape[0]
 
-results = test_hypothesis(model, src_toks, tgt_toks, all_toks, all_embeds)
+results = test_hypothesis(model, src_toks, tgt_toks, other_toks, other_embeds)
 for result in results:
     print(result)
 
-post = all_toks.detach().clone()
-
 # %%
-print(f"Original other_embeds shape: {all_embeds.shape}")
 # Create test_embeds tensor from top 200 indices
 # other_embeds is of shape [batch, d_model] at this point
 # and src_top_200_cos_sim_indices is of shape [batch] and we want to select all the
 # the embeddings with the top 200 cos sims
 
-test_indices = src_top_200_cos_sim_indices
-all_indices = t.arange(0, all_embeds.shape[0], device=all_embeds.device)
-mask = t.ones(all_embeds.shape[0], dtype=t.bool, device=all_embeds.device)
+# so we have our top 200 indices whose embeddings we want to use as test embeddings.
+# however, this so so far is just for the source language. we need to get the
+# corresponding target language embeddings as well.
+
+# we index into src_embeds with these indices to get them
+test_indices = src_top_200_cos_sims.indices
+src_embeds_with_top_200_cos_sims = src_embeds[test_indices]
+# and it is actually the same indices to get the corresponding target language embeds
+tgt_embeds_with_top_200_cos_sims = tgt_embeds[test_indices]
+
+# these are our test embeddings
+src_test_embeds = src_embeds_with_top_200_cos_sims
+tgt_test_embeds = tgt_embeds_with_top_200_cos_sims
+
+print(f"source test embeds shape: {src_test_embeds.shape}")
+print(f"target test embeds shape: {tgt_test_embeds.shape}")
+
+# to get out train embeddings, we just need to remove the indices we used for the test
+all_indices = t.arange(0, src_embeds.shape[0], device=src_embeds.device)
+mask = t.ones(src_embeds.shape[0], dtype=t.bool, device=src_embeds.device)
 mask[test_indices] = False
-train_indices = all_indices[mask]
 
-# these are now of shape [batch, pos, d_model]
-test_embeds = all_embeds.index_select(0, test_indices).unsqueeze(1)
-train_embeds = all_embeds.index_select(0, train_indices).unsqueeze(1)
+src_train_embeds = src_embeds[mask]
+tgt_train_embeds = tgt_embeds[mask]
 
-print(f"Train embeds shape: {train_embeds.shape}")
-print(f"Test embeds shape: {test_embeds.shape}")
+print(f"source train embeds shape: {src_train_embeds.shape}")
+print(f"target train embeds shape: {tgt_train_embeds.shape}")
 
-# train_src_embeds = t.nn.functional.layer_norm(
-#     model.embed.W_E[train_src_toks].detach().clone(), [model.cfg.d_model]
-# )
-# train_tgt_embeds = t.nn.functional.layer_norm(
-#     model.embed.W_E[train_tgt_toks].detach().clone(), [model.cfg.d_model]
-# )
-# test_src_embeds = t.nn.functional.layer_norm(
-#     model.embed.W_E[test_src_toks].detach().clone(), [model.cfg.d_model]
-# )
-# test_tgt_embeds = t.nn.functional.layer_norm(
-#     model.embed.W_E[test_tgt_toks].detach().clone(), [model.cfg.d_model]
-# )
-
-train_dataset = TensorDataset(train_src_embeds, train_tgt_embeds)
+train_dataset = TensorDataset(src_train_embeds, tgt_train_embeds)
 train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
-test_dataset = TensorDataset(test_src_embeds, test_tgt_embeds)
+test_dataset = TensorDataset(src_test_embeds, tgt_test_embeds)
 test_loader = DataLoader(test_dataset, batch_size=64, shuffle=True)
+
 # %%
 # run = wandb.init(
 #     project="single_token_tests",
@@ -429,7 +433,7 @@ test_loader = DataLoader(test_dataset, batch_size=64, shuffle=True)
 
 translation_file = repo_path_to_abs_path(
     # "datasets/muse/4_azure_validation/src-tgt.json"
-    "datasets/wikdict/4_azure_validation/src-tgt.json"  # Updated file path
+    "datasets/wikdict/4_azure_validation/src-tgt.json"
     # "datasets/wikdict-azure-src-tgt.json"
 )
 
