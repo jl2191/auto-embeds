@@ -138,17 +138,21 @@ tgt_embeds = model.embed.W_E[tgt_toks].detach().clone().squeeze()
 other_embeds = t.cat((src_embeds, tgt_embeds), dim=0)
 
 
-random_word_src_embed_cos_sims = t.cosine_similarity(
+random_word_src_and_other_embeds_cos_sims = t.cosine_similarity(
     random_word_src_embed, other_embeds, dim=-1
 )  # this should return shape[31712]
 # random_word_src_embed has shape[1024]
 # other_embeds has shape[31712, 1024]
-random_word_tgt_embed_cos_sims = t.cosine_similarity(
+random_word_tgt_and_other_embeds_cos_sims = t.cosine_similarity(
     random_word_tgt_embed, other_embeds, dim=-1
 )  # this should return shape[31712]
 # Rank the cosine similarities and get the indices of the top 200
-src_top_200_cos_sims = t.topk(random_word_src_embed_cos_sims, 200, largest=True)
-tgt_top_200_cos_sims = t.topk(random_word_tgt_embed_cos_sims, 200, largest=True)
+src_and_other_top_200_cos_sims = t.topk(
+    random_word_src_and_other_embeds_cos_sims, 200, largest=True
+)
+tgt_and_other_top_200_cos_sims = t.topk(
+    random_word_tgt_and_other_embeds_cos_sims, 200, largest=True
+)
 
 # Calculate Euclidean distances
 src_euc_dists = t.pairwise_distance(
@@ -236,9 +240,9 @@ table_cos_sim_src = generate_top_word_pairs_table(
     model,
     random_word_src,
     other_toks,
-    tgt_top_200_cos_sims.indices,
+    tgt_and_other_top_200_cos_sims.indices,
     src_euc_dists,
-    random_word_src_embed_cos_sims,
+    random_word_src_and_other_embeds_cos_sims,
     sort_by="cos_sim",
     display_limit=30,
 )
@@ -248,7 +252,7 @@ table_euc_dist_src = generate_top_word_pairs_table(
     other_toks,
     src_top_200_euc_dists.indices,
     src_euc_dists,
-    random_word_src_embed_cos_sims,
+    random_word_src_and_other_embeds_cos_sims,
     sort_by="euc_dist",
     display_limit=30,
 )
@@ -256,9 +260,9 @@ table_cos_sim_tgt = generate_top_word_pairs_table(
     model,
     random_word_tgt,
     other_toks,
-    tgt_top_200_cos_sims.indices,
+    tgt_and_other_top_200_cos_sims.indices,
     tgt_euc_dists,
-    random_word_tgt_embed_cos_sims,
+    random_word_tgt_and_other_embeds_cos_sims,
     sort_by="cos_sim",
     display_limit=30,
 )
@@ -268,7 +272,7 @@ table_euc_dist_tgt = generate_top_word_pairs_table(
     other_toks,
     tgt_top_200_euc_dists.indices,
     tgt_euc_dists,
-    random_word_tgt_embed_cos_sims,
+    random_word_tgt_and_other_embeds_cos_sims,
     sort_by="euc_dist",
     display_limit=30,
 )
@@ -395,15 +399,22 @@ for result in results:
 # however, this so so far is just for the source language. we need to get the
 # corresponding target language embeddings as well.
 
-# we index into src_embeds with these indices to get them
+# we index into src_embeds with these indices to get them, but we first need to
+# define the indices that we want
+src_cos_sims = t.cosine_similarity(random_word_src_embed, src_embeds, dim=-1)
+# shape [batch]
+
+src_top_200_cos_sims = t.topk(src_cos_sims, 200, largest=True)
 test_indices = src_top_200_cos_sims.indices
+# %%
 src_embeds_with_top_200_cos_sims = src_embeds[test_indices]
 # and it is actually the same indices to get the corresponding target language embeds
 tgt_embeds_with_top_200_cos_sims = tgt_embeds[test_indices]
 
 # these are our test embeddings
-src_test_embeds = src_embeds_with_top_200_cos_sims
-tgt_test_embeds = tgt_embeds_with_top_200_cos_sims
+src_test_embeds = src_embeds_with_top_200_cos_sims.unsqueeze(1)
+tgt_test_embeds = tgt_embeds_with_top_200_cos_sims.unsqueeze(1)
+# these should now be [batch, pos, d_model]
 
 print(f"source test embeds shape: {src_test_embeds.shape}")
 print(f"target test embeds shape: {tgt_test_embeds.shape}")
@@ -413,8 +424,9 @@ all_indices = t.arange(0, src_embeds.shape[0], device=src_embeds.device)
 mask = t.ones(src_embeds.shape[0], dtype=t.bool, device=src_embeds.device)
 mask[test_indices] = False
 
-src_train_embeds = src_embeds[mask]
-tgt_train_embeds = tgt_embeds[mask]
+src_train_embeds = src_embeds[mask].unsqueeze(1)
+tgt_train_embeds = tgt_embeds[mask].unsqueeze(1)
+# these should now be [batch, pos, d_model]
 
 print(f"source train embeds shape: {src_train_embeds.shape}")
 print(f"target train embeds shape: {tgt_train_embeds.shape}")
@@ -431,11 +443,7 @@ test_loader = DataLoader(test_dataset, batch_size=64, shuffle=True)
 # )
 # %%
 
-translation_file = repo_path_to_abs_path(
-    # "datasets/muse/4_azure_validation/src-tgt.json"
-    "datasets/wikdict/4_azure_validation/src-tgt.json"
-    # "datasets/wikdict-azure-src-tgt.json"
-)
+translation_file = get_dataset_path("wikdict_en_fr_azure_validation")
 
 transformation_names = [
     # "identity",
@@ -471,8 +479,8 @@ for transformation_name in transformation_names:
             optim=optim,
             loss_module=loss_module,
             n_epochs=100,
-            plot_fig=False,
-            save_fig=True,
+            plot_fig=True,
+            # save_fig=True,
             # wandb=wandb,
         )
     else:
@@ -491,7 +499,7 @@ for transformation_name in transformation_names:
     print(f"Correct Percentage: {accuracy * 100:.2f}%")
     print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
-    mark_correct(
+    test_acc_2 = mark_correct(
         model=model,
         transformation=transform,
         test_loader=test_loader,
@@ -499,33 +507,4 @@ for transformation_name in transformation_names:
         print_results=True,
     )
 
-# %%
-translation_file = repo_path_to_abs_path(
-    # "datasets/muse/4_azure_validation/en-fr.json"
-    "datasets/wikdict/4_azure_validation/en-fr.json"  # Updated file path
-    # "datasets/wikdict-azure-src-tgt.json"
-)
-# Load acceptable translations from JSON file
-with open(translation_file, "r") as file:
-    acceptable_translations = json.load(file)
-
-# Convert list of acceptable translations to a more accessible format
-translations_list = []
-for item in acceptable_translations:
-    source = item["normalizedSource"]
-    top_translation = next(
-        (
-            trans["normalizedTarget"]
-            for trans in item["translations"]
-            if trans["normalizedTarget"] is not None
-        ),
-        None,
-    )
-    if top_translation:
-        translations_list.append([source, top_translation])
-
-print(len(translations_list))
-
-wikdict_azure_save_path = repo_path_to_abs_path("datasets/wikdict-azure-en-fr.json")
-with open(wikdict_azure_save_path, "w") as f:
-    json.dump(translations_list, f)
+    print(f"Test Accuracy 2.0: {test_acc_2}")
