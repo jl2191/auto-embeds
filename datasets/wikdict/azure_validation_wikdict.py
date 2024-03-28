@@ -3,7 +3,9 @@ import json
 import os
 
 import requests
+import transformer_lens as tl
 
+from auto_embeds.embed_utils import filter_word_pairs
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
 
@@ -38,14 +40,9 @@ def lookup_translations(words):
 
 def process_file(word_pair_file, output_file):
 
-    with open(word_pair_file, "r") as file:
-        word_pairs = json.load(file)
-
     print(f"Number of word pairs: {len(word_pairs)}")
-    print(word_pairs)
     words = list(set([pair[0] for pair in word_pairs]))
     print(f"Number of unique English words: {len(words)}")
-    print(words)
 
     translations = []
     total_words = len(words)
@@ -64,9 +61,32 @@ def process_file(word_pair_file, output_file):
 
 
 # english_words = {pair[0].strip().lower() for pair in filtered_word_pairs}
-input_file = repo_path_to_abs_path("datasets/wikdict/3_filtered/eng-fra.json")
+input_file = repo_path_to_abs_path("datasets/wikdict/2_extracted/eng-fra.json")
 output_file = repo_path_to_abs_path("datasets/wikdict/4_azure_validation/eng-fra.json")
 
-process_file(input_file, output_file)
+with open(input_file, "r") as file:
+    word_pairs = json.load(file)
+
+model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
+
+word_pairs = filter_word_pairs(
+    model,
+    word_pairs,
+    discard_if_same=True,
+    min_length=3,
+    # capture_diff_case=True,
+    capture_space=True,
+    # capture_no_space=True,
+    # print_pairs=True,
+    print_number=True,
+    verbose_count=True,
+    # max_token_id=100_000,
+    # most_common_english=True,
+    # most_common_french=True,
+    # acceptable_english_overlap=0.8,
+    # acceptable_french_overlap=0.8,
+)
+
+process_file(word_pairs, output_file)
 
 # %%
