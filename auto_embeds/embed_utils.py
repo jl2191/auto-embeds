@@ -175,6 +175,7 @@ def train_transform(
     save_fig: bool = False,
     device: Optional[Union[str, t.device]] = None,
     wandb: Optional[Any] = None,
+    azure_translations_path: Optional[Union[str, Path]] = None,
 ) -> Tuple[nn.Module, Dict[str, List[Dict[str, Union[float, int]]]]]:
     """Trains the transformation, returning the learned transformation and loss history.
 
@@ -189,16 +190,32 @@ def train_transform(
         plot_fig: If True, plots the training and test loss history.
         device: The device on which the model is allocated.
         wandb: If provided, log training metrics to Weights & Biases.
+        azure_translations_path: Path to JSON file for mark_translation evaluation.
 
     Returns:
         The learned transformation after training, the train and test loss history.
     """
     if device is None:
         device = model.cfg.device
-    train_history = {"train_loss": [], "test_loss": []}
+    train_history = {"train_loss": [], "test_loss": [], "mark_translation_score": []}
     transform.train()
     if wandb:
         wandb.watch(transform, log="all", log_freq=500)
+    # if a azure_translations_path is provided we process the azure json file into a
+    # more accessible format just once to speed up the marking, passing a
+    # translations_dict directly into mark_translate()
+    if azure_translations_path:
+        with open(azure_translations_path, "r") as file:
+            allowed_translations = json.load(file)
+        translations_dict = {}
+        for item in allowed_translations:
+            source = item["normalizedSource"]
+            translations = [
+                trans["normalizedTarget"]
+                for trans in item["translations"]
+                if trans["normalizedTarget"] is not None
+            ]
+            translations_dict[source] = translations
     for epoch in (epoch_pbar := tqdm(range(n_epochs))):
         for batch_idx, (en_embed, fr_embed) in enumerate(train_loader):
             optim.zero_grad()
@@ -225,10 +242,24 @@ def train_transform(
             avg_test_loss = total_test_loss / len(test_loader)
             info_dict = {"test_loss": avg_test_loss, "epoch": epoch}
             train_history["test_loss"].append(info_dict)
-            if wandb:
-                wandb.log(info_dict)
+            # Calculate and log mark_translation score if azure_translations_path
+            if azure_translations_path:
+                mark_translation_score = mark_translation(
+                    model=model,
+                    transformation=transform,
+                    test_loader=test_loader,
+                    translations_dict=translations_dict,
+                    print_results=False,
+                )
+                info_dict = {
+                    "mark_translation_score": mark_translation_score,
+                    "epoch": epoch,
+                }
+                train_history["mark_translation_score"].append(info_dict)
+        if wandb:
+            wandb.log(info_dict)
     if plot_fig or save_fig:
-        fig = px.line(title="Train and Test Loss")
+        fig = px.line(title="Train and Test Loss with Mark Correct Score")
         fig.add_scatter(
             x=[epoch_info["epoch"] for epoch_info in train_history["train_loss"]],
             y=[epoch_info["train_loss"] for epoch_info in train_history["train_loss"]],
@@ -239,6 +270,19 @@ def train_transform(
             y=[epoch_info["test_loss"] for epoch_info in train_history["test_loss"]],
             name="Test Loss",
         )
+        # Plot mark_translation_score if available
+        if azure_translations_path:
+            fig.add_scatter(
+                x=[
+                    epoch_info["epoch"]
+                    for epoch_info in train_history["mark_translation_score"]
+                ],
+                y=[
+                    epoch_info["mark_translation_score"]
+                    for epoch_info in train_history["mark_translation_score"]
+                ],
+                name="Mark Correct Score",
+            )
         if plot_fig:
             fig.show()
         if save_fig:
@@ -911,42 +955,63 @@ def generate_new_embeddings_from_noise(
     return new_embeddings
 
 
-def mark_correct(
+def mark_translation(
     model: tl.HookedTransformer,
     transformation: nn.Module,
     test_loader: DataLoader[Tuple[Tensor, ...]],
-    acceptable_translations_path: Union[str, Path],
+    azure_translations_path: Optional[Union[str, Path]] = None,
     print_results: bool = False,
     print_top_preds: bool = True,
+    translations_dict: Optional[Dict[str, List[str]]] = None,
 ) -> float:
-    """Marks translations as correct from an Azure JSON file.
+    """Marks translations as correct.
+
+    Can either take in a dictionary of translations or a path to a JSON file containing
+    translations from Azure. At least one of `azure_translations_path` or
+    `translations_dict` must be provided.
 
     Args:
         model: The model whose tokenizer we are using.
         transformation: The transformation module to evaluate.
         test_loader: DataLoader for the test dataset.
-        acceptable_translations_path: Path to the JSON file containing acceptable
-            translations from Azure Translator.
+        azure_translations_path: Optional; Path to the JSON file containing acceptable
+            translations from Azure Translator. Defaults to None.
         print_results: Whether to print marking results.
         print_top_preds: If True and print_results=True, prints top predictions.
             Defaults to True.
+        translations_dict: Optional; A dictionary of translations. Defaults to None.
     Returns:
         The accuracy of the translations as a float.
-    """
-    # Load acceptable translations from JSON file
-    with open(acceptable_translations_path, "r") as file:
-        acceptable_translations = json.load(file)
 
-    # Convert list of acceptable translations to a more accessible format
-    translations_dict = {}
-    for item in acceptable_translations:
-        source = item["normalizedSource"]
-        translations = [
-            trans["normalizedTarget"]
-            for trans in item["translations"]
-            if trans["normalizedTarget"] is not None
-        ]
-        translations_dict[source] = translations
+    Raises:
+        ValueError: If neither `azure_translations_path` nor `translations_dict`
+            is provided.
+    """
+    # Ensure model.tokenizer is not None and is callable to satisfy linter
+    if model.tokenizer is None or not callable(model.tokenizer):
+        raise ValueError("model.tokenizer is not set or not callable")
+
+    if azure_translations_path is None and translations_dict is None:
+        raise ValueError(
+            "Either 'azure_translations_path' or 'translations_dict' must be given."
+        )
+    # load acceptable translations from JSON file if given
+    if azure_translations_path:
+        with open(azure_translations_path, "r") as file:
+            azure_translations = json.load(file)
+
+    # convert list of acceptable translations to a dict is this is not already provided.
+    # directly providing a dict is faster.
+    if translations_dict is None:
+        translations_dict = {}
+        for item in azure_translations:
+            source = item["normalizedSource"]
+            translations = [
+                trans["normalizedTarget"]
+                for trans in item["translations"]
+                if trans["normalizedTarget"] is not None
+            ]
+            translations_dict[source] = translations
 
     correct_count = 0
     total_marked = 0
@@ -959,13 +1024,17 @@ def mark_correct(
                 model.embed.W_E,
                 "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
             )
-            en_strs: List[str] = model.to_str_tokens(en_logits.argmax(dim=-1))  # type: ignore
+            en_strs: List[str] = model.tokenizer.batch_decode(
+                en_logits.squeeze().argmax(dim=-1)
+            )
             fr_logits = einops.einsum(
                 fr_embeds,
                 model.embed.W_E,
                 "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
             )
-            fr_strs: List[str] = model.to_str_tokens(fr_logits.argmax(dim=-1))  # type: ignore
+            fr_strs: List[str] = model.tokenizer.batch_decode(
+                fr_logits.squeeze().argmax(dim=-1)
+            )
             with t.no_grad():
                 pred = transformation(en_embeds)
             pred_logits = einops.einsum(
@@ -973,28 +1042,32 @@ def mark_correct(
                 model.embed.W_E,
                 "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
             )
-            pred_top_strs = model.to_str_tokens(pred_logits.argmax(dim=-1))
+            pred_top_strs = model.tokenizer.batch_decode(
+                pred_logits.squeeze().argmax(dim=-1)
+            )
             pred_top_strs = [
                 item if isinstance(item, str) else item[0] for item in pred_top_strs
             ]
             assert all(isinstance(item, str) for item in pred_top_strs)
-            most_similar_embeds = get_most_similar_embeddings(
-                model,
-                out=pred,
-                top_k=4,
-                apply_embed=True,
-            )
+            # if statement for performance
+            if print_top_preds:
+                most_similar_embeds = get_most_similar_embeddings(
+                    model,
+                    out=pred,
+                    top_k=4,
+                    apply_embed=True,
+                )
             for i, pred_top_str in enumerate(pred_top_strs):
                 correct = None
                 en_str = en_strs[i]
                 fr_str = fr_strs[i]
                 word_found = en_str.strip() in translations_dict
                 if word_found:
-                    all_acceptable_translations = translations_dict[en_str.strip()]
+                    all_allowed_translations = translations_dict[en_str.strip()]
                     correct = (
-                        pred_top_str.strip() in all_acceptable_translations
-                        or pred_top_str.strip() + "s" in all_acceptable_translations
-                        or pred_top_str.strip()[:-1] in all_acceptable_translations
+                        pred_top_str.strip() in all_allowed_translations
+                        or pred_top_str.strip() + "s" in all_allowed_translations
+                        or pred_top_str.strip()[:-1] in all_allowed_translations
                     )
                     correct_count += correct
                     total_marked += 1

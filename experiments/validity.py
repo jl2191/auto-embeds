@@ -435,14 +435,14 @@ train_dataset = TensorDataset(src_train_embeds, tgt_train_embeds)
 train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
 test_dataset = TensorDataset(src_test_embeds, tgt_test_embeds)
-test_loader = DataLoader(test_dataset, batch_size=64, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=256, shuffle=True)
 
 # %%
 # run = wandb.init(
 #     project="single_token_tests",
 # )
-# %%
 
+# %%
 translation_file = get_dataset_path("wikdict_en_fr_azure_validation")
 
 transformation_names = [
@@ -480,6 +480,7 @@ for transformation_name in transformation_names:
             loss_module=loss_module,
             n_epochs=100,
             plot_fig=True,
+            azure_translations_path=translation_file,
             # save_fig=True,
             # wandb=wandb,
         )
@@ -499,12 +500,21 @@ for transformation_name in transformation_names:
     print(f"Correct Percentage: {accuracy * 100:.2f}%")
     print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
-    test_acc_2 = mark_translation(
+    mark_translation_acc = mark_translation(
         model=model,
         transformation=transform,
         test_loader=test_loader,
-        allowed_translations_path=translation_file,
+        azure_translations_path=translation_file,
         print_results=True,
     )
 
-    print(f"Test Accuracy 2.0: {test_acc_2}")
+    print(f"Mark Translation Accuracy: {mark_translation_acc}")
+
+# %%
+mark_translation_acc = mark_translation(
+    model=model,
+    transformation=transform,
+    test_loader=test_loader,
+    azure_translations_path=translation_file,
+    print_results=True,
+)
