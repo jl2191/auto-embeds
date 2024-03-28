@@ -195,7 +195,7 @@ def train_transform(
     """
     if device is None:
         device = model.cfg.device
-    loss_history = {"train_loss": [], "test_loss": []}
+    train_history = {"train_loss": [], "test_loss": []}
     transform.train()
     if wandb:
         wandb.watch(transform, log="all", log_freq=500)
@@ -209,7 +209,7 @@ def train_transform(
                 "batch": batch_idx,
                 "epoch": epoch,
             }
-            loss_history["train_loss"].append(info_dict)
+            train_history["train_loss"].append(info_dict)
             train_loss.backward()
             optim.step()
             if wandb:
@@ -224,26 +224,26 @@ def train_transform(
                 total_test_loss += test_loss.item()
             avg_test_loss = total_test_loss / len(test_loader)
             info_dict = {"test_loss": avg_test_loss, "epoch": epoch}
-            loss_history["test_loss"].append(info_dict)
+            train_history["test_loss"].append(info_dict)
             if wandb:
                 wandb.log(info_dict)
     if plot_fig or save_fig:
         fig = px.line(title="Train and Test Loss")
         fig.add_scatter(
-            x=[epoch_info["epoch"] for epoch_info in loss_history["train_loss"]],
-            y=[epoch_info["train_loss"] for epoch_info in loss_history["train_loss"]],
+            x=[epoch_info["epoch"] for epoch_info in train_history["train_loss"]],
+            y=[epoch_info["train_loss"] for epoch_info in train_history["train_loss"]],
             name="Train Loss",
         )
         fig.add_scatter(
-            x=[epoch_info["epoch"] for epoch_info in loss_history["test_loss"]],
-            y=[epoch_info["test_loss"] for epoch_info in loss_history["test_loss"]],
+            x=[epoch_info["epoch"] for epoch_info in train_history["test_loss"]],
+            y=[epoch_info["test_loss"] for epoch_info in train_history["test_loss"]],
             name="Test Loss",
         )
         if plot_fig:
             fig.show()
         if save_fig:
             fig.write_image("plot.png")
-    return transform, loss_history
+    return transform, train_history
 
 
 def evaluate_accuracy(
@@ -256,24 +256,24 @@ def evaluate_accuracy(
     print_top_preds: bool = True,
 ) -> float:
     """Evaluates the accuracy of the learned transformation by comparing the predicted
-        embeddings to the actual French embeddings.
+    embeddings to the actual French embeddings.
 
-        It supports requiring exact matches or allowing for case-insensitive comparisons.
+    It supports requiring exact matches or allowing for case-insensitive comparisons.
 
-        Args:
-            model: Transformer model for evaluation.
-            test_loader: DataLoader for test dataset.
-            transformation: Transformation module to be evaluated.
-            exact_match: If True, requires exact matches between predicted and actual
-                embeddings. If False, matches are correct if identical ignoring case
-                differences.
-            device: Model's device. Defaults to None.
-            print_results: If True, prints translation attempts/results. Defaults to False.
-            print_top_preds: If True and print_results=True, prints top predictions.
-                Defaults to True.
+    Args:
+        model: Transformer model for evaluation.
+        test_loader: DataLoader for test dataset.
+        transformation: Transformation module to be evaluated.
+        exact_match: If True, requires exact matches between predicted and actual
+            embeddings. If False, matches are correct if identical ignoring case
+            differences.
+        device: Model's device. Defaults to None.
+        print_results: If True, prints translation attempts/results. Defaults to False.
+        print_top_preds: If True and print_results=True, prints top predictions.
+            Defaults to True.
 
-        Returns:
-            The accuracy of the learned transformation as a float.
+    Returns:
+        The accuracy of the learned transformation as a float.
     """
     with t.no_grad():
         correct_count = 0
