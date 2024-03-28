@@ -109,7 +109,8 @@ def get_most_similar_embeddings(
     else:
         unembeded = out
 
-    logits = unembeded.squeeze(0)  # type: ignore
+    logits = unembeded.squeeze(1)
+    # from shape [batch, pos, d_vocab] to [batch, d_vocab]
     probs = logits.softmax(dim=-1)
 
     sorted_token_probs, sorted_token_values = probs.sort(descending=True)
