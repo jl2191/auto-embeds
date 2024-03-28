@@ -68,6 +68,9 @@ DATASETS = {
     "wikdict_en_fr_filtered": repo_path_to_abs_path(
         "datasets/wikdict/3_filtered/eng-fra.json"
     ),
+    "wikdict_en_fr_azure_validation": repo_path_to_abs_path(
+        "datasets/wikdict/4_azure_validation/eng-fra.json"
+    ),
 }
 
 
