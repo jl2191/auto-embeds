@@ -60,7 +60,7 @@ all_word_pairs = filter_word_pairs(
 
 from auto_embeds.embed_utils import tokenize_word_pairs  # noqa: I001
 from torch.utils.data import DataLoader, TensorDataset
-from auto_embeds.embed_utils import mark_correct
+from auto_embeds.embed_utils import mark_translation
 import torch as t
 from auto_embeds.data import get_dataset_path
 from auto_embeds.embed_utils import (
@@ -178,7 +178,7 @@ for transformation_name in transformation_names:
 
 
 # %%
-mark = mark_correct(
+mark = mark_translation(
     model=model,
     transformation=transform,
     test_loader=test_loader,

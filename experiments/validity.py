@@ -25,7 +25,7 @@ from auto_embeds.embed_utils import (
     get_most_similar_embeddings,
     initialize_loss,
     initialize_transform_and_optim,
-    mark_correct,
+    mark_translation,
     print_most_similar_embeddings_dict,
     tokenize_word_pairs,
     train_transform,
@@ -499,7 +499,7 @@ for transformation_name in transformation_names:
     print(f"Correct Percentage: {accuracy * 100:.2f}%")
     print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
-    test_acc_2 = mark_correct(
+    test_acc_2 = mark_translation(
         model=model,
         transformation=transform,
         test_loader=test_loader,

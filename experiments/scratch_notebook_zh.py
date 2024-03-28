@@ -20,7 +20,7 @@ from auto_embeds.embed_utils import (
     filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
-    mark_correct,
+    mark_translation,
     tokenize_word_pairs,
     train_transform,
 )
@@ -217,14 +217,14 @@ for transformation_name in transformation_names:
     print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
 # %%
-from auto_embeds.embed_utils import mark_correct
+from auto_embeds.embed_utils import mark_translation
 
 # %%
 translation_file = repo_path_to_abs_path(
     "datasets/azure_translator/bloom-zh-en-all-translations.json"
 )
 # %%
-mark_correct(
+mark_translation(
     model=model,
     transformation=transform,
     test_loader=test_loader,

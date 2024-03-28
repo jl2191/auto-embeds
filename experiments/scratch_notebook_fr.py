@@ -19,7 +19,7 @@ from auto_embeds.embed_utils import (
     filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
-    mark_correct,
+    mark_translation,
     tokenize_word_pairs,
     train_transform,
 )
@@ -199,7 +199,7 @@ for transformation_name in transformation_names:
     print(f"Correct Percentage: {accuracy * 100:.2f}%")
     print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
-    mark_correct(
+    mark_translation(
         model=model,
         transformation=transform,
         test_loader=test_loader,

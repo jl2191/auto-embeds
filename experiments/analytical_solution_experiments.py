@@ -16,7 +16,7 @@ from auto_embeds.data import get_dataset_path
 from auto_embeds.embed_utils import (
     calc_cos_sim_acc,
     evaluate_accuracy,
-    mark_correct,
+    mark_translation,
     tokenize_word_pairs,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
@@ -135,7 +135,7 @@ print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 # %%
 translation_file = repo_path_to_abs_path("datasets/muse/4_azure_validation/en-fr.json")
 
-mark_correct(
+mark_translation(
     model=model,
     transformation=transform,
     test_loader=test_loader,
