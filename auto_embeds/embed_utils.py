@@ -1,24 +1,20 @@
-import difflib
 import json
 from collections import defaultdict
-from difflib import SequenceMatcher
 from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import einops
+import pandas as pd
 import plotly.express as px
 import torch as t
 import torch.nn as nn
 import transformer_lens as tl
 from Levenshtein import distance as levenshtein_distance
-from rich.console import Console
-from rich.table import Table
 from torch import Tensor
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
-from auto_embeds.data import get_dataset_path
 from auto_embeds.modules import (
     BiasedRotationTransform,
     CosineSimilarityLoss,
@@ -31,7 +27,6 @@ from auto_embeds.modules import (
 )
 from auto_embeds.utils.custom_tqdm import tqdm
 from auto_embeds.utils.misc import (
-    calculate_gradient_color,
     get_default_device,
     get_most_similar_embeddings,
     print_most_similar_embeddings_dict,
@@ -254,13 +249,14 @@ def train_transform(
                     translations_dict=translations_dict,
                     print_results=False,
                 )
-                info_dict = {
-                    "mark_translation_score": mark_translation_score,
-                    "epoch": epoch,
-                }
+                info_dict.update(
+                    {
+                        "mark_translation_score": mark_translation_score,
+                    }
+                )
                 train_history["mark_translation_score"].append(info_dict)
-        if wandb:
-            wandb.log(info_dict)
+            if wandb:
+                wandb.log(info_dict)
     if plot_fig or save_fig:
         fig = px.line(title="Train and Test Loss with Mark Correct Score")
         fig.add_scatter(
@@ -1094,157 +1090,3 @@ def mark_translation(
                     print()
     accuracy = correct_count / total_marked
     return accuracy
-
-
-def verify_transform(
-    model: tl.HookedTransformer,
-    transformation: nn.Module,
-    test_loader: DataLoader[Tuple[Tensor, ...]],
-) -> Table:
-    """
-    Prints a comparison of cosine similarity and Euclidean distance between predicted
-    and actual tokens for a given test dataset. This function aims to evaluate the
-    transformation's effectiveness in translating source language tokens to target
-    language tokens by examining the relationship between accuracy and the cosine
-    similarity of embeddings.
-
-    Args:
-        model: A transformer model with hooked embeddings and a tokenizer.
-        transformation: The transformation module applied to source language embeddings.
-        test_loader: DataLoader for the test dataset containing tuples of source and
-                     target language embeddings.
-    """
-
-    # prints out for all the source language tokens in a test dataset that is created
-    # using within this confidence check python file (which has all the entries in order
-    # of cosine similarity to some randomly chosen word)
-
-    # we are doing this because if we find that accuracy decreases as we get further
-    # away in terms of cosine similarity from our randomly chosen word, then this
-    # increases the odds that our results are due to our rotation "cheating" having
-    # somewhat already seen the word. if we find that instead it remains the same, then
-    # this seems to increase the odds that we have found a general source to target
-    # language translation transformation
-
-    # Ensure model.tokenizer is not None and is callable to satisfy linter
-    if model.tokenizer is None or not callable(model.tokenizer):
-        raise ValueError("model.tokenizer is not set or not callable")
-
-    verify_results = {
-        "cos_sims": [],
-        "euc_dists": [],
-        "en_strs": [],
-        "fr_strs": [],
-        "top_pred_strs": [],
-    }
-    # for each batch in the test dataset
-    with t.no_grad():
-        for batch in test_loader:
-            # we get the embeddings for the source and target language
-            en_embeds, fr_embeds = batch
-            top_pred_embeds = transformation(en_embeds)
-
-            en_logits = einops.einsum(
-                en_embeds,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
-            en_strs: List[str] = model.tokenizer.batch_decode(
-                en_logits.squeeze().argmax(dim=-1)
-            )
-            fr_logits = einops.einsum(
-                fr_embeds,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
-            fr_strs: List[str] = model.tokenizer.batch_decode(
-                fr_logits.squeeze().argmax(dim=-1)
-            )
-            # transform it using our learned rotation
-            with t.no_grad():
-                top_pred_embeds = transformation(en_embeds)
-            # get the top predicted tokens
-            top_pred_logits = einops.einsum(
-                top_pred_embeds,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
-            top_pred_strs = model.tokenizer.batch_decode(
-                top_pred_logits.squeeze().argmax(dim=-1)
-            )
-            top_pred_strs = [
-                item if isinstance(item, str) else item[0] for item in top_pred_strs
-            ]
-            assert all(isinstance(item, str) for item in top_pred_strs)
-
-            # calculate the cosine similarity and euclidean distance between this
-            # predicted token and the actual target token
-            cos_sims = t.cosine_similarity(top_pred_embeds, fr_embeds, dim=-1).squeeze(
-                1
-            )
-            # cos_sims should be shape [batch] since we removed the pos dimension
-            euc_dists = t.pairwise_distance(top_pred_embeds, fr_embeds).squeeze(1)
-            # euc_dists should be shape [batch] since we removed the pos dimension
-
-            verify_results["en_strs"].extend(en_strs)
-            verify_results["fr_strs"].extend(fr_strs)
-            verify_results["top_pred_strs"].extend(top_pred_strs)
-            verify_results["cos_sims"].append(cos_sims)
-            verify_results["euc_dists"].append(euc_dists)
-
-    # aggregate results from all batches
-    verify_results["cos_sims"] = t.cat(verify_results["cos_sims"])
-    verify_results["euc_dists"] = t.cat(verify_results["euc_dists"])
-
-    # Create a rich table based on this
-    table = Table(title="Cosine Similarity and Euclidean Distance Comparisons")
-    table.add_column("Rank", style="bold magenta")
-    table.add_column("Source Word", justify="right", style="cyan", no_wrap=True)
-    table.add_column("Target Word", justify="right", style="green")
-    table.add_column("Pred Token", justify="right", style="magenta")
-    table.add_column("Cos Sims", justify="right", style="bright_yellow")
-    table.add_column("Euc Dist", justify="right", style="bright_yellow")
-
-    cos_sim_values = verify_results["cos_sims"].tolist()
-    euc_dist_values = verify_results["cos_sims"].tolist()
-    cos_sim_min, cos_sim_max = min(cos_sim_values), max(cos_sim_values)
-    euc_dist_min, euc_dist_max = min(euc_dist_values), max(euc_dist_values)
-
-    # Limit the number of displayed results
-    for rank, (en_str, fr_str, top_pred_str, cos_sim, euc_dist) in enumerate(
-        zip(
-            verify_results["en_strs"],
-            verify_results["fr_strs"],
-            verify_results["top_pred_strs"],
-            verify_results["cos_sims"],
-            verify_results["euc_dists"],
-        ),
-        1,
-    ):
-        cos_sim = cos_sim.item()
-        euc_dist = euc_dist.item()
-
-        # Gradient color for cosine similarity
-        cos_sim_color = calculate_gradient_color(cos_sim, cos_sim_min, cos_sim_max)
-        euc_dist_color = calculate_gradient_color(
-            euc_dist, euc_dist_min, euc_dist_max, reverse=True
-        )
-
-        en_str_styled = f"[plum3 on grey30]{en_str}[/plum3 on grey30]"
-        fr_str_styled = f"[plum3 on grey30]{fr_str}[/plum3 on grey30]"
-        if top_pred_str == fr_str:
-            top_pred_str_styled = f"[green on grey30]{top_pred_str}[/green on grey30]"
-        else:
-            top_pred_str_styled = f"[red on grey30]{top_pred_str}[/red on grey30]"
-        cos_sim_styled = f"[{cos_sim_color}]{cos_sim:.4f}[/{cos_sim_color}]"
-        euc_dist_styled = f"[{euc_dist_color}]{euc_dist:.4f}[/{euc_dist_color}]"
-        table.add_row(
-            str(rank),
-            en_str_styled,
-            fr_str_styled,
-            top_pred_str_styled,
-            cos_sim_styled,
-            euc_dist_styled,
-        )
-
-    return table

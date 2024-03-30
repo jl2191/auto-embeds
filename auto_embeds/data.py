@@ -1,6 +1,8 @@
 # Mapping of dataset names to their file locations
+import random
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import torch as t
 import transformer_lens as tl
@@ -9,14 +11,52 @@ from word2word import Word2word
 
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
+
+@dataclass(frozen=True)
+class OtherWords:
+    """Encapsulates the other words, their tokens, embeddings, cosine similarities, and
+    embeddings"""
+
+    words: List
+    toks: t.Tensor
+    embeds: t.Tensor
+
+
+@dataclass(frozen=True)
+class SelectedWord:
+    """Encapsulates a word, its token, embedding, cosine similarities, and Euclidean
+    distances."""
+
+    word: str
+    tok: t.Tensor
+    embed: t.Tensor
+    cos_sims: t.Tensor
+    euc_dists: t.Tensor
+    other_words: OtherWords
+
+
+@dataclass(frozen=True)
+class VerifyWordPairAnalysis:
+    """Holds analysis results for a word pair including embeddings and distances."""
+
+    src: SelectedWord
+    tgt: SelectedWord
+
+
 DATASETS = {
     # cc-cedict dataset
     "cc_cedict_zh_en_raw": repo_path_to_abs_path("datasets/cc-cedict/cedict_ts.u8"),
+    "cc_cedict_zh_en_extracted": repo_path_to_abs_path(
+        "datasets/cc-cedict/cc-cedict-zh-en-parsed.json"
+    ),
     "cc_cedict_zh_en_parsed": repo_path_to_abs_path(
         "datasets/cc-cedict/cc-cedict-zh-en-parsed.json"
     ),
     "cc_cedict_zh_en_filtered": repo_path_to_abs_path(
         "datasets/cc-cedict/cc-cedict-zh-en-filtered.json"
+    ),
+    "cc_cedict_zh_en_azure_validation": repo_path_to_abs_path(
+        "datasets/cc-cedict/cc-cedict-zh-en-azure-validation.json"
     ),
     # facebook muse en-fr dataset
     "muse_en_fr_raw": repo_path_to_abs_path("datasets/muse/en-fr/1_raw/en-fr.txt"),
@@ -48,11 +88,8 @@ DATASETS = {
     "muse_zh_en_filtered_test": repo_path_to_abs_path(
         "datasets/muse/zh-en/3_filtered/muse-zh-en-test.json"
     ),
-    "muse_zh_en_azure_validation_train": repo_path_to_abs_path(
-        "datasets/muse/zh-en/4_azure_validation/muse-zh-en-train.json"
-    ),
-    "muse_zh_en_azure_validation_test": repo_path_to_abs_path(
-        "datasets/muse/zh-en/4_azure_validation/muse-zh-en-test.json"
+    "muse_zh_en_azure_validation": repo_path_to_abs_path(
+        "datasets/muse/zh-en/4_azure_validation/muse-zh-en-azure-val.json"
     ),
     # azure dataset
     "azure_translator_bloom_zh_en_zh_only": repo_path_to_abs_path(

@@ -1,4 +1,5 @@
 # %%
+# %%
 import json
 import os
 
@@ -13,30 +14,24 @@ import plotly.express as px
 import scipy.stats as stats
 import torch as t
 import transformer_lens as tl
+import wandb
 from IPython.core.getipython import get_ipython
-from rich.console import Console
-
-# from rich.jupyter import print as richprint
-from rich.layout import Layout
-from rich.table import Table
 from torch.utils.data import DataLoader, TensorDataset
 
 from auto_embeds.data import get_dataset_path
 from auto_embeds.embed_utils import (
-    calc_cos_sim_acc,
     evaluate_accuracy,
     filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
     mark_translation,
+    tokenize_word_pairs,
     train_transform,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
 from auto_embeds.verify import (
     calc_tgt_is_closest_embed,
-    generate_top_word_pairs_table,
     plot_cosine_similarity_trend,
-    prepare_verify_analysis,
     test_cosine_similarity_difference,
     verify_transform,
     verify_transform_table_from_dict,
@@ -49,10 +44,10 @@ t.cuda.manual_seed(1)
 try:
     get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore
     get_ipython().run_line_magic("load_ext", "line_profiler")  # type: ignore
-    # get_ipython().run_line_magic("load_ext", "rich")  # type: ignore
     get_ipython().run_line_magic("autoreload", "2")  # type: ignore
 except Exception:
     pass
+
 
 # %% model setup
 # model = tl.HookedTransformer.from_pretrained_no_processing("mistral-7b")
@@ -79,7 +74,7 @@ all_word_pairs = filter_word_pairs(
     # capture_diff_case=True,
     # capture_space=True,
     capture_no_space=True,
-    print_pairs=True,
+    # print_pairs=True,
     print_number=True,
     # max_token_id=100_000,
     # most_common_english=True,
@@ -117,86 +112,72 @@ all_word_pairs = filter_word_pairs(
 if model.tokenizer is None or not callable(model.tokenizer):
     raise ValueError("model.tokenizer is not set or not callable")
 
-verify_analysis = prepare_verify_analysis(
-    model=model, all_word_pairs=all_word_pairs, random_seed=1
+random.seed(1)
+random.shuffle(all_word_pairs)
+word_pairs = all_word_pairs
+random_word_pair_index = random.randint(0, len(word_pairs) - 1)
+random_word_pair = word_pairs.pop(random_word_pair_index)
+random_word_src = random_word_pair[0]
+random_word_tgt = random_word_pair[1]
+print(f"random word pair is {random_word_pair}")
+
+# tokenize random word pair
+random_word_src_tok = model.tokenizer(
+    random_word_src, return_tensors="pt", add_special_tokens=False
+).data["input_ids"]
+random_word_tgt_tok = model.tokenizer(
+    random_word_tgt, return_tensors="pt", add_special_tokens=False
+).data["input_ids"]
+
+# embed random word pair
+random_word_src_embed = model.embed.W_E[random_word_src_tok].detach().clone().squeeze()
+random_word_tgt_embed = model.embed.W_E[random_word_tgt_tok].detach().clone().squeeze()
+random_word_src_embed = t.nn.functional.layer_norm(
+    random_word_src_embed, [model.cfg.d_model]
 )
-# %%
-# generate and display the top word pairs based on cosine similarity and euclidean
-# distance for both source and target words.
-table_cos_sim_src = generate_top_word_pairs_table(
-    model,
-    verify_analysis.src.word,
-    other_toks,
-    tgt_and_other_top_200_cos_sims.indices,
-    src_euc_dists,
-    random_word_src_and_other_embeds_cos_sims,
-    sort_by="cos_sim",
-    display_limit=30,
+random_word_tgt_embed = t.nn.functional.layer_norm(
+    random_word_tgt_embed, [model.cfg.d_model]
+)
+# these should have shape[d_model]
+
+# tokenize all the other word pairs
+src_toks, tgt_toks, src_mask, tgt_mask = tokenize_word_pairs(model, word_pairs)
+other_toks = t.cat((src_toks, tgt_toks), dim=0)
+
+# embed all the other word pairs as well
+src_embeds = model.embed.W_E[src_toks].detach().clone().squeeze()
+tgt_embeds = model.embed.W_E[tgt_toks].detach().clone().squeeze()
+src_embeds = t.nn.functional.layer_norm(src_embeds, [model.cfg.d_model])
+tgt_embeds = t.nn.functional.layer_norm(tgt_embeds, [model.cfg.d_model])
+other_embeds = t.cat((src_embeds, tgt_embeds), dim=0)
+
+
+random_word_src_and_other_embeds_cos_sims = t.cosine_similarity(
+    random_word_src_embed, other_embeds, dim=-1
+)  # this should return shape[31712]
+# random_word_src_embed has shape[1024]
+# other_embeds has shape[31712, 1024]
+random_word_tgt_and_other_embeds_cos_sims = t.cosine_similarity(
+    random_word_tgt_embed, other_embeds, dim=-1
+)  # this should return shape[31712]
+# Rank the cosine similarities and get the indices of the top 200
+src_and_other_top_200_cos_sims = t.topk(
+    random_word_src_and_other_embeds_cos_sims, 200, largest=True
+)
+tgt_and_other_top_200_cos_sims = t.topk(
+    random_word_tgt_and_other_embeds_cos_sims, 200, largest=True
 )
 
-# %%
-table_cos_sim_src = generate_top_word_pairs_table(
-    model,
-    random_word_src,
-    other_toks,
-    tgt_and_other_top_200_cos_sims.indices,
-    src_euc_dists,
-    random_word_src_and_other_embeds_cos_sims,
-    sort_by="cos_sim",
-    display_limit=30,
+# Calculate Euclidean distances
+src_euc_dists = t.pairwise_distance(
+    random_word_src_embed.unsqueeze(0), other_embeds, p=2
 )
-table_euc_dist_src = generate_top_word_pairs_table(
-    model,
-    random_word_src,
-    other_toks,
-    src_top_200_euc_dists.indices,
-    src_euc_dists,
-    random_word_src_and_other_embeds_cos_sims,
-    sort_by="euc_dist",
-    display_limit=30,
+tgt_euc_dists = t.pairwise_distance(
+    random_word_tgt_embed.unsqueeze(0), other_embeds, p=2
 )
-table_cos_sim_tgt = generate_top_word_pairs_table(
-    model,
-    random_word_tgt,
-    other_toks,
-    tgt_and_other_top_200_cos_sims.indices,
-    tgt_euc_dists,
-    random_word_tgt_and_other_embeds_cos_sims,
-    sort_by="cos_sim",
-    display_limit=30,
-)
-table_euc_dist_tgt = generate_top_word_pairs_table(
-    model,
-    random_word_tgt,
-    other_toks,
-    tgt_top_200_euc_dists.indices,
-    tgt_euc_dists,
-    random_word_tgt_and_other_embeds_cos_sims,
-    sort_by="euc_dist",
-    display_limit=30,
-)
-
-# print the tables
-# Create a layout with four columns for a 2x2 grid
-console = Console()
-layout = Layout()
-# Adjusting the ratio to create more gap between the top and bottom grids
-layout.split(Layout(name="top", ratio=1), Layout(name="bottom", ratio=10))
-layout["top"].split_row(
-    Layout(name="left_top", ratio=1), Layout(name="right_top", ratio=1)
-)
-layout["bottom"].split_row(
-    Layout(name="left_bottom", ratio=1), Layout(name="right_bottom", ratio=1)
-)
-
-# Assign tables to each quadrant
-layout["left_top"].update(table_cos_sim_src)
-layout["right_top"].update(table_euc_dist_src)
-layout["left_bottom"].update(table_cos_sim_tgt)
-layout["right_bottom"].update(table_euc_dist_tgt)
-
-# Print the layout to the console with minimal padding between columns
-# console.print(layout)
+# Rank the Euclidean distances and get the indices of the top 200
+src_top_200_euc_dists = t.topk(src_euc_dists, 200, largest=False)
+tgt_top_200_euc_dists = t.topk(tgt_euc_dists, 200, largest=False)
 
 # %%
 # Assuming src_toks and tgt_toks are tensors containing the token IDs for source and
@@ -259,27 +240,51 @@ test_dataset = TensorDataset(src_test_embeds, tgt_test_embeds)
 test_loader = DataLoader(test_dataset, batch_size=256)
 
 # %%
-# run = wandb.init(
-#     project="single_token_tests",
-# )
-
-# %%
 # translation_file = get_dataset_path("wikdict_en_fr_azure_validation")
 translation_file = get_dataset_path("cc_cedict_zh_en_azure_validation")
 
 transformation_names = [
     # "identity",
     # "translation",
-    # "linear_map",
+    "linear_map",
     # "biased_linear_map",
     # "uncentered_linear_map",
     # "biased_uncentered_linear_map",
     "rotation",
     # "biased_rotation",
-    # "uncentered_rotation",
+    "uncentered_rotation",
 ]
 
 for transformation_name in transformation_names:
+
+    print(f"{transformation_name}:")
+
+    run = wandb.init(
+        project="language-transformations",
+        notes="now hopefully logging plotly plot",
+        tags=[
+            "test",
+            # "all_transform",
+            # "actual",
+            # "en-fr",
+            "zh-en",
+        ],
+    )
+
+    config = wandb.config
+
+    config.update(
+        {
+            "model_name": model.cfg.model_name,
+            "transformation": transformation_name,
+            "layernorm": True,
+            "no_processing": True,
+            "batch_size": train_loader.batch_size,
+            "lr": 8e-5,
+            "n_epochs": 100,
+            "weight_decay": 1e-5,
+        }
+    )
 
     transform = None
     optim = None
@@ -288,7 +293,7 @@ for transformation_name in transformation_names:
         d_model,
         transformation=transformation_name,
         # optim_kwargs={"lr": 1e-4},
-        optim_kwargs={"lr": 8e-5, "weight_decay": 1e-5},
+        optim_kwargs={"lr": config.lr, "weight_decay": config.weight_decay},
     )
     loss_module = initialize_loss("cosine_similarity")
 
@@ -300,57 +305,76 @@ for transformation_name in transformation_names:
             transform=transform,
             optim=optim,
             loss_module=loss_module,
-            n_epochs=100,
+            n_epochs=config.n_epochs,
             plot_fig=False,
             azure_translations_path=translation_file,
             save_fig=True,
-            # wandb=wandb,
+            wandb=wandb,
         )
     else:
         print(f"nothing trained for {transformation_name}")
 
-    print(f"{transformation_name}:")
     accuracy = evaluate_accuracy(
         model,
         test_loader,
         transform,
         exact_match=False,
-        print_results=True,
+        print_results=False,
         print_top_preds=False,
     )
-    print(f"{transformation_name}:")
-    print(f"Correct Percentage: {accuracy * 100:.2f}%")
-    print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
     mark_translation_acc = mark_translation(
         model=model,
         transformation=transform,
         test_loader=test_loader,
         azure_translations_path=translation_file,
-        print_results=True,
+        print_results=False,
     )
 
-    print(f"Mark Translation Accuracy: {mark_translation_acc}")
+    verify_results_dict = verify_transform(
+        model=model,
+        transformation=transform,
+        test_loader=test_loader,
+    )
 
-# %%
+    cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
 
-verify_results_dict = verify_transform(
-    model=model,
-    transformation=transform,
-    test_loader=test_loader,
-)
+    wandb.log = {
+        "accuracy": accuracy,
+        "mark_translation_acc": mark_translation_acc,
+        "cos_sims_trend_plot": cos_sims_trend_plot,
+    }
+
+    wandb.finish()
 
 # %%
 verify_results_table = verify_transform_table_from_dict(verify_results_dict)
 
 # %%
-# verify_results_table
+cos_sims_trend_plot
 
 # %%
-plot_cosine_similarity_trend(verify_results_dict)
 
-# %%
+
+def test_cosine_similarity_difference(verify_results):
+    cos_sims = verify_results["cos_sims"]
+    first_25_cos_sims = cos_sims[:25].cpu()
+    last_25_cos_sims = cos_sims[-25:].cpu()
+
+    # Perform a two-sample t-test to check if there's a significant difference
+    t_stat, p_value = stats.ttest_ind(first_25_cos_sims, last_25_cos_sims)
+    print(f"T-statistic: {t_stat}, P-value: {p_value}")
+    if p_value < 0.05:
+        print(
+            "There is a significant difference between the first 25 and last 25 "
+            "cosine similarity values."
+        )
+    else:
+        print(
+            "There is no significant difference between the first 25 and last 25 "
+            "cosine similarity values."
+        )
+
+
+# Call the function with the verify_results_dict
 test_cosine_similarity_difference(verify_results_dict)
-
-# %%
-# what is the effect of layernorm to cos sims and euclidean distance?
