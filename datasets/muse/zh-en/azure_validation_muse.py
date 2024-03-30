@@ -20,7 +20,7 @@ def get_subscription_key():
 
 subscription_key = get_subscription_key()
 endpoint = "https://api.cognitive.microsofttranslator.com"
-path = "/dictionary/lookup?api-version=3.0&from=zh&to=en"
+path = "/dictionary/lookup?api-version=3.0&from=zh-Hant&to=en"
 
 headers = {
     "Ocp-Apim-Subscription-Key": subscription_key,

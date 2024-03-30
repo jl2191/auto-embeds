@@ -71,18 +71,18 @@ test_word_pairs = filter_word_pairs(
 )
 
 # %% saving
-# train_save_path = repo_path_to_abs_path(
-#     "datasets/muse/zh-en/3_filtered/muse-zh-en-train.json"
-# )
-# test_save_path = repo_path_to_abs_path(
-#     "datasets/muse/zh-en/3_filtered/muse-zh-en-test.json"
-# )
+train_save_path = repo_path_to_abs_path(
+    "datasets/muse/zh-en/3_filtered/muse-zh-en-train.json"
+)
+test_save_path = repo_path_to_abs_path(
+    "datasets/muse/zh-en/3_filtered/muse-zh-en-test.json"
+)
 
-# with open(train_save_path, "w", encoding="utf-8") as f:
-#     json.dump(train_word_pairs, f, ensure_ascii=False, indent=4)
+with open(train_save_path, "w", encoding="utf-8") as f:
+    json.dump(train_word_pairs, f, ensure_ascii=False, indent=4)
 
-# with open(test_save_path, "w", encoding="utf-8") as f:
-#     json.dump(test_word_pairs, f, ensure_ascii=False, indent=4)
+with open(test_save_path, "w", encoding="utf-8") as f:
+    json.dump(test_word_pairs, f, ensure_ascii=False, indent=4)
 
 # %% code for quick training if required (commented out by default)
 

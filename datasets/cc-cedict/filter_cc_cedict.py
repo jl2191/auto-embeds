@@ -19,8 +19,8 @@ from auto_embeds.embed_utils import (
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
-# model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
-model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
+model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
+# model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
 
 device = model.cfg.device
 d_model = model.cfg.d_model
@@ -49,12 +49,18 @@ word_pairs = filter_word_pairs(
     capture_no_space=True,
     print_pairs=True,
     print_number=True,
+    verbose_count=True,
     # max_token_id=200_000,
-    most_common_english=True,
-    most_common_french=True,
+    # most_common_english=True,
+    # most_common_french=True,
     # acceptable_english_overlap=0.9,
-    acceptable_french_overlap=0.8,
+    # acceptable_french_overlap=0.8,
 )
+filtered_save_path = repo_path_to_abs_path(
+    "datasets/cc-cedict/cc-cedict-zh-en-filtered.json"
+)
+with open(filtered_save_path, "w") as f:
+    json.dump(word_pairs, f, ensure_ascii=False, indent=4)
 
 random.seed(1)
 # all_en_fr_pairs.sort(key=lambda pair: pair[0])
@@ -122,7 +128,7 @@ for transformation_name in transformation_names:
         transformation=transformation_name,
         # optim_kwargs={"lr": 1e-4, "weight_decay": 1e-5},
         # optim_kwargs={"lr": 1e-4}
-        optim_kwargs={"lr": 2e-4}
+        optim_kwargs={"lr": 2e-4},
         # optim_kwargs={"lr": 1e-4, "weight_decay": 1e-5}
         # optim_kwargs={"lr": 5e-4}
         # optim_kwargs={"lr": 2e-4},
@@ -159,6 +165,8 @@ for transformation_name in transformation_names:
 
     if transformation_name == "rotation":
         with t.no_grad():
-            t.testing.assert_close(transform(t.eye(d_model, device=device)).det().abs(), 1)
+            t.testing.assert_close(
+                transform(t.eye(d_model, device=device)).det().abs(), 1
+            )
 
 # %%
