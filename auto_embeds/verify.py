@@ -1,5 +1,5 @@
 import random
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import einops
 import pandas as pd
@@ -19,9 +19,9 @@ from auto_embeds.data import (
     VerifyWordPairAnalysis,
     WordCategory,
     WordData,
+    tokenize_word_pairs,
 )
-from auto_embeds.embed_utils import tokenize_word_pairs
-from auto_embeds.utils.misc import calculate_gradient_color
+from auto_embeds.utils.misc import calculate_gradient_color, default_device
 
 
 def verify_transform(
@@ -203,7 +203,7 @@ def verify_transform_table_from_dict(verify_results: Dict[str, Any]) -> Table:
 def calc_tgt_is_closest_embed(
     model: tl.HookedTransformer,
     all_word_pairs: List[List[str]],
-    device: Optional[Union[str, t.device]] = None,
+    device: Union[str, t.device] = default_device,
 ) -> Dict[str, Union[str, List[str]]]:
     """
     Calculates the percentage of instances where the target language token is within
@@ -213,7 +213,7 @@ def calc_tgt_is_closest_embed(
         model: The model used for embedding and token decoding.
         all_word_pairs: A list of tuples containing source and target word pairs.
         device: The device on which to allocate tensors. If None, defaults to
-            model.cfg.device.
+            default_device
 
     Returns:
         A dictionary containing a summary of the results and detailed results for each
@@ -222,8 +222,6 @@ def calc_tgt_is_closest_embed(
     # Ensure model.tokenizer is not None and is callable to satisfy linter
     if model.tokenizer is None or not callable(model.tokenizer):
         raise ValueError("model.tokenizer is not set or not callable")
-    if device is None:
-        device = model.cfg.device
 
     correct_count_top_5 = 0
     correct_count_top_1 = 0
@@ -232,7 +230,6 @@ def calc_tgt_is_closest_embed(
     details = []
 
     src_toks, tgt_toks, _, _ = tokenize_word_pairs(model, all_word_pairs)
-    src_embeds = model.embed.W_E[src_toks].detach().clone()
 
     all_toks = t.cat([src_toks, tgt_toks], dim=0)
     all_embeds = model.embed.W_E[all_toks].detach().clone()
@@ -311,6 +308,7 @@ def generate_top_word_pairs_table(
     display_limit: int = 50,
     top_k: int = 200,
     exclude_identical: bool = False,
+    device: Union[str, t.device] = default_device,
 ) -> Table:
     """Generates a table of top word pairs based on a specified metric.
 
@@ -344,14 +342,14 @@ def generate_top_word_pairs_table(
         mask = t.ones(
             len(word_category_data.other.toks),
             dtype=t.bool,
-            device=model.cfg.device,
+            device=device,
         )
         mask[identical_token_index] = False
     else:
         mask = t.ones(
             len(word_category_data.other.toks),
             dtype=t.bool,
-            device=model.cfg.device,
+            device=device,
         )
 
     if sort_by == "cos_sim":
@@ -367,7 +365,8 @@ def generate_top_word_pairs_table(
 
     table = Table(
         show_header=True,
-        title=f"Closest tokens to [plum3 on grey23]{word_category_data.selected.words[0]}"
+        title=f"Closest tokens to [plum3 on grey23]"
+        "{word_category_data.selected.words[0]}"
         f"[/plum3 on grey23] sorted by {title_sort_by}",
     )
     table.add_column("Rank")
@@ -538,7 +537,7 @@ def prepare_verify_analysis(
     model: tl.HookedTransformer,
     all_word_pairs: List[List[str]],
     random_seed: int = 1,
-    device: Optional[Union[str, t.device]] = None,
+    device: Union[str, t.device] = default_device,
     keep_other_pair: bool = False,
     apply_ln: bool = False,
 ) -> VerifyWordPairAnalysis:
@@ -555,7 +554,7 @@ def prepare_verify_analysis(
         all_word_pairs: A collection of word pairs to be analyzed.
         random_seed: An integer used to seed the random number generator.
         device: The device on which to allocate tensors. If None, defaults to
-            model.cfg.device.
+            default_device.
         keep_other_pair: If True, includes the target token in src_other_toks and
             the source token in tgt_other_toks.
         apply_ln: If True, applies LayerNorm to all embeddings.
@@ -565,9 +564,6 @@ def prepare_verify_analysis(
     """
     if model.tokenizer is None or not callable(model.tokenizer):
         raise ValueError("model.tokenizer is not set or not callable")
-
-    if device is None:
-        device = model.cfg.device
 
     random.seed(random_seed)
     random.shuffle(all_word_pairs)

@@ -2,6 +2,9 @@
 import json
 import os
 
+from auto_embeds.data import filter_word_pairs, tokenize_word_pairs
+from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy, mark_translation
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -14,13 +17,8 @@ from IPython.core.getipython import get_ipython
 from torch.utils.data import DataLoader, TensorDataset
 
 from auto_embeds.embed_utils import (
-    calc_cos_sim_acc,
-    evaluate_accuracy,
-    filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
-    mark_translation,
-    tokenize_word_pairs,
     train_transform,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
@@ -60,14 +58,6 @@ split_index = int(len(word_pairs) * 0.97)
 
 train_en_fr_pairs = word_pairs[:split_index]
 test_en_fr_pairs = word_pairs[split_index:]
-
-# split_index = int(len(word_pairs) * 0.8)
-
-# test_split_start = int(len(word_pairs) * 0.4)
-# test_split_end = int(len(word_pairs) * 0.5)
-
-# test_en_fr_pairs = word_pairs[test_split_start:test_split_end]
-# train_en_fr_pairs = [word_pair for word_pair in word_pairs if word_pair not in test_en_fr_pairs]
 
 
 # %% filtering

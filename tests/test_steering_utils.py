@@ -1,5 +1,8 @@
 # %%
 import os
+from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy
+
+from auto_embeds.data import filter_word_pairs, tokenize_word_pairs
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -13,12 +16,8 @@ import transformer_lens as tl
 
 from auto_embeds.embed_utils import (
     initialize_transform_and_optim,
-    evaluate_accuracy,
     initialize_loss,
     train_transform,
-    calc_cos_sim_acc,
-    filter_word_pairs,
-    tokenize_word_pairs,
 )
 
 np.random.seed(1)

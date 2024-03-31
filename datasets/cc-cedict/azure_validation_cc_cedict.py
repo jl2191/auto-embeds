@@ -5,7 +5,7 @@ import os
 import requests
 import transformer_lens as tl
 
-from auto_embeds.embed_utils import filter_word_pairs
+from auto_embeds.data import filter_word_pairs
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
 

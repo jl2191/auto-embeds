@@ -258,6 +258,121 @@ class UncenteredRotationTransform(nn.Module):
         return self.rotation(x + self.center) - self.center
 
 
+class ManualMatMulModule(nn.Module):
+    """
+    Implements a module for applying a fixed matrix transformation to input tensors.
+
+    This is particularly useful for operations like fixed rotations or scalings that
+    do not change during the training process.
+
+    Args:
+        transform: A static matrix to apply to input tensors.
+
+    Attributes:
+        transform: Stores the transformation matrix as a fixed parameter.
+    """
+
+    def __init__(self, transform: Float[Tensor, "d_model d_model"]):
+        super().__init__()
+        # Initialize the transformation matrix as a non-trainable parameter.
+        self.transform = nn.Parameter(transform, requires_grad=False)
+
+    def forward(
+        self, x: Float[Tensor, "batch d_model"]
+    ) -> Float[Tensor, "batch d_model"]:
+        """
+        Applies the fixed matrix transformation to the input tensor.
+
+        Args:
+            x (Tensor): The input tensor to be transformed.
+
+        Returns:
+            Tensor: The tensor after applying the transformation.
+        """
+        # Perform matrix multiplication between input and transformation matrix.
+        return t.matmul(x, self.transform)
+
+
+class ManualRotateTranslateModule(nn.Module):
+    """
+    A module for applying a fixed rotation followed by a translation to input tensors.
+
+    This module is useful for operations that involve a rotation and a translation
+    that do not change during the training process, such as certain geometric
+    transformations.
+
+    Args:
+        rotation (Tensor): A static matrix representing the rotation.
+        translation (Tensor): A static vector representing the translation.
+
+    Attributes:
+        rotation (Parameter): Stores the rotation matrix as a fixed parameter.
+        translation (Parameter): Stores the translation vector as a fixed parameter.
+    """
+
+    def __init__(
+        self,
+        rotation: Float[Tensor, "d_model d_model"],
+        translation: Float[Tensor, "d_model"],
+    ):
+        super().__init__()
+        self.rotation = nn.Parameter(rotation, requires_grad=False)
+        self.translation = nn.Parameter(translation, requires_grad=False)
+
+    def forward(
+        self, x: Float[Tensor, "batch d_model"]
+    ) -> Float[Tensor, "batch d_model"]:
+        """
+        Applies the fixed rotation and translation to the input tensor.
+
+        Args:
+            x (Tensor): The input tensor to be transformed.
+
+        Returns:
+            Tensor: The tensor after applying the rotation and translation.
+        """
+        x_rotated = t.matmul(x, self.rotation)
+        x_translated = t.add(x_rotated, self.translation)
+        return x_translated
+
+
+class ManualMatAddModule(nn.Module):
+    """
+    Implements a module for applying a fixed addition transformation to input tensors.
+
+    This module is useful for operations that involve a fixed addition, such as
+    applying a constant bias that does not change during the training process.
+
+    Args:
+        transform (Tensor): A static tensor to be added to input tensors.
+
+    Attributes:
+        transform (Parameter): Stores the addition tensor as a fixed parameter.
+    """
+
+    def __init__(self, transform: Tensor):
+        """
+        Initializes the ManualMatAddModule with a fixed addition tensor.
+
+        Args:
+            transform (Tensor): The static tensor to be added to input tensors.
+        """
+        super().__init__()
+        self.transform = nn.Parameter(transform, requires_grad=False)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Applies the fixed addition transformation to the input tensor.
+
+        Args:
+            x (Tensor): The input tensor to be transformed.
+
+        Returns:
+            Tensor: The tensor after applying the addition.
+        """
+        return t.add(x, self.transform)
+
+
 # losses ===============================================================================
 
 

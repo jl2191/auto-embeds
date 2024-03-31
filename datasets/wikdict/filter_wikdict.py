@@ -2,6 +2,8 @@
 import json
 import os
 
+from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -11,7 +13,7 @@ import numpy as np
 import torch as t
 import transformer_lens as tl
 
-from auto_embeds.embed_utils import filter_word_pairs
+from auto_embeds.data import filter_word_pairs
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
 np.random.seed(1)
@@ -58,17 +60,15 @@ all_word_pairs = filter_word_pairs(
 
 # %% code for quick training if required (commented out by default)
 
-from auto_embeds.embed_utils import tokenize_word_pairs  # noqa: I001
+from auto_embeds.data import tokenize_word_pairs  # noqa: I001
 from torch.utils.data import DataLoader, TensorDataset
-from auto_embeds.embed_utils import mark_translation
+from auto_embeds.metrics import mark_translation
 import torch as t
 from auto_embeds.data import get_dataset_path
 from auto_embeds.embed_utils import (
     initialize_transform_and_optim,
     train_transform,
     initialize_loss,
-    evaluate_accuracy,
-    calc_cos_sim_acc,
 )
 
 random.seed(1)

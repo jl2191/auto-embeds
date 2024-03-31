@@ -2,16 +2,14 @@
 import json
 import os
 
+from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy, mark_translation
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
-import random
 
 import numpy as np
-import pandas as pd
-import plotly.express as px
-import scipy.stats as stats
 import torch as t
 import transformer_lens as tl
 from IPython.core.getipython import get_ipython
@@ -19,17 +17,12 @@ from rich.console import Console
 
 # from rich.jupyter import print as richprint
 from rich.layout import Layout
-from rich.table import Table
 from torch.utils.data import DataLoader, TensorDataset
 
-from auto_embeds.data import get_dataset_path
+from auto_embeds.data import filter_word_pairs, get_dataset_path
 from auto_embeds.embed_utils import (
-    calc_cos_sim_acc,
-    evaluate_accuracy,
-    filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
-    mark_translation,
     train_transform,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path

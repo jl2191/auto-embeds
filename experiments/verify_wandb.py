@@ -2,28 +2,23 @@
 import json
 import os
 
+from auto_embeds.metrics import evaluate_accuracy, mark_translation
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-import random
 
 import numpy as np
-import pandas as pd
-import plotly.express as px
-import scipy.stats as stats
 import torch as t
 import transformer_lens as tl
 import wandb
 from IPython.core.getipython import get_ipython
 from torch.utils.data import DataLoader, TensorDataset
 
-from auto_embeds.data import get_dataset_path
+from auto_embeds.data import filter_word_pairs, get_dataset_path
 from auto_embeds.embed_utils import (
-    evaluate_accuracy,
-    filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
-    mark_translation,
     train_transform,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
@@ -33,7 +28,6 @@ from auto_embeds.verify import (
     prepare_verify_analysis,
     test_cos_sim_difference,
     verify_transform,
-    verify_transform_table_from_dict,
 )
 
 ipython = get_ipython()
@@ -314,7 +308,7 @@ for transformation_name in transformation_names:
 # test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
 # print(test_cos_sim_diff)
 
-from auto_embeds.embed_utils import calc_canonical_angles
+from auto_embeds.metrics import calc_canonical_angles
 
 a_same = t.tensor([[1.0, 0.0], [0.0, 1.0]])
 b_same = t.tensor([[1.0, 0.0], [0.0, 1.0]])

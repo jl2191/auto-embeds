@@ -2,6 +2,8 @@
 import json
 import os
 
+from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -13,14 +15,10 @@ import transformer_lens as tl
 from IPython.core.getipython import get_ipython
 from torch.utils.data import DataLoader, TensorDataset
 
-from auto_embeds.data import get_dataset_path
+from auto_embeds.data import filter_word_pairs, get_dataset_path, tokenize_word_pairs
 from auto_embeds.embed_utils import (
-    calc_cos_sim_acc,
-    evaluate_accuracy,
-    filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
-    tokenize_word_pairs,
     train_transform,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path

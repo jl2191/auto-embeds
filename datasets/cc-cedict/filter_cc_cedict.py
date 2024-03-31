@@ -7,14 +7,12 @@ import random
 import torch as t
 import transformer_lens as tl
 from torch.utils.data import DataLoader, TensorDataset
+from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy
+from auto_embeds.data import filter_word_pairs, tokenize_word_pairs
 
 from auto_embeds.embed_utils import (
-    calc_cos_sim_acc,
-    evaluate_accuracy,
-    filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
-    tokenize_word_pairs,
     train_transform,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path

@@ -19,6 +19,9 @@ def get_default_device():
         return t.device("cpu")
 
 
+default_device = get_default_device()
+
+
 def repo_path_to_abs_path(path: str) -> Path:
     repo_abs_path = Path(__file__).parent.parent.parent.absolute()
     return repo_abs_path / path

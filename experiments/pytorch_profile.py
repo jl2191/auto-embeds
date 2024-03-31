@@ -1,6 +1,8 @@
 # %%
 import os
 
+from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -12,8 +14,6 @@ from IPython.core.getipython import get_ipython
 from torch.utils.data import DataLoader, TensorDataset
 
 from auto_embeds.embed_utils import (
-    calc_cos_sim_acc,
-    evaluate_accuracy,
     initialize_loss,
     initialize_transform_and_optim,
 )
