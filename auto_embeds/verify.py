@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import einops
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objs as go
 import torch as t
 import torch.nn as nn
 import transformer_lens as tl
@@ -13,7 +14,12 @@ from scipy import stats
 from torch import Tensor
 from torch.utils.data import DataLoader
 
-from auto_embeds.data import OtherWords, SelectedWord, VerifyWordPairAnalysis
+from auto_embeds.data import (
+    ExtendedWordData,
+    VerifyWordPairAnalysis,
+    WordCategory,
+    WordData,
+)
 from auto_embeds.embed_utils import tokenize_word_pairs
 from auto_embeds.utils.misc import calculate_gradient_color
 
@@ -196,10 +202,7 @@ def verify_transform_table_from_dict(verify_results: Dict[str, Any]) -> Table:
 
 def calc_tgt_is_closest_embed(
     model: tl.HookedTransformer,
-    src_toks: t.Tensor,
-    tgt_toks: t.Tensor,
-    other_toks: t.Tensor,
-    other_embeds: t.Tensor,
+    all_word_pairs: List[List[str]],
     device: Optional[Union[str, t.device]] = None,
 ) -> Dict[str, Union[str, List[str]]]:
     """
@@ -208,10 +211,7 @@ def calc_tgt_is_closest_embed(
 
     Args:
         model: The model used for embedding and token decoding.
-        src_toks: Source tokens tensor.
-        tgt_toks: Target tokens tensor.
-        other_toks: Other tokens tensor to compare against.
-        other_embeds: Embeddings of other tokens.
+        all_word_pairs: A list of tuples containing source and target word pairs.
         device: The device on which to allocate tensors. If None, defaults to
             model.cfg.device.
 
@@ -222,17 +222,20 @@ def calc_tgt_is_closest_embed(
     # Ensure model.tokenizer is not None and is callable to satisfy linter
     if model.tokenizer is None or not callable(model.tokenizer):
         raise ValueError("model.tokenizer is not set or not callable")
-
     if device is None:
         device = model.cfg.device
-    other_toks = other_toks.to(device)
-    src_toks = src_toks.to(device)
-    tgt_toks = tgt_toks.to(device)
+
     correct_count_top_5 = 0
     correct_count_top_1 = 0
-    total_count = len(src_toks)
+    total_count = len(all_word_pairs)
 
     details = []
+
+    src_toks, tgt_toks, _, _ = tokenize_word_pairs(model, all_word_pairs)
+    src_embeds = model.embed.W_E[src_toks].detach().clone()
+
+    all_toks = t.cat([src_toks, tgt_toks], dim=0)
+    all_embeds = model.embed.W_E[all_toks].detach().clone()
 
     for i, (src_tok, correct_tgt_tok) in enumerate(zip(src_toks, tgt_toks)):
         # Embed the source token
@@ -241,11 +244,12 @@ def calc_tgt_is_closest_embed(
 
         # Exclude the current source token from other_toks and other_embeds to avoid
         # self-matching
-        valid_indices = (other_toks != src_tok).squeeze(-1)
+        valid_indices = (all_toks != src_tok).squeeze(-1)
         # the mask valid_indices should be of shape [batch]
 
-        valid_other_toks = other_toks[valid_indices]
-        valid_other_embeds = other_embeds[valid_indices]
+        valid_other_toks = all_toks[valid_indices]
+        valid_other_embeds = all_embeds[valid_indices].squeeze(1)
+        # should now both be of shape [batch]
 
         # The cosine similarities between the source token and all the other tokens
         cos_sims = t.cosine_similarity(src_embed, valid_other_embeds, dim=-1)
@@ -302,82 +306,99 @@ def calc_tgt_is_closest_embed(
 
 def generate_top_word_pairs_table(
     model: tl.HookedTransformer,
-    random_word: str,
-    other_toks: t.Tensor,
-    top_indices: t.Tensor,
-    euc_dists: t.Tensor,
-    cos_sims: t.Tensor,
+    word_category_data: WordCategory,
     sort_by: str = "cos_sim",
     display_limit: int = 50,
+    top_k: int = 200,
+    exclude_identical: bool = False,
 ) -> Table:
-    """
-    Generates a table of top word pairs based on cosine similarity or Euclidean
-    distance, highlighting the relationship between a random word and other tokens.
-    Used to eyeball verify the quality of a learned embedding transformation. Example
-    usage in experiments/verify.py
+    """Generates a table of top word pairs based on a specified metric.
+
+    Highlights the relationship between a selected word and other tokens based on
+    either cosine similarity or Euclidean distance. It displays a limited number of
+    top entries as specified by the user. Optionally excludes identical tokens to
+    the selected word to ensure more meaningful comparisons.
 
     Args:
         model: The model used for token decoding.
-        random_word: The random word to compare against other tokens.
-        other_toks: Tensor of other tokens to compare.
-        top_indices: Indices of top tokens based on the chosen metric.
-        distances: Euclidean distances of other tokens from the random word.
-        cos_sims: Cosine similarities of other tokens with the random word.
+        selected_word_data: Data for the selected word including other words to compare.
         sort_by: Criterion for sorting the tokens ('cos_sim' or 'euc_dist').
         display_limit: Number of entries to display in the table.
+        top_k: The number of top entries to consider for any given metric.
+        exclude_identical: If True, identical tokens to the selected word are excluded.
 
     Returns:
         A rich Table object containing the ranked tokens, their cosine similarity,
-        and Euclidean distance to the random word.
+        and Euclidean distance to the selected word, excluding identical tokens if
+        specified.
     """
     # Ensure model.tokenizer is not None and is callable to satisfy linter
     if model.tokenizer is None or not callable(model.tokenizer):
         raise ValueError("model.tokenizer is not set or not callable")
 
+    # Preprocess tokens to exclude identical ones if requested
+    if exclude_identical:
+        identical_token_index = t.where(
+            word_category_data.other.toks == word_category_data.selected.toks
+        )[0]
+        mask = t.ones(
+            len(word_category_data.other.toks),
+            dtype=t.bool,
+            device=model.cfg.device,
+        )
+        mask[identical_token_index] = False
+    else:
+        mask = t.ones(
+            len(word_category_data.other.toks),
+            dtype=t.bool,
+            device=model.cfg.device,
+        )
+
     if sort_by == "cos_sim":
         title_sort_by = "Cosine Similarity"
+        sorted_indices = word_category_data.other.cos_sims.argsort(descending=True)[
+            :top_k
+        ]
     elif sort_by == "euc_dist":
         title_sort_by = "Euclidean Distance"
+        sorted_indices = word_category_data.other.euc_dists.argsort()[:top_k]
     else:
         raise ValueError("Supported sort functions are 'cos_sim' and 'euc_dist'")
 
     table = Table(
         show_header=True,
-        title=f"Closest tokens in {model.cfg.model_name} to "
-        f"[plum3 on grey23]{random_word}[/plum3 on grey23] sorted by {title_sort_by}",
+        title=f"Closest tokens to [plum3 on grey23]{word_category_data.selected.words[0]}"
+        f"[/plum3 on grey23] sorted by {title_sort_by}",
     )
     table.add_column("Rank")
     table.add_column("Token")
     table.add_column("Cos Sim")
     table.add_column("Euc Dist")
 
+    # Apply mask to exclude identical tokens if needed
+    other_toks = word_category_data.other.toks[sorted_indices][mask[sorted_indices]]
+    cos_sims = word_category_data.other.cos_sims[sorted_indices][mask[sorted_indices]]
+    euc_dists = word_category_data.other.euc_dists[sorted_indices][mask[sorted_indices]]
+
     # Determine the range of cosine similarities and euclidean distances for gradient
     # calculation
-    cos_sim_values = [cos_sims[index].item() for index in top_indices]
-    euc_dist_values = [euc_dists[index].item() for index in top_indices]
+    cos_sim_values = cos_sims.tolist()
+    euc_dist_values = euc_dists.tolist()
     cos_sim_min, cos_sim_max = min(cos_sim_values), max(cos_sim_values)
     euc_dist_min, euc_dist_max = min(euc_dist_values), max(euc_dist_values)
 
-    if sort_by == "cos_sim":
-        sorted_indices = sorted(
-            top_indices, key=lambda idx: cos_sims[idx].item(), reverse=True
-        )
-    elif sort_by == "euc_dist":
-        sorted_indices = sorted(top_indices, key=lambda idx: euc_dists[idx].item())
-    else:
-        raise ValueError("Supported sort functions are 'cos_sim' and 'euc_dist'")
-
     display_start = display_limit // 2
-    for rank, index in enumerate(sorted_indices):
+    for rank, (token, cos_sim, euc_dist) in enumerate(
+        zip(other_toks, cos_sims, euc_dists), 1
+    ):
         if rank == display_start + 1:
             table.add_row("...", "...", "...", "...")
-        elif rank > display_start and rank <= top_indices.shape[0] - display_start:
+        elif rank > display_start and rank <= len(other_toks) - display_start:
             continue
         else:
-            token = other_toks[index]
             word = model.tokenizer.decode(token)
-            cos_sim = cos_sims[index].item()
-            euc_dist = euc_dists[index].item()
+            cos_sim = cos_sim.item()
+            euc_dist = euc_dist.item()
 
             # Calculate gradient colors based on the value's magnitude
             cos_sim_color = calculate_gradient_color(cos_sim, cos_sim_min, cos_sim_max)
@@ -389,7 +410,6 @@ def generate_top_word_pairs_table(
             cos_sim_styled = f"[{cos_sim_color}]{cos_sim:.4f}[/{cos_sim_color}]"
             euc_dist_styled = f"[{euc_dist_color}]{euc_dist:.4f}[/{euc_dist_color}]"
             table.add_row(str(rank), word_styled, cos_sim_styled, euc_dist_styled)
-
     return table
 
 
@@ -437,12 +457,30 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
         custom_data=["Source Word", "Target Word", "Predicted Word"],
     )
 
-    fig.add_scatter(
-        x=ranks,
-        y=pd.Series(cos_sims).rolling(window=20).mean(),
-        mode="lines",
-        name="Moving Average",
-        line=dict(color="orange", width=2),
+    moving_avg = pd.Series(cos_sims).rolling(window=20).mean()
+    moving_std = pd.Series(cos_sims).rolling(window=20).std()
+
+    fig.add_trace(
+        go.Scatter(
+            x=ranks,
+            y=moving_avg,
+            mode="lines",
+            name="Moving Average",
+            line=dict(color="orange", width=2),
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=ranks + ranks[::-1],  # x, then x reversed
+            y=(moving_avg + moving_std).tolist()
+            + (moving_avg - moving_std).tolist()[::-1],  # upper, then lower reversed
+            fill="toself",
+            fillcolor="rgba(255,165,0,0.3)",
+            line=dict(color="rgba(255,255,255,0)"),
+            name="Error Band",
+            showlegend=False,
+        )
     )
 
     fig.update_traces(
@@ -460,19 +498,25 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
     return fig
 
 
-def test_cosine_similarity_difference(
+def test_cos_sim_difference(
     verify_results: Dict[str, t.Tensor], n: int = 25
-) -> None:
+) -> Dict[str, Union[float, bool, int]]:
     """Tests for difference in cosine similarity between first and last n entries
 
     This function performs a two-sample t-test on the first n and last n cosine
     similarity values in a verify_results dictionary to check for a significant
-    difference. Results are printed to the console.
+    difference. The results are returned in a dictionary.
 
     Args:
         verify_results: A dictionary containing the key "cos_sims" with a tensor of
         cosine similarity values as its value.
         n: The number of entries from the start and end to compare. Default is 25.
+
+    Returns:
+        A dictionary with keys "t-statistic", "P-value", "significant_difference"
+        and "n" where "significant_difference" is a boolean indicating whether the
+        difference is statistically significant, and "n" is the number of entries
+        compared from each end.
     """
     cos_sims = verify_results["cos_sims"]
     first_n_cos_sims = cos_sims[:n].cpu()
@@ -480,34 +524,50 @@ def test_cosine_similarity_difference(
 
     # Perform a two-sample t-test to check if there's a significant difference
     t_stat, p_value = stats.ttest_ind(first_n_cos_sims, last_n_cos_sims)
-    print(f"t-statistic: {t_stat}, P-value: {p_value}")
-    if p_value < 0.05:
-        print(
-            f"There is a significant difference between the first {n} and last {n} "
-            "cosine similarity values."
-        )
-    else:
-        print(
-            f"There is no significant difference between the first {n} and last {n} "
-            "cosine similarity values."
-        )
+    significant_difference = p_value < 0.05
+
+    return {
+        "t-statistic": t_stat,
+        "p-value": p_value,
+        "significant_difference": significant_difference,
+        "n": n,
+    }
 
 
 def prepare_verify_analysis(
-    model: tl.HookedTransformer, all_word_pairs: List[List[str]], random_seed: int = 1
-) -> VerifyWordPairAnalysisResult:
+    model: tl.HookedTransformer,
+    all_word_pairs: List[List[str]],
+    random_seed: int = 1,
+    device: Optional[Union[str, t.device]] = None,
+    keep_other_pair: bool = False,
+    apply_ln: bool = False,
+) -> VerifyWordPairAnalysis:
     """Prepares verify analysis by preparing embeddings and calculating distances.
+
+    This function calculates and stores the top indices for cosine similarities and
+    Euclidean distances within the WordCategory data structure, removing the need to
+    pass these indices separately to other functions. If keep_other_pair is True,
+    src_other_toks will include the tgt_tok and vice versa. If apply_ln is True,
+    applies LayerNorm to all embeddings.
 
     Args:
         model: The transformer model used for tokenization and generating embeddings.
         all_word_pairs: A collection of word pairs to be analyzed.
         random_seed: An integer used to seed the random number generator.
+        device: The device on which to allocate tensors. If None, defaults to
+            model.cfg.device.
+        keep_other_pair: If True, includes the target token in src_other_toks and
+            the source token in tgt_other_toks.
+        apply_ln: If True, applies LayerNorm to all embeddings.
 
     Returns:
-        A VerifyWordPairAnalysisResult object containing the analysis outcomes.
+        A VerifyWordPairAnalysis object containing the analysis outcomes.
     """
     if model.tokenizer is None or not callable(model.tokenizer):
         raise ValueError("model.tokenizer is not set or not callable")
+
+    if device is None:
+        device = model.cfg.device
 
     random.seed(random_seed)
     random.shuffle(all_word_pairs)
@@ -515,43 +575,90 @@ def prepare_verify_analysis(
     selected_pair = all_word_pairs.pop(selected_index)
     src_word, tgt_word = selected_pair
 
-    # Tokenize and embed the selected word pair
-    src_tok = model.tokenizer(
-        src_word, return_tensors="pt", add_special_tokens=False
-    ).data["input_ids"]
-    tgt_tok = model.tokenizer(
-        tgt_word, return_tensors="pt", add_special_tokens=False
-    ).data["input_ids"]
-    src_embed = model.embed.W_E[src_tok].detach().clone().squeeze()
-    tgt_embed = model.embed.W_E[tgt_tok].detach().clone().squeeze()
-
-    # Tokenize and embed all other word pairs
-    src_other_toks, tgt_other_toks, _, _ = tokenize_word_pairs(model, all_word_pairs)
-    src_other_embeds = model.embed.W_E[src_other_toks].detach().clone().squeeze()
-    tgt_other_embeds = model.embed.W_E[tgt_other_toks].detach().clone().squeeze()
-    other_embeds = t.cat((src_other_embeds, tgt_other_embeds), dim=0)
-
-    # Calculate cosine similarities and Euclidean distances
-    src_cos_sims = t.cosine_similarity(src_embed, other_embeds, dim=-1)
-    tgt_cos_sims = t.cosine_similarity(tgt_embed, other_embeds, dim=-1)
-    src_euc_dists = t.pairwise_distance(src_embed.unsqueeze(0), other_embeds, p=2)
-    tgt_euc_dists = t.pairwise_distance(tgt_embed.unsqueeze(0), other_embeds, p=2)
-
-    src_other_data = OtherWords(
-        words=all_word_pairs, toks=src_other_toks, embeds=other_embeds
+    # for our selected src and tgt word
+    ## tokenize
+    src_tok = (
+        model.tokenizer(src_word, return_tensors="pt", add_special_tokens=False)
+        .data["input_ids"]
+        .to(device)
     )
-    tgt_other_data = OtherWords(
-        words=all_word_pairs, toks=tgt_other_toks, embeds=other_embeds
+    tgt_tok = (
+        model.tokenizer(tgt_word, return_tensors="pt", add_special_tokens=False)
+        .data["input_ids"]
+        .to(device)
+    )
+    ## embed
+    src_embed = model.embed.W_E[src_tok].detach().clone().squeeze().to(device)
+    tgt_embed = model.embed.W_E[tgt_tok].detach().clone().squeeze().to(device)
+
+    if apply_ln:
+        src_embed = t.nn.functional.layer_norm(
+            src_embed, normalized_shape=[src_embed.size(-1)]
+        )
+        tgt_embed = t.nn.functional.layer_norm(
+            tgt_embed, normalized_shape=[tgt_embed.size(-1)]
+        )
+
+    src_other_words = [word_pair[0] for word_pair in all_word_pairs]
+    tgt_other_words = [word_pair[1] for word_pair in all_word_pairs]
+
+    if keep_other_pair:
+        src_other_words.append(tgt_word)
+        tgt_other_words.append(src_word)
+    # tokenize
+    src_other_toks = (
+        model.tokenizer(src_other_words, return_tensors="pt", add_special_tokens=False)
+        .data["input_ids"]
+        .to(device)
+    )
+    tgt_other_toks = (
+        model.tokenizer(tgt_other_words, return_tensors="pt", add_special_tokens=False)
+        .data["input_ids"]
+        .to(device)
+    )
+    ## embed
+    src_other_embeds = model.embed.W_E[src_other_toks].detach().clone().squeeze(1)
+    tgt_other_embeds = model.embed.W_E[tgt_other_toks].detach().clone().squeeze(1)
+    # both should have shape [batch, d_model]
+
+    if apply_ln:
+        src_other_embeds = t.nn.functional.layer_norm(
+            src_other_embeds,
+            normalized_shape=[src_other_embeds.size(-1)],
+        )
+        tgt_other_embeds = t.nn.functional.layer_norm(
+            tgt_other_embeds,
+            normalized_shape=[tgt_other_embeds.size(-1)],
+        )
+
+    # calculate cosine similarities and euclidean distances
+    src_cos_sims = t.cosine_similarity(src_embed, src_other_embeds, dim=-1)
+    tgt_cos_sims = t.cosine_similarity(tgt_embed, tgt_other_embeds, dim=-1)
+    src_euc_dists = t.pairwise_distance(src_embed.unsqueeze(0), src_other_embeds, p=2)
+    tgt_euc_dists = t.pairwise_distance(tgt_embed.unsqueeze(0), tgt_other_embeds, p=2)
+
+    src_other_data = ExtendedWordData(
+        words=src_other_words,
+        toks=src_other_toks,
+        embeds=src_other_embeds,
+        cos_sims=src_cos_sims,
+        euc_dists=src_euc_dists,
+    )
+    tgt_other_data = ExtendedWordData(
+        words=tgt_other_words,
+        toks=tgt_other_toks,
+        embeds=tgt_other_embeds,
+        cos_sims=tgt_cos_sims,
+        euc_dists=tgt_euc_dists,
     )
 
-    src_data = SelectedWord(
-        src_word, src_tok, src_embed, src_cos_sims, src_euc_dists, src_other_data
-    )
-    tgt_data = SelectedWord(
-        tgt_word, tgt_tok, tgt_embed, tgt_cos_sims, tgt_euc_dists, tgt_other_data
-    )
+    src_data = WordData(words=[src_word], toks=src_tok, embeds=src_embed)
+    tgt_data = WordData(words=[tgt_word], toks=tgt_tok, embeds=tgt_embed)
+
+    src_category = WordCategory(selected=src_data, other=src_other_data)
+    tgt_category = WordCategory(selected=tgt_data, other=tgt_other_data)
 
     return VerifyWordPairAnalysis(
-        src=src_data,
-        tgt=tgt_data,
+        src=src_category,
+        tgt=tgt_category,
     )

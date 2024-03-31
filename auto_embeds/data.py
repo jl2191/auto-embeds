@@ -13,34 +13,36 @@ from auto_embeds.utils.misc import repo_path_to_abs_path
 
 
 @dataclass(frozen=True)
-class OtherWords:
-    """Encapsulates the other words, their tokens, embeddings, cosine similarities, and
-    embeddings"""
+class WordData:
+    """Encapsulates common data for words, including tokens and embeddings."""
 
-    words: List
+    words: List[str]
     toks: t.Tensor
     embeds: t.Tensor
 
 
 @dataclass(frozen=True)
-class SelectedWord:
-    """Encapsulates a word, its token, embedding, cosine similarities, and Euclidean
-    distances."""
+class ExtendedWordData(WordData):
+    """Extends WordData with cosine similarities and Euclidean distances."""
 
-    word: str
-    tok: t.Tensor
-    embed: t.Tensor
     cos_sims: t.Tensor
     euc_dists: t.Tensor
-    other_words: OtherWords
+
+
+@dataclass(frozen=True)
+class WordCategory:
+    """Contains instances of WordData for selected, all, and ExtendedWordData for other."""
+
+    selected: WordData
+    other: ExtendedWordData
 
 
 @dataclass(frozen=True)
 class VerifyWordPairAnalysis:
-    """Holds analysis results for a word pair including embeddings and distances."""
+    """Contains two instances of WordCategory for src and tgt."""
 
-    src: SelectedWord
-    tgt: SelectedWord
+    src: WordCategory
+    tgt: WordCategory
 
 
 DATASETS = {

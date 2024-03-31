@@ -1,5 +1,4 @@
 # %%
-# %%
 import json
 import os
 
@@ -25,14 +24,14 @@ from auto_embeds.embed_utils import (
     initialize_loss,
     initialize_transform_and_optim,
     mark_translation,
-    tokenize_word_pairs,
     train_transform,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
 from auto_embeds.verify import (
     calc_tgt_is_closest_embed,
     plot_cosine_similarity_trend,
-    test_cosine_similarity_difference,
+    prepare_verify_analysis,
+    test_cos_sim_difference,
     verify_transform,
     verify_transform_table_from_dict,
 )
@@ -62,27 +61,7 @@ model_caches_folder = repo_path_to_abs_path("datasets/model_caches")
 token_caches_folder = repo_path_to_abs_path("datasets/token_caches")
 
 # %% filtering
-file_path = get_dataset_path("cc_cedict_zh_en_extracted")
-with open(file_path, "r") as file:
-    word_pairs = json.load(file)
-
-all_word_pairs = filter_word_pairs(
-    model,
-    word_pairs,
-    discard_if_same=True,
-    min_length=2,
-    # capture_diff_case=True,
-    # capture_space=True,
-    capture_no_space=True,
-    # print_pairs=True,
-    print_number=True,
-    # max_token_id=100_000,
-    # most_common_english=True,
-    # most_common_french=True,
-    # acceptable_overlap=0.8,
-)
-
-# file_path = get_dataset_path("wikdict_en_fr_extracted")
+# file_path = get_dataset_path("cc_cedict_zh_en_extracted")
 # with open(file_path, "r") as file:
 #     word_pairs = json.load(file)
 
@@ -90,18 +69,38 @@ all_word_pairs = filter_word_pairs(
 #     model,
 #     word_pairs,
 #     discard_if_same=True,
-#     min_length=5,
+#     min_length=2,
 #     # capture_diff_case=True,
-#     capture_space=True,
-#     # capture_no_space=True,
+#     # capture_space=True,
+#     capture_no_space=True,
 #     # print_pairs=True,
 #     print_number=True,
-#     verbose_count=True,
 #     # max_token_id=100_000,
 #     # most_common_english=True,
 #     # most_common_french=True,
 #     # acceptable_overlap=0.8,
 # )
+
+file_path = get_dataset_path("wikdict_en_fr_extracted")
+with open(file_path, "r") as file:
+    word_pairs = json.load(file)
+
+all_word_pairs = filter_word_pairs(
+    model,
+    word_pairs,
+    discard_if_same=True,
+    min_length=5,
+    # capture_diff_case=True,
+    capture_space=True,
+    # capture_no_space=True,
+    # print_pairs=True,
+    print_number=True,
+    verbose_count=True,
+    # max_token_id=100_000,
+    # most_common_english=True,
+    # most_common_french=True,
+    # acceptable_overlap=0.8,
+)
 
 # %%
 # we can be more confident in our results if we randomly select a word, and calculate
@@ -112,84 +111,28 @@ all_word_pairs = filter_word_pairs(
 if model.tokenizer is None or not callable(model.tokenizer):
     raise ValueError("model.tokenizer is not set or not callable")
 
-random.seed(1)
-random.shuffle(all_word_pairs)
-word_pairs = all_word_pairs
-random_word_pair_index = random.randint(0, len(word_pairs) - 1)
-random_word_pair = word_pairs.pop(random_word_pair_index)
-random_word_src = random_word_pair[0]
-random_word_tgt = random_word_pair[1]
-print(f"random word pair is {random_word_pair}")
-
-# tokenize random word pair
-random_word_src_tok = model.tokenizer(
-    random_word_src, return_tensors="pt", add_special_tokens=False
-).data["input_ids"]
-random_word_tgt_tok = model.tokenizer(
-    random_word_tgt, return_tensors="pt", add_special_tokens=False
-).data["input_ids"]
-
-# embed random word pair
-random_word_src_embed = model.embed.W_E[random_word_src_tok].detach().clone().squeeze()
-random_word_tgt_embed = model.embed.W_E[random_word_tgt_tok].detach().clone().squeeze()
-random_word_src_embed = t.nn.functional.layer_norm(
-    random_word_src_embed, [model.cfg.d_model]
-)
-random_word_tgt_embed = t.nn.functional.layer_norm(
-    random_word_tgt_embed, [model.cfg.d_model]
-)
-# these should have shape[d_model]
-
-# tokenize all the other word pairs
-src_toks, tgt_toks, src_mask, tgt_mask = tokenize_word_pairs(model, word_pairs)
-other_toks = t.cat((src_toks, tgt_toks), dim=0)
-
-# embed all the other word pairs as well
-src_embeds = model.embed.W_E[src_toks].detach().clone().squeeze()
-tgt_embeds = model.embed.W_E[tgt_toks].detach().clone().squeeze()
-src_embeds = t.nn.functional.layer_norm(src_embeds, [model.cfg.d_model])
-tgt_embeds = t.nn.functional.layer_norm(tgt_embeds, [model.cfg.d_model])
-other_embeds = t.cat((src_embeds, tgt_embeds), dim=0)
-
-
-random_word_src_and_other_embeds_cos_sims = t.cosine_similarity(
-    random_word_src_embed, other_embeds, dim=-1
-)  # this should return shape[31712]
-# random_word_src_embed has shape[1024]
-# other_embeds has shape[31712, 1024]
-random_word_tgt_and_other_embeds_cos_sims = t.cosine_similarity(
-    random_word_tgt_embed, other_embeds, dim=-1
-)  # this should return shape[31712]
-# Rank the cosine similarities and get the indices of the top 200
-src_and_other_top_200_cos_sims = t.topk(
-    random_word_src_and_other_embeds_cos_sims, 200, largest=True
-)
-tgt_and_other_top_200_cos_sims = t.topk(
-    random_word_tgt_and_other_embeds_cos_sims, 200, largest=True
-)
-
-# Calculate Euclidean distances
-src_euc_dists = t.pairwise_distance(
-    random_word_src_embed.unsqueeze(0), other_embeds, p=2
-)
-tgt_euc_dists = t.pairwise_distance(
-    random_word_tgt_embed.unsqueeze(0), other_embeds, p=2
-)
-# Rank the Euclidean distances and get the indices of the top 200
-src_top_200_euc_dists = t.topk(src_euc_dists, 200, largest=False)
-tgt_top_200_euc_dists = t.topk(tgt_euc_dists, 200, largest=False)
-
-# %%
-# Assuming src_toks and tgt_toks are tensors containing the token IDs for source and
-# target languages
-assert src_toks.shape == tgt_toks.shape
-assert other_toks.shape[0] == other_embeds.shape[0]
-
 tgt_is_closest_embed = calc_tgt_is_closest_embed(
-    model, src_toks, tgt_toks, other_toks, other_embeds
+    model,
+    all_word_pairs,
 )
 print(tgt_is_closest_embed["summary"])
 
+for result in tgt_is_closest_embed["details"][:20]:
+    print(result)
+
+
+# %%
+verify_learned = prepare_verify_analysis(
+    model=model,
+    all_word_pairs=all_word_pairs,
+    random_seed=1,
+    keep_other_pair=True,
+)
+
+assert verify_learned.src.other.toks.shape == verify_learned.tgt.other.toks.shape
+assert (
+    verify_learned.src.other.toks.shape[0] == verify_learned.tgt.other.embeds.shape[0]
+)
 
 # %%
 # Create test_embeds tensor from top 200 indices
@@ -203,7 +146,11 @@ print(tgt_is_closest_embed["summary"])
 
 # we index into src_embeds with these indices to get them, but we first need to
 # define the indices that we want
-src_cos_sims = t.cosine_similarity(random_word_src_embed, src_embeds, dim=-1)
+src_embed = verify_learned.src.selected.embeds
+src_embeds = verify_learned.src.other.embeds
+tgt_embeds = verify_learned.tgt.other.embeds
+
+src_cos_sims = t.cosine_similarity(src_embed, src_embeds, dim=-1)
 # shape [batch]
 
 src_top_200_cos_sims = t.topk(src_cos_sims, 200, largest=True)
@@ -240,18 +187,18 @@ test_dataset = TensorDataset(src_test_embeds, tgt_test_embeds)
 test_loader = DataLoader(test_dataset, batch_size=256)
 
 # %%
-# translation_file = get_dataset_path("wikdict_en_fr_azure_validation")
-translation_file = get_dataset_path("cc_cedict_zh_en_azure_validation")
+translation_file = get_dataset_path("wikdict_en_fr_azure_validation")
+# translation_file = get_dataset_path("cc_cedict_zh_en_azure_validation")
 
 transformation_names = [
-    # "identity",
-    # "translation",
+    "identity",
+    "translation",
     "linear_map",
-    # "biased_linear_map",
-    # "uncentered_linear_map",
-    # "biased_uncentered_linear_map",
+    "biased_linear_map",
+    "uncentered_linear_map",
+    "biased_uncentered_linear_map",
     "rotation",
-    # "biased_rotation",
+    "biased_rotation",
     "uncentered_rotation",
 ]
 
@@ -261,13 +208,13 @@ for transformation_name in transformation_names:
 
     run = wandb.init(
         project="language-transformations",
-        notes="now hopefully logging plotly plot",
+        notes="all_rotations",
         tags=[
             "test",
-            # "all_transform",
+            "all_transform",
             # "actual",
-            # "en-fr",
-            "zh-en",
+            "en-fr",
+            # "zh-en",
         ],
     )
 
@@ -279,9 +226,10 @@ for transformation_name in transformation_names:
             "transformation": transformation_name,
             "layernorm": True,
             "no_processing": True,
-            "batch_size": train_loader.batch_size,
+            "train_batch_size": len(train_loader),
+            "test_batch_size": len(test_loader),
             "lr": 8e-5,
-            "n_epochs": 100,
+            "n_epochs": 50,
             "weight_decay": 1e-5,
         }
     )
@@ -339,42 +287,149 @@ for transformation_name in transformation_names:
 
     cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
 
-    wandb.log = {
-        "accuracy": accuracy,
-        "mark_translation_acc": mark_translation_acc,
-        "cos_sims_trend_plot": cos_sims_trend_plot,
-    }
+    test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
+
+    wandb.log(
+        {
+            "mark_translation_acc": mark_translation_acc,
+            "cos_sims_trend_plot": cos_sims_trend_plot,
+            "test_cos_sim_diff": test_cos_sim_diff,
+        }
+    )
 
     wandb.finish()
 
 # %%
-verify_results_table = verify_transform_table_from_dict(verify_results_dict)
+# verify_results_table = verify_transform_table_from_dict(verify_results_dict)
 
 # %%
-cos_sims_trend_plot
+# cos_sims_trend_plot
 
 # %%
+# verify_results_dict = verify_transform(
+#     model=model,
+#     transformation=transform,
+#     test_loader=test_loader,
+# )
+# test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
+# print(test_cos_sim_diff)
 
+from auto_embeds.embed_utils import calc_canonical_angles
 
-def test_cosine_similarity_difference(verify_results):
-    cos_sims = verify_results["cos_sims"]
-    first_25_cos_sims = cos_sims[:25].cpu()
-    last_25_cos_sims = cos_sims[-25:].cpu()
+a_same = t.tensor([[1.0, 0.0], [0.0, 1.0]])
+b_same = t.tensor([[1.0, 0.0], [0.0, 1.0]])
 
-    # Perform a two-sample t-test to check if there's a significant difference
-    t_stat, p_value = stats.ttest_ind(first_25_cos_sims, last_25_cos_sims)
-    print(f"T-statistic: {t_stat}, P-value: {p_value}")
-    if p_value < 0.05:
-        print(
-            "There is a significant difference between the first 25 and last 25 "
-            "cosine similarity values."
-        )
-    else:
-        print(
-            "There is no significant difference between the first 25 and last 25 "
-            "cosine similarity values."
-        )
+a_45 = t.tensor([[1.0, 0.0], [0.0, 1.0]])
+b_45 = t.tensor(
+    [
+        [np.sqrt(2.0) / 2.0, np.sqrt(2.0) / 2.0],
+        [-np.sqrt(2.0) / 2.0, np.sqrt(2.0) / 2.0],
+    ],
+    dtype=t.float32,
+)
+canonical_angles_same = calc_canonical_angles(a_same, b_same)
+canonical_angles_45 = calc_canonical_angles(a_45, b_45)
 
+print(canonical_angles_same)
+print(canonical_angles_45)
 
-# Call the function with the verify_results_dict
-test_cosine_similarity_difference(verify_results_dict)
+verify_learned = prepare_verify_analysis(
+    model=model,
+    all_word_pairs=all_word_pairs,
+    random_seed=1,
+    keep_other_pair=False,
+)
+canonical_angles = calc_canonical_angles(
+    verify_learned.src.other.embeds, verify_learned.tgt.other.embeds
+)
+all_embeds = t.cat((verify_learned.src.other.embeds, verify_learned.tgt.other.embeds))
+
+verify_learned_ln = prepare_verify_analysis(
+    model=model,
+    all_word_pairs=all_word_pairs,
+    random_seed=1,
+    keep_other_pair=False,
+    apply_ln=True,
+)
+
+all_embeds_ln = t.cat(
+    (verify_learned_ln.src.other.embeds, verify_learned_ln.tgt.other.embeds)
+)
+
+canonical_angles_ln = calc_canonical_angles(
+    verify_learned_ln.src.other.embeds, verify_learned_ln.tgt.other.embeds
+)
+
+print(canonical_angles)
+print(canonical_angles_ln)
+
+print(max(canonical_angles))
+print(max(canonical_angles_ln))
+
+# %%
+import plotly.graph_objects as go
+
+# Prepare data for histogram plotting with more bins
+canonical_angles_hist = go.Histogram(
+    x=canonical_angles.cpu().numpy(),
+    name="Canonical Angles without LayerNorm",
+    opacity=0.75,
+    nbinsx=50,  # Increased number of bins
+)
+
+canonical_angles_ln_hist = go.Histogram(
+    x=canonical_angles_ln.cpu().numpy(),
+    name="Canonical Angles with LayerNorm",
+    opacity=0.75,
+    nbinsx=50,  # Increased number of bins
+)
+
+data = [canonical_angles_hist, canonical_angles_ln_hist]
+
+# Create the histogram plot with more detailed binning
+fig = go.Figure(data=data)
+fig.update_layout(
+    title="Distribution of Canonical Angles",
+    xaxis_title="Canonical Angle",
+    yaxis_title="Frequency",
+    legend_title="Type",
+    barmode="overlay",
+)
+fig.show()
+
+# %%
+import plotly.graph_objects as go
+
+# Calculate the norm of embeddings with and without LayerNorm
+norm_all_embeds = t.norm(all_embeds, dim=-1).cpu().numpy()
+norm_all_embeds_ln = t.norm(all_embeds_ln, dim=-1).cpu().numpy()
+
+# Prepare data for bar chart plotting
+norm_data = go.Bar(
+    x=list(range(len(norm_all_embeds))),
+    y=norm_all_embeds_ln,
+    name="Norm of Embeddings without LayerNorm",
+    marker=dict(color="blue"),
+    opacity=0.75,
+)
+
+norm_data_ln = go.Bar(
+    x=list(range(len(norm_all_embeds_ln))),
+    y=norm_all_embeds_ln,
+    name="Norm of Embeddings with LayerNorm",
+    marker=dict(color="red"),
+    opacity=0.75,
+)
+
+data = [norm_data, norm_data_ln]
+
+# Create the bar chart
+fig = go.Figure(data=data)
+fig.update_layout(
+    title="Norm of Embeddings with and without LayerNorm",
+    xaxis_title="Embedding Index",
+    yaxis_title="Norm",
+    legend_title="Embedding Type",
+    barmode="group",
+)
+fig.show()

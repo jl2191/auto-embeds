@@ -682,13 +682,16 @@ def filter_word_pairs(
 
 
 def tokenize_word_pairs(
-    model: tl.HookedTransformer, word_pairs: List[List[str]]
+    model: tl.HookedTransformer,
+    word_pairs: List[List[str]],
+    device: Optional[Union[str, t.device]] = None,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """Converts a list of word pairs into tensors suitable for model input.
 
     Args:
         model: A HookedTransformer model instance with a tokenizer.
         word_pairs: A list of word pairs, where each pair is a list of two strings.
+        device: The device to perform calculations on. Defaults to None.
 
     Returns:
         A tuple containing four tensors:
@@ -704,10 +707,14 @@ def tokenize_word_pairs(
     english_words, french_words = zip(*word_pairs)
     combined_texts = list(english_words) + list(french_words)
     # print(combined_texts)
+    if device is None:
+        device = model.cfg.device
 
     tokenized = model.tokenizer(
         combined_texts, padding="longest", return_tensors="pt", add_special_tokens=False
-    )
+    ).to(
+        device
+    )  # type: ignore
     num_pairs = tokenized.input_ids.shape[0]
     assert num_pairs % 2 == 0
     word_each = num_pairs // 2
@@ -1090,3 +1097,32 @@ def mark_translation(
                     print()
     accuracy = correct_count / total_marked
     return accuracy
+
+
+def calc_canonical_angles(A: t.Tensor, B: t.Tensor) -> t.Tensor:
+    """
+    Calculates the canonical angles between two matrices to measure their rotational
+    similarity.
+
+    Args:
+        A (t.Tensor): A tensor of shape (n, m), where n is the number of rows and m
+                      is the number of columns.
+        B (t.Tensor): A tensor of shape (n, p), where n is the number of rows and p
+                      is the number of columns.
+
+    Returns:
+        t.Tensor: Contains the cosines of the canonical angles, derived from the
+                  singular values of the SVD of QT_A * QB.
+    """
+    # Ensure A and B have the same number of rows
+    if A.shape[0] != B.shape[0]:
+        raise ValueError("Matrices A and B must have the same number of rows.")
+
+    # QR decomposition of A and B
+    QA, RA = t.linalg.qr(A)
+    QB, RB = t.linalg.qr(B)
+
+    # Compute SVD of the product of QA.T and QB
+    U, Sigma, Vt = t.linalg.svd(QA.T @ QB)
+
+    return Sigma

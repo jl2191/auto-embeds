@@ -82,8 +82,8 @@ all_word_pairs = filter_word_pairs(
     print_pairs=True,
     print_number=True,
     # max_token_id=100_000,
-    most_common_english=True,
-    most_common_french=True,
+    # most_common_english=True,
+    # most_common_french=True,
     # acceptable_overlap=0.8,
 )
 
@@ -126,6 +126,8 @@ test_fr_embeds = (
 # test_fr_embeds = t.nn.functional.layer_norm(
 #     model.embed.W_E[test_fr_toks].detach().clone(), [model.cfg.d_model]
 # )
+
+print(train_en_embeds.norm())
 
 print(train_en_embeds.shape)
 train_dataset = TensorDataset(train_en_embeds, train_fr_embeds)

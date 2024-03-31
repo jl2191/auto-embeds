@@ -4,6 +4,7 @@ import os
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 import random
 
@@ -37,7 +38,7 @@ from auto_embeds.verify import (
     generate_top_word_pairs_table,
     plot_cosine_similarity_trend,
     prepare_verify_analysis,
-    test_cosine_similarity_difference,
+    test_cos_sim_difference,
     verify_transform,
     verify_transform_table_from_dict,
 )
@@ -123,57 +124,34 @@ verify_analysis = prepare_verify_analysis(
 # %%
 # generate and display the top word pairs based on cosine similarity and euclidean
 # distance for both source and target words.
-table_cos_sim_src = generate_top_word_pairs_table(
-    model,
-    verify_analysis.src.word,
-    other_toks,
-    tgt_and_other_top_200_cos_sims.indices,
-    src_euc_dists,
-    random_word_src_and_other_embeds_cos_sims,
-    sort_by="cos_sim",
-    display_limit=30,
-)
-
 # %%
 table_cos_sim_src = generate_top_word_pairs_table(
     model,
-    random_word_src,
-    other_toks,
-    tgt_and_other_top_200_cos_sims.indices,
-    src_euc_dists,
-    random_word_src_and_other_embeds_cos_sims,
+    verify_analysis.src,
     sort_by="cos_sim",
     display_limit=30,
+    exclude_identical=True,
 )
 table_euc_dist_src = generate_top_word_pairs_table(
     model,
-    random_word_src,
-    other_toks,
-    src_top_200_euc_dists.indices,
-    src_euc_dists,
-    random_word_src_and_other_embeds_cos_sims,
+    verify_analysis.src,
     sort_by="euc_dist",
     display_limit=30,
+    exclude_identical=True,
 )
 table_cos_sim_tgt = generate_top_word_pairs_table(
     model,
-    random_word_tgt,
-    other_toks,
-    tgt_and_other_top_200_cos_sims.indices,
-    tgt_euc_dists,
-    random_word_tgt_and_other_embeds_cos_sims,
+    verify_analysis.tgt,
     sort_by="cos_sim",
     display_limit=30,
+    exclude_identical=True,
 )
 table_euc_dist_tgt = generate_top_word_pairs_table(
     model,
-    random_word_tgt,
-    other_toks,
-    tgt_top_200_euc_dists.indices,
-    tgt_euc_dists,
-    random_word_tgt_and_other_embeds_cos_sims,
+    verify_analysis.tgt,
     sort_by="euc_dist",
     display_limit=30,
+    exclude_identical=True,
 )
 
 # print the tables
@@ -181,7 +159,7 @@ table_euc_dist_tgt = generate_top_word_pairs_table(
 console = Console()
 layout = Layout()
 # Adjusting the ratio to create more gap between the top and bottom grids
-layout.split(Layout(name="top", ratio=1), Layout(name="bottom", ratio=10))
+layout.split(Layout(name="top", ratio=1), Layout(name="bottom", ratio=1))
 layout["top"].split_row(
     Layout(name="left_top", ratio=1), Layout(name="right_top", ratio=1)
 )
@@ -196,18 +174,29 @@ layout["left_bottom"].update(table_cos_sim_tgt)
 layout["right_bottom"].update(table_euc_dist_tgt)
 
 # Print the layout to the console with minimal padding between columns
-# console.print(layout)
+console.print(layout)
 
 # %%
-# Assuming src_toks and tgt_toks are tensors containing the token IDs for source and
-# target languages
-assert src_toks.shape == tgt_toks.shape
-assert other_toks.shape[0] == other_embeds.shape[0]
-
 tgt_is_closest_embed = calc_tgt_is_closest_embed(
-    model, src_toks, tgt_toks, other_toks, other_embeds
+    model,
+    all_word_pairs,
 )
 print(tgt_is_closest_embed["summary"])
+
+for result in tgt_is_closest_embed["details"][:20]:
+    print(result)
+
+# %%
+verify_learned = prepare_verify_analysis(
+    model=model,
+    all_word_pairs=all_word_pairs,
+    random_seed=1,
+    keep_other_pair=True,
+)
+assert verify_learned.src.other.toks.shape == verify_learned.tgt.other.toks.shape
+assert (
+    verify_learned.src.other.toks.shape[0] == verify_learned.tgt.other.embeds.shape[0]
+)
 
 
 # %%
@@ -222,7 +211,11 @@ print(tgt_is_closest_embed["summary"])
 
 # we index into src_embeds with these indices to get them, but we first need to
 # define the indices that we want
-src_cos_sims = t.cosine_similarity(random_word_src_embed, src_embeds, dim=-1)
+src_embed = verify_learned.src.selected.embeds
+src_embeds = verify_learned.src.other.embeds
+tgt_embeds = verify_learned.tgt.other.embeds
+
+src_cos_sims = t.cosine_similarity(src_embed, src_embeds, dim=-1)
 # shape [batch]
 
 src_top_200_cos_sims = t.topk(src_cos_sims, 200, largest=True)
@@ -270,11 +263,11 @@ translation_file = get_dataset_path("cc_cedict_zh_en_azure_validation")
 transformation_names = [
     # "identity",
     # "translation",
-    # "linear_map",
+    "linear_map",
     # "biased_linear_map",
     # "uncentered_linear_map",
     # "biased_uncentered_linear_map",
-    "rotation",
+    # "rotation",
     # "biased_rotation",
     # "uncentered_rotation",
 ]
@@ -315,7 +308,7 @@ for transformation_name in transformation_names:
         test_loader,
         transform,
         exact_match=False,
-        print_results=True,
+        # print_results=True,
         print_top_preds=False,
     )
     print(f"{transformation_name}:")
@@ -327,7 +320,7 @@ for transformation_name in transformation_names:
         transformation=transform,
         test_loader=test_loader,
         azure_translations_path=translation_file,
-        print_results=True,
+        # print_results=True,
     )
 
     print(f"Mark Translation Accuracy: {mark_translation_acc}")
@@ -350,7 +343,7 @@ verify_results_table = verify_transform_table_from_dict(verify_results_dict)
 plot_cosine_similarity_trend(verify_results_dict)
 
 # %%
-test_cosine_similarity_difference(verify_results_dict)
+test_cos_sim_difference(verify_result_dict)
 
 # %%
 # what is the effect of layernorm to cos sims and euclidean distance?
