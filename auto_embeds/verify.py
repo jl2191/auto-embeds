@@ -586,12 +586,13 @@ def prepare_verify_analysis(
     Returns:
         A VerifyWordPairAnalysis object containing the analysis outcomes.
     """
+    all_word_pairs_copy = all_word_pairs.copy()
     if model.tokenizer is None or not callable(model.tokenizer):
         raise ValueError("model.tokenizer is not set or not callable")
     random.seed(seed)
-    random.shuffle(all_word_pairs)
-    selected_index = random.randint(0, len(all_word_pairs) - 1)
-    selected_pair = all_word_pairs.pop(selected_index)
+    random.shuffle(all_word_pairs_copy)
+    selected_index = random.randint(0, len(all_word_pairs_copy) - 1)
+    selected_pair = all_word_pairs_copy.pop(selected_index)
     src_word, tgt_word = selected_pair
 
     # for our selected src and tgt word
@@ -618,8 +619,8 @@ def prepare_verify_analysis(
             tgt_embed, normalized_shape=[tgt_embed.size(-1)]
         )
 
-    src_other_words = [word_pair[0] for word_pair in all_word_pairs]
-    tgt_other_words = [word_pair[1] for word_pair in all_word_pairs]
+    src_other_words = [word_pair[0] for word_pair in all_word_pairs_copy]
+    tgt_other_words = [word_pair[1] for word_pair in all_word_pairs_copy]
 
     if keep_other_pair:
         src_other_words.append(tgt_word)
@@ -684,12 +685,19 @@ def prepare_verify_analysis(
 
 
 def prepare_verify_datasets(
-    verify_learning, batch_sizes=(64, 256), top_k=200, seed=None
+    verify_learning,
+    batch_sizes=(64, 256),
+    top_k=200,
+    seed=None,
+    top_k_selection_method="src_and_src",
 ):
     """
     Prepares training and testing datasets from embeddings, selecting top-k
     embeddings based on cosine similarity and allows for deterministic shuffling
-    with a specified seed.
+    with a specified seed. The selection can be based on the cosine similarities
+    between source-source embeddings, target-target embeddings, or selecting the
+    entire word pair based on top cosine similarity from a randomly chosen
+    source or target embedding.
 
     Args:
         verify_analysis: An object with source and target embeddings generated from
@@ -697,6 +705,11 @@ def prepare_verify_datasets(
         batch_sizes: A tuple with the batch sizes for training and testing datasets.
         top_k: Number of top embeddings to select based on cosine similarity.
         seed: Optional; A seed for deterministic shuffling using a torch generator.
+        top_k_selection_method: The procedure to use to select the embeddings to verify
+            with. src_and_src selects based on the cosine similarities of the source
+            embeddings, tgt_and_tgt for target embeddings, top_src and top_tgt for
+            selecting the entire word pair based on top cosine similarity from a
+            randomly chosen source or target embedding, respectively.
 
     Returns:
         A tuple with DataLoader objects for the training and testing datasets.
@@ -718,12 +731,53 @@ def prepare_verify_datasets(
     # the embeddings with the top 200 cos sims
     src_embed = verify_learning.src.selected.embeds
     src_embeds = verify_learning.src.other.embeds
+    tgt_embed = verify_learning.tgt.selected.embeds
     tgt_embeds = verify_learning.tgt.other.embeds
 
-    # Calculate cosine similarities and select top-k indices
-    src_cos_sims = t.cosine_similarity(src_embed, src_embeds, dim=-1)
-    src_top_k_cos_sims = t.topk(src_cos_sims, top_k, largest=True)
-    test_indices = src_top_k_cos_sims.indices
+    if top_k_selection_method == "src_and_src":
+        cos_sims = t.cosine_similarity(src_embed, src_embeds, dim=-1)
+        top_k_cos_sims = t.topk(cos_sims, top_k, largest=True)
+        test_indices = top_k_cos_sims.indices
+    elif top_k_selection_method == "tgt_and_tgt":
+        cos_sims = t.cosine_similarity(tgt_embed, tgt_embeds, dim=-1)
+        top_k_cos_sims = t.topk(cos_sims, top_k, largest=True)
+        test_indices = top_k_cos_sims.indices
+    elif top_k_selection_method in ["top_src", "top_tgt"]:
+        # Randomly select an embedding from src or tgt based on the selection
+        random_embed = src_embed if top_k_selection_method == "top_src" else tgt_embed
+        # get the top cosine similarities with both the src and tgt embeds
+        # as both the src and tgt embeds line up at this stage, the same index should
+        # give the corresponding word pair in the other tensor. as such, to get our
+        # indices, we first get the indices of our random_embed with all our other
+        # embeds.
+        random_embed_w_src_embeds_cos_sims = t.cosine_similarity(
+            random_embed, src_embeds, dim=-1
+        )
+        random_embed_w_tgt_embeds_cos_sims = t.cosine_similarity(
+            random_embed, tgt_embeds, dim=-1
+        )
+        random_embed_w_all_embeds_cos_sims = t.cat(
+            (random_embed_w_src_embeds_cos_sims, random_embed_w_tgt_embeds_cos_sims)
+        )
+        # get the indices of the top k cos sims for both src and tgt
+        _, indices = t.topk(
+            random_embed_w_all_embeds_cos_sims,
+            random_embed_w_all_embeds_cos_sims.shape[0],
+        )
+        # turn it into a list to get the correct indices for tgt embeds as they are
+        # offset by the src embeds
+        indices = indices.tolist()
+        indices = [
+            index - src_embeds.shape[0] if index >= src_embeds.shape[0] else index
+            for index in indices
+        ]
+        test_indices = t.tensor(indices)
+        test_indices = t.unique_consecutive(test_indices)[:top_k]
+    else:
+        raise ValueError(
+            "Invalid top_k_selection_method value. Accepted values are 'src_and_src', \
+                'tgt_and_tgt', 'top_src', 'top_tgt'."
+        )
 
     # Index into src and tgt embeds with these top-k indices to get test embeddings
     src_embeds_with_top_k_cos_sims = src_embeds[test_indices]
@@ -737,7 +791,7 @@ def prepare_verify_datasets(
     print(f"source test embeds shape: {src_test_embeds.shape}")
     print(f"target test embeds shape: {tgt_test_embeds.shape}")
 
-    # To get our train embeddings, we just need to remove the indices we used for the test
+    # For train embeddings, we just need to remove the indices we used for the test
     mask = t.ones(src_embeds.shape[0], dtype=t.bool, device=src_embeds.device)
     mask[test_indices] = False
 

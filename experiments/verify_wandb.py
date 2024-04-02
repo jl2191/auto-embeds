@@ -6,8 +6,8 @@ import os
 import numpy as np
 import torch as t
 import transformer_lens as tl
-import wandb
 
+import wandb
 from auto_embeds.data import filter_word_pairs, get_dataset_path
 from auto_embeds.embed_utils import (
     initialize_loss,
@@ -47,40 +47,45 @@ except Exception:
 # Configuration for experiments
 config = {
     "wandb": {
-        "notes": "after weird spike",
+        "notes": "instead of just selecting top k based on source word pair, will now \
+            will now select an entire given word pair based on whether it is source or \
+            target language that is closest.",
         "tags": [
             "2024-04-02",
-            "big run",
+            "actual",
+            # "test",
+            # "very test",
+            "new_top_k_algorithm",
         ],
     },
     "models": [
         "bloom-560m",
-        # "bloom-3b",
+        "bloom-3b",
         # "bloom-7b",
     ],
     "processings": [
-        # True,
+        True,
         False,
     ],
     "layernorms": [
-        # True,
+        True,
         False,
     ],
     "datasets": [
-        {
-            "name": "wikdict_en_fr_extracted",
-            "min_length": 5,
-            "capture_space": True,
-            "capture_no_space": False,
-            "mark_accuracy_path": "wikdict_en_fr_azure_validation",
-        },
         # {
-        #     "name": "muse_en_fr_extracted",
+        #     "name": "wikdict_en_fr_extracted",
         #     "min_length": 5,
         #     "capture_space": True,
         #     "capture_no_space": False,
-        #     "mark_accuracy_path": "muse_en_fr_azure_validation",
+        #     "mark_accuracy_path": "wikdict_en_fr_azure_validation",
         # },
+        {
+            "name": "muse_en_fr_extracted",
+            "min_length": 5,
+            "capture_space": True,
+            "capture_no_space": False,
+            "mark_accuracy_path": "muse_en_fr_azure_validation",
+        },
         {
             "name": "cc_cedict_zh_en_extracted",
             "min_length": 2,
@@ -109,11 +114,18 @@ config = {
         # "rotation_translation",
     ],
     "seeds": [1, 2, 3],
-    "n_epochs": [50],
+    "n_epochs": [100],
     "lr": [8e-5],
-    "weight_decay": [1e-5],
-    "batch_sizes": [(64, 256)],
+    "weight_decay": [0, 2e-5],
+    "train_batch_sizes": [128],
+    "test_batch_sizes": [256],
     "top_k": [200],
+    "top_k_selection_methods": [
+        # "src_and_src",
+        # "tgt_and_tgt",
+        # "top_src",
+        # "top_tgt",
+    ],
 }
 
 total_runs = 1
@@ -126,6 +138,7 @@ print(f"Total runs to be executed: {total_runs}")
 # %%
 # Main experiment loop
 last_loaded_model = None
+last_loaded_word_pairs = None
 model = None
 for (
     model_name,
@@ -133,24 +146,28 @@ for (
     layernorm,
     dataset_config,
     transformation,
-    seed,
     n_epoch,
     lr,
     weight_decay,
-    batch_size,
+    train_batch_size,
+    test_batch_size,
     top_k,
+    top_k_selection_method,
+    seed,
 ) in itertools.product(
     config["models"],
     config["processings"],
     config["layernorms"],
     config["datasets"],
     config["transformations"],
-    config["seeds"],
     config["n_epochs"],
     config["lr"],
     config["weight_decay"],
-    config["batch_sizes"],
+    config["train_batch_sizes"],
+    config["test_batch_sizes"],
     config["top_k"],
+    config["top_k_selection_methods"],
+    config["seeds"],
 ):
     # Model setup
     model_needs_loading = (
@@ -180,16 +197,26 @@ for (
     with open(file_path, "r") as file:
         word_pairs = json.load(file)
 
-    all_word_pairs = filter_word_pairs(
-        model,
-        word_pairs,
-        discard_if_same=True,
-        min_length=dataset_config["min_length"],
-        capture_space=dataset_config["capture_space"],
-        capture_no_space=dataset_config["capture_no_space"],
-        print_number=True,
-        verbose_count=True,
+    word_pairs_needs_loading = (
+        last_loaded_word_pairs is None
+        or last_loaded_word_pairs["dataset_config"] != dataset_config
     )
+    if word_pairs_needs_loading:
+        all_word_pairs = filter_word_pairs(
+            model,
+            word_pairs,
+            discard_if_same=True,
+            min_length=dataset_config["min_length"],
+            capture_space=dataset_config["capture_space"],
+            capture_no_space=dataset_config["capture_no_space"],
+            print_number=True,
+            verbose_count=True,
+        )
+        last_loaded_word_pairs = {
+            "dataset_config": dataset_config,
+            "filtered_word_pairs": all_word_pairs,
+        }
+        all_word_pairs = last_loaded_word_pairs["filtered_word_pairs"]
 
     # Prepare datasets
     verify_learning = prepare_verify_analysis(
@@ -198,12 +225,24 @@ for (
         seed=seed,
         keep_other_pair=True,
     )
+    print(seed)
+    print(verify_learning.src.selected.words)
 
     train_loader, test_loader = prepare_verify_datasets(
         verify_learning=verify_learning,
-        batch_sizes=batch_size,
+        batch_sizes=(train_batch_size, test_batch_size),
         top_k=top_k,
+        top_k_selection_method=top_k_selection_method,
     )
+    for item in test_loader:
+        en_embed, fr_embed = item
+        en_probs = model.unembed(en_embed).squeeze(0).softmax(-1).argmax(dim=-1)
+        fr_probs = model.unembed(fr_embed).squeeze(0).softmax(-1).argmax(dim=-1)
+        en_str = model.to_string(en_probs)
+        fr_str = model.to_string(fr_probs)
+        print("English Embedding String Representation:", en_str)
+        print("French Embedding String Representation:", fr_str)
+        break
 
     azure_translations_path = get_dataset_path(dataset_config["mark_accuracy_path"])
 
@@ -218,7 +257,8 @@ for (
         "n_epoch": n_epoch,
         "lr": lr,
         "weight_decay": weight_decay,
-        "batch_size": batch_size,
+        "train_batch_size": train_batch_size,
+        "test_batch_size": test_batch_size,
         "top_k": top_k,
     }
 
@@ -278,6 +318,8 @@ for (
     )
 
     cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
+
+    # cos_sims_trend_plot.show(config={"responsive": True, "autosize": True})
 
     test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
 
