@@ -2,6 +2,7 @@ import random
 from typing import Any, Dict, List, Tuple, Union
 
 import einops
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objs as go
@@ -12,7 +13,7 @@ from plotly.graph_objects import Figure
 from rich.table import Table
 from scipy import stats
 from torch import Tensor
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 
 from auto_embeds.data import (
     ExtendedWordData,
@@ -414,19 +415,23 @@ def generate_top_word_pairs_table(
 
 def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
     """
-    Plots the trend of cosine similarity across ranks with an average trend line.
+    Plots the trend of cosine similarity across ranks with the ability to toggle
+    between a line of best fit and a moving average trend line via the legend.
+    Rolling standard deviation for the moving average is shown when the moving average
+    is toggled on.
 
     Args:
         verify_results: A dictionary containing the cosine similarities, source words,
             target words, and predicted words.
 
     Returns:
-        A Plotly Figure object representing the trend of cosine similarity across ranks.
-
+        A Plotly Figure object representing the trend of cosine similarity across ranks
+        with interactive options for viewing the line of best fit and moving average.
     """
     cos_sims = verify_results["cos_sims"].tolist()
     ranks = list(range(len(cos_sims)))
 
+    # Prepare DataFrame for plotting
     df = pd.DataFrame(
         {
             "Rank": ranks,
@@ -437,6 +442,7 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
         }
     )
 
+    # Define hover template for detailed information on hover
     hover_template = (
         "Rank: %{x}<br>"
         "Cosine Similarity: %{y}<br>"
@@ -445,6 +451,7 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
         "Predicted Word: %{customdata[2]}"
     )
 
+    # Create the main line plot
     fig = px.line(
         df,
         x="Rank",
@@ -456,9 +463,22 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
         custom_data=["Source Word", "Target Word", "Predicted Word"],
     )
 
+    # Calculate and add line of best fit
+    slope, intercept = np.polyfit(ranks, cos_sims, 1)
+    line_of_best_fit = [slope * x + intercept for x in ranks]
+    fig.add_trace(
+        go.Scatter(
+            x=ranks,
+            y=line_of_best_fit,
+            mode="lines",
+            name="Line of Best Fit",
+            line=dict(color="red", width=2, dash="dash"),
+        )
+    )
+
+    # Calculate and add moving average
     moving_avg = pd.Series(cos_sims).rolling(window=20).mean()
     moving_std = pd.Series(cos_sims).rolling(window=20).std()
-
     fig.add_trace(
         go.Scatter(
             x=ranks,
@@ -469,26 +489,30 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
         )
     )
 
+    # Add rolling std dev for the moving average, shown with the moving average
     fig.add_trace(
         go.Scatter(
             x=ranks + ranks[::-1],  # x, then x reversed
             y=(moving_avg + moving_std).tolist()
-            + (moving_avg - moving_std).tolist()[::-1],  # upper, then lower reversed
+            + (moving_avg - moving_std).tolist()[::-1],
             fill="toself",
             fillcolor="rgba(255,165,0,0.3)",
             line=dict(color="rgba(255,255,255,0)"),
-            name="Error Band",
-            showlegend=False,
+            name="Rolling Std Dev",
+            visible="legendonly",  # Shown with moving average
         )
     )
 
+    # Update traces for better visualization
     fig.update_traces(
         marker=dict(size=8, color="skyblue", symbol="circle"),
         hovertemplate=hover_template,
     )
+
+    # Update layout for a cleaner look
     fig.update_layout(
-        title_text="Cosine Similarity Between Predicted and Target "
-        "Embeddings Across Ranks",
+        title_text="Cosine Similarity Between Predicted and "
+        "Target Embeddings Across Ranks",
         title_y=0.98,
         legend_orientation="h",
         legend_y=1.2,
@@ -536,7 +560,7 @@ def test_cos_sim_difference(
 def prepare_verify_analysis(
     model: tl.HookedTransformer,
     all_word_pairs: List[List[str]],
-    random_seed: int = 1,
+    seed: int = 1,
     device: Union[str, t.device] = default_device,
     keep_other_pair: bool = False,
     apply_ln: bool = False,
@@ -552,7 +576,7 @@ def prepare_verify_analysis(
     Args:
         model: The transformer model used for tokenization and generating embeddings.
         all_word_pairs: A collection of word pairs to be analyzed.
-        random_seed: An integer used to seed the random number generator.
+        seed: An integer used to seed the random number generator.
         device: The device on which to allocate tensors. If None, defaults to
             default_device.
         keep_other_pair: If True, includes the target token in src_other_toks and
@@ -564,8 +588,7 @@ def prepare_verify_analysis(
     """
     if model.tokenizer is None or not callable(model.tokenizer):
         raise ValueError("model.tokenizer is not set or not callable")
-
-    random.seed(random_seed)
+    random.seed(seed)
     random.shuffle(all_word_pairs)
     selected_index = random.randint(0, len(all_word_pairs) - 1)
     selected_pair = all_word_pairs.pop(selected_index)
@@ -658,3 +681,88 @@ def prepare_verify_analysis(
         src=src_category,
         tgt=tgt_category,
     )
+
+
+def prepare_verify_datasets(
+    verify_learning, batch_sizes=(64, 256), top_k=200, seed=None
+):
+    """
+    Prepares training and testing datasets from embeddings, selecting top-k
+    embeddings based on cosine similarity and allows for deterministic shuffling
+    with a specified seed.
+
+    Args:
+        verify_analysis: An object with source and target embeddings generated from
+            prepare_verify_analysis.
+        batch_sizes: A tuple with the batch sizes for training and testing datasets.
+        top_k: Number of top embeddings to select based on cosine similarity.
+        seed: Optional; A seed for deterministic shuffling using a torch generator.
+
+    Returns:
+        A tuple with DataLoader objects for the training and testing datasets.
+    """
+    # Create a generator for deterministic shuffling if seed is provided
+    generator = t.Generator()
+    if seed is not None:
+        generator.manual_seed(seed)
+
+    # This function initializes the random seeds for worker processes in DataLoader
+    def seed_worker(worker_seed):
+        worker_seed = t.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+
+    # Create test_embeds tensor from top 200 indices
+    # other_embeds is of shape [batch, d_model] at this point
+    # and src_top_200_cos_sim_indices is of shape [batch] and we want to select all the
+    # the embeddings with the top 200 cos sims
+    src_embed = verify_learning.src.selected.embeds
+    src_embeds = verify_learning.src.other.embeds
+    tgt_embeds = verify_learning.tgt.other.embeds
+
+    # Calculate cosine similarities and select top-k indices
+    src_cos_sims = t.cosine_similarity(src_embed, src_embeds, dim=-1)
+    src_top_k_cos_sims = t.topk(src_cos_sims, top_k, largest=True)
+    test_indices = src_top_k_cos_sims.indices
+
+    # Index into src and tgt embeds with these top-k indices to get test embeddings
+    src_embeds_with_top_k_cos_sims = src_embeds[test_indices]
+    tgt_embeds_with_top_k_cos_sims = tgt_embeds[test_indices]
+
+    # Unsqueeze to add an extra dimension for pos
+    src_test_embeds = src_embeds_with_top_k_cos_sims.unsqueeze(1)
+    tgt_test_embeds = tgt_embeds_with_top_k_cos_sims.unsqueeze(1)
+    # these should now be [batch, pos, d_model]
+
+    print(f"source test embeds shape: {src_test_embeds.shape}")
+    print(f"target test embeds shape: {tgt_test_embeds.shape}")
+
+    # To get our train embeddings, we just need to remove the indices we used for the test
+    mask = t.ones(src_embeds.shape[0], dtype=t.bool, device=src_embeds.device)
+    mask[test_indices] = False
+
+    src_train_embeds = src_embeds[mask].unsqueeze(1)
+    tgt_train_embeds = tgt_embeds[mask].unsqueeze(1)
+    # these should now be [batch, pos, d_model]
+
+    print(f"source train embeds shape: {src_train_embeds.shape}")
+    print(f"target train embeds shape: {tgt_train_embeds.shape}")
+
+    # Prepare DataLoader objects for training and testing datasets
+    train_dataset = TensorDataset(src_train_embeds, tgt_train_embeds)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_sizes[0],
+        shuffle=True,
+        worker_init_fn=seed_worker,
+        generator=generator,
+    )
+    test_dataset = TensorDataset(src_test_embeds, tgt_test_embeds)
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_sizes[1],
+        worker_init_fn=seed_worker,
+        generator=generator,
+    )
+
+    return train_loader, test_loader
