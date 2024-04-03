@@ -323,7 +323,6 @@ def calc_canonical_angles(A: t.Tensor, B: t.Tensor) -> t.Tensor:
         t.Tensor: Contains the cosines of the canonical angles, derived from the
                   singular values of the SVD of QT_A * QB.
     """
-    print("hello")
 
     # Adjust A and B to 2D if they are 3D by squeezing the positional dimension
     if A.ndim == 3:
