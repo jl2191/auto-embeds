@@ -81,20 +81,11 @@ def verify_transform(
             # we get the embeddings for the source and target language
             en_embeds, fr_embeds = batch
             top_pred_embeds = transformation(en_embeds)
-
-            en_logits = einops.einsum(
-                en_embeds,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
+            en_logits = model.unembed(en_embeds)
             en_strs: List[str] = model.tokenizer.batch_decode(
                 en_logits.squeeze().argmax(dim=-1)
             )
-            fr_logits = einops.einsum(
-                fr_embeds,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
+            fr_logits = model.unembed(fr_embeds)
             fr_strs: List[str] = model.tokenizer.batch_decode(
                 fr_logits.squeeze().argmax(dim=-1)
             )
@@ -102,11 +93,7 @@ def verify_transform(
             with t.no_grad():
                 top_pred_embeds = transformation(en_embeds)
             # get the top predicted tokens
-            top_pred_logits = einops.einsum(
-                top_pred_embeds,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
+            top_pred_logits = model.unembed(top_pred_embeds)
             top_pred_strs = model.tokenizer.batch_decode(
                 top_pred_logits.squeeze().argmax(dim=-1)
             )
@@ -563,15 +550,13 @@ def prepare_verify_analysis(
     seed: int = 1,
     device: Union[str, t.device] = default_device,
     keep_other_pair: bool = False,
-    apply_ln: bool = False,
 ) -> VerifyWordPairAnalysis:
     """Prepares verify analysis by preparing embeddings and calculating distances.
 
     This function calculates and stores the top indices for cosine similarities and
     Euclidean distances within the WordCategory data structure, removing the need to
     pass these indices separately to other functions. If keep_other_pair is True,
-    src_other_toks will include the tgt_tok and vice versa. If apply_ln is True,
-    applies LayerNorm to all embeddings.
+    src_other_toks will include the tgt_tok and vice versa.
 
     Args:
         model: The transformer model used for tokenization and generating embeddings.
@@ -581,7 +566,6 @@ def prepare_verify_analysis(
             default_device.
         keep_other_pair: If True, includes the target token in src_other_toks and
             the source token in tgt_other_toks.
-        apply_ln: If True, applies LayerNorm to all embeddings.
 
     Returns:
         A VerifyWordPairAnalysis object containing the analysis outcomes.
@@ -608,16 +592,8 @@ def prepare_verify_analysis(
         .to(device)
     )
     ## embed
-    src_embed = model.embed.W_E[src_tok].detach().clone().squeeze().to(device)
-    tgt_embed = model.embed.W_E[tgt_tok].detach().clone().squeeze().to(device)
-
-    if apply_ln:
-        src_embed = t.nn.functional.layer_norm(
-            src_embed, normalized_shape=[src_embed.size(-1)]
-        )
-        tgt_embed = t.nn.functional.layer_norm(
-            tgt_embed, normalized_shape=[tgt_embed.size(-1)]
-        )
+    src_embed = model.embed(src_tok).detach().clone().squeeze()
+    tgt_embed = model.embed(tgt_tok).detach().clone().squeeze()
 
     src_other_words = [word_pair[0] for word_pair in all_word_pairs_copy]
     tgt_other_words = [word_pair[1] for word_pair in all_word_pairs_copy]
@@ -637,19 +613,9 @@ def prepare_verify_analysis(
         .to(device)
     )
     ## embed
-    src_other_embeds = model.embed.W_E[src_other_toks].detach().clone().squeeze(1)
-    tgt_other_embeds = model.embed.W_E[tgt_other_toks].detach().clone().squeeze(1)
+    src_other_embeds = model.embed(src_other_toks).detach().clone().squeeze(1)
+    tgt_other_embeds = model.embed(tgt_other_toks).detach().clone().squeeze(1)
     # both should have shape [batch, d_model]
-
-    if apply_ln:
-        src_other_embeds = t.nn.functional.layer_norm(
-            src_other_embeds,
-            normalized_shape=[src_other_embeds.size(-1)],
-        )
-        tgt_other_embeds = t.nn.functional.layer_norm(
-            tgt_other_embeds,
-            normalized_shape=[tgt_other_embeds.size(-1)],
-        )
 
     # calculate cosine similarities and euclidean distances
     src_cos_sims = t.cosine_similarity(src_embed, src_other_embeds, dim=-1)

@@ -101,12 +101,11 @@ def get_most_similar_embeddings(
 ) -> Dict[int, Any]:
     assert not (apply_embed and apply_unembed), "Can't apply both embed and unembed"
     results = {}
+    print(out.shape)
     out = out.unsqueeze(0).unsqueeze(0) if out.ndim == 1 else out
     out = model.ln_final(out) if apply_ln_final else out
     if apply_embed:
-        unembeded = einsum(
-            out, model.embed.W_E, "batch pos d_model, vocab d_model -> batch pos vocab"
-        )
+        unembeded = model.embed(out).squeeze(1)
     elif apply_unembed:
         unembeded = model.unembed(out)
     else:

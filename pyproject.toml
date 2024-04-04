@@ -33,6 +33,7 @@ tiktoken = "^0.6.0"
 levenshtein = "^0.25.0"
 rich = {extras = ["jupyter"], version = "^13.7.1"}
 scalene = "^1.5.38"
+seaborn = "^0.13.2"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.3.3"

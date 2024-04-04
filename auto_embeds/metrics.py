@@ -109,25 +109,13 @@ def evaluate_accuracy(
         total_count = 0
         for batch in test_loader:
             en_embeds, fr_embeds = batch
-            en_logits = einops.einsum(
-                en_embeds,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
+            en_logits = model.unembed(en_embeds)
             en_strs: List[str] = model.to_str_tokens(en_logits.argmax(dim=-1))  # type: ignore
-            fr_logits = einops.einsum(
-                fr_embeds,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
+            fr_logits = model.unembed(fr_embeds)
             fr_strs: List[str] = model.to_str_tokens(fr_logits.argmax(dim=-1))  # type: ignore
             with t.no_grad():
                 pred = transformation(en_embeds)
-            pred_logits = einops.einsum(
-                pred,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
+            pred_logits = model.unembed(pred)
             pred_top_strs = model.to_str_tokens(pred_logits.argmax(dim=-1))
             pred_top_strs = [
                 item if isinstance(item, str) else item[0] for item in pred_top_strs
@@ -232,29 +220,17 @@ def mark_translation(
     with t.no_grad():
         for batch in test_loader:
             en_embeds, fr_embeds = batch
-            en_logits = einops.einsum(
-                en_embeds,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
+            en_logits = model.unembed(en_embeds)
             en_strs: List[str] = model.tokenizer.batch_decode(
                 en_logits.squeeze().argmax(dim=-1)
             )
-            fr_logits = einops.einsum(
-                fr_embeds,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
+            fr_logits = model.unembed(fr_embeds)
             fr_strs: List[str] = model.tokenizer.batch_decode(
                 fr_logits.squeeze().argmax(dim=-1)
             )
             with t.no_grad():
                 pred = transformation(en_embeds)
-            pred_logits = einops.einsum(
-                pred,
-                model.embed.W_E,
-                "batch pos d_model, d_vocab d_model -> batch pos d_vocab",
-            )
+            pred_logits = model.unembed(pred)
             pred_top_strs = model.tokenizer.batch_decode(
                 pred_logits.squeeze().argmax(dim=-1)
             )

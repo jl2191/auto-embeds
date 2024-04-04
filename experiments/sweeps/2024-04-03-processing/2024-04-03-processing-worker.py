@@ -47,12 +47,12 @@ except Exception:
 # Configuration for experiments
 config = {
     "wandb": {
-        "notes": "using transformerlens embed and unembed",
+        "notes": "instead of just selecting top k based on source word pair, will now \
+            will now select an entire given word pair based on whether it is source or \
+            target language that is closest.",
         "tags": [
             "2024-04-02",
-            "test",
-            "tl_embed_unembed",
-            # "embed_or_W_E",
+            "actual",
             # "test",
             # "very test",
             # "new_top_k_algorithm",
@@ -61,11 +61,15 @@ config = {
     },
     "models": [
         "bloom-560m",
-        # "bloom-3b",
+        "bloom-3b",
         # "bloom-7b",
     ],
     "processings": [
         True,
+        False,
+    ],
+    "layernorms": [
+        # True,
         False,
     ],
     "datasets": [
@@ -76,13 +80,13 @@ config = {
             "capture_no_space": False,
             "mark_accuracy_path": "wikdict_en_fr_azure_validation",
         },
-        # {
-        #     "name": "muse_en_fr_extracted",
-        #     "min_length": 5,
-        #     "capture_space": True,
-        #     "capture_no_space": False,
-        #     "mark_accuracy_path": "muse_en_fr_azure_validation",
-        # },
+        {
+            "name": "muse_en_fr_extracted",
+            "min_length": 5,
+            "capture_space": True,
+            "capture_no_space": False,
+            "mark_accuracy_path": "muse_en_fr_azure_validation",
+        },
         {
             "name": "cc_cedict_zh_en_extracted",
             "min_length": 2,
@@ -90,13 +94,13 @@ config = {
             "capture_no_space": True,
             "mark_accuracy_path": "cc_cedict_zh_en_azure_validation",
         },
-        # {
-        #     "name": "muse_zh_en_extracted_train",
-        #     "min_length": 2,
-        #     "capture_space": False,
-        #     "capture_no_space": True,
-        #     "mark_accuracy_path": "muse_zh_en_azure_validation",
-        # },
+        {
+            "name": "muse_zh_en_extracted_train",
+            "min_length": 2,
+            "capture_space": False,
+            "capture_no_space": True,
+            "mark_accuracy_path": "muse_zh_en_azure_validation",
+        },
     ],
     "transformations": [
         # "identity",
@@ -111,11 +115,11 @@ config = {
         # "rotation_translation",
     ],
     "seeds": [1, 2, 3],
-    "n_epochs": [150],
+    "n_epochs": [100],
     "lr": [8e-5],
     "weight_decay": [
         0,
-        # 2e-5,
+        #  2e-5,
     ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
@@ -143,6 +147,7 @@ model = None
 for (
     model_name,
     processing,
+    layernorm,
     dataset_config,
     transformation,
     n_epoch,
@@ -156,6 +161,7 @@ for (
 ) in itertools.product(
     config["models"],
     config["processings"],
+    config["layernorms"],
     config["datasets"],
     config["transformations"],
     config["n_epochs"],
@@ -224,7 +230,7 @@ for (
         keep_other_pair=True,
     )
     print(seed)
-    print(verify_learning.src.other.words)
+    print(verify_learning.src.selected.words)
 
     train_loader, test_loader = prepare_verify_datasets(
         verify_learning=verify_learning,
@@ -232,12 +238,22 @@ for (
         top_k=top_k,
         top_k_selection_method=top_k_selection_method,
     )
+    for item in test_loader:
+        en_embed, fr_embed = item
+        en_probs = model.unembed(en_embed).squeeze(0).softmax(-1).argmax(dim=-1)
+        fr_probs = model.unembed(fr_embed).squeeze(0).softmax(-1).argmax(dim=-1)
+        en_str = model.to_string(en_probs)
+        fr_str = model.to_string(fr_probs)
+        print("English Embedding String Representation:", en_str)
+        print("French Embedding String Representation:", fr_str)
+        break
 
     azure_translations_path = get_dataset_path(dataset_config["mark_accuracy_path"])
 
     run_config = {
         "model_name": model_name,
         "processing": processing,
+        "layernorm": layernorm,
         "dataset_name": dataset_name,
         **dataset_config,
         "transformation": transformation,
