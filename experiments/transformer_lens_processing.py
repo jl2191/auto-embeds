@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 import seaborn as sns
 import torch as t
 import transformer_lens as tl
+from fancy_einsum import einsum
 from IPython.core.getipython import get_ipython
 from rich import print as rprint
 from torch.utils.data import DataLoader, TensorDataset, random_split
@@ -19,7 +20,9 @@ no_processing = tl.HookedTransformer.from_pretrained_no_processing(model_name)
 processing = tl.HookedTransformer.from_pretrained(model_name)
 
 # %%
-# Extract matrices
+"""
+what matrices are actually different?
+"""
 matrices = {
     "no_processing.W_E": no_processing.W_E.detach(),
     "no_processing.W_U": no_processing.W_U.detach().T,
@@ -68,10 +71,17 @@ plt.title("Matrix Euclidean Distance")
 plt.show()
 
 # %%
+"""
+plotting the distribution of l2 norms for the W_E vectors to visualise what the
+difference weight processing does.
+"""
 
-# Calculate L2 norms for vectors before and after processing for plotting
+# Calculate L2 norms for vectors before and after processing for plotting and print the
+# values
 l2_norms_no_processing = t.norm(matrices["no_processing.W_E"], dim=-1).cpu()
+print("L2 norms without processing:", l2_norms_no_processing)
 l2_norms_processing = t.norm(matrices["processing.W_E"], dim=-1).cpu()
+print("L2 norms with processing:", l2_norms_processing)
 
 # Create a figure
 fig = go.Figure()
@@ -93,11 +103,19 @@ fig.update_layout(
 )
 
 # Show the figure
-fig.show()
+# fig.show()
+
+"""
+this i think shows that the W_E vectors for processing on average have a smaller
+magnitude.
+"""
 
 # %%
-# Verify transformation from no processing to processing using centering of W_E weights
-# Extract the original and processed W_E matrices
+"""
+verify transformation from no processing to processing using centering of W_E weights
+Extract the original and processed W_E matrices
+"""
+
 original_W_E = matrices["no_processing.W_E"].cpu()
 processed_W_E = matrices["processing.W_E"].cpu()
 
@@ -114,7 +132,9 @@ comparison = t.allclose(processed_W_E, simulated_processed_W_E, atol=1e-6)
 print(f"Transformation verification result: {comparison}")
 
 # %%
-# Test embedding and unembedding equivalence for both no_processing and processing models
+"""
+test embedding and unembedding equivalence for both no_processing and processing models
+"""
 models = [("no_processing", no_processing), ("processing", processing)]
 test_tokens = [1000, 1001]  # Test tokens with a batch size of 2
 
@@ -150,7 +170,11 @@ for model_name, model in models:
         )
 
 # %%
-# Check if all elements in no_processing.b_U are zeros and print the result
+"""
+okay so it seems that as a result of processing, as we are folding the value biases,
+Check if all elements in no_processing.b_U are zeros and print the result
+"""
+processing = model.embed()
 b_U_zero_check_no_processing = t.all(no_processing.b_U == 0)
 print(
     f"b_U for no processing contains only zero elements: {b_U_zero_check_no_processing}"
@@ -161,7 +185,9 @@ b_U_zero_check_processing = t.all(processing.b_U == 0)
 print(f"b_U for processing contains only zero elements: {b_U_zero_check_processing}")
 
 # %%
-# Test embedding and unembedding equivalence for both no_processing and processing models
+"""
+test embedding and unembedding equivalence for both no_processing and processing models
+"""
 models = [("no_processing", no_processing), ("processing", processing)]
 test_tokens = [1000, 1001]  # Test tokens with a batch size of 2
 
@@ -197,13 +223,16 @@ for model_name, model in models:
         )
 
 
-# %%
-# so it seems like processing.W_E is the result of subtracting away the mean of
-# no_processing.W_E
+"""
+so it seems like processing.W_E is the result of subtracting away the mean of
+no_processing.W_E
+"""
 
 # %%
-# how is processing.W_U actually different from no_processing W_U?
-# in processed, it seems
+"""
+how is processing.W_U actually different from no_processing W_U?
+in processed, it seems
+"""
 
 # Check if the state_dict keys of processing and no_processing are the same
 processing_keys = set(processing.state_dict().keys())
@@ -223,7 +252,9 @@ if not keys_match:
         print(key)
 
 # %%
-# is embed.ln.w and embed.ln.b different between processings?
+"""
+is embed.ln.w and embed.ln.b different between processings?
+"""
 # Extract layer norm weights and biases from both models
 ln_weights_processing = processing.state_dict()["embed.ln.w"].data
 ln_bias_processing = processing.state_dict()["embed.ln.b"].data
@@ -248,10 +279,14 @@ if not biases_match:
     max_diff_biases = t.max(t.abs(ln_bias_processing - ln_bias_no_processing)).item()
     print(f"Max difference in layer norm biases: {max_diff_biases}")
 
+"""
+no apparently
+"""
 
 # %%
-# is embed() always the same as doing embed.W_E @ input?
-
+"""
+checking if embed() always the same as doing embed.W_E @ input?
+"""
 # Generate a random batch of token IDs with shape (batch, pos)
 # Assuming 'vocab_size' is the vocabulary size
 token_ids = [1000, 1001]  # Test tokens with a batch size of 2
@@ -296,8 +331,10 @@ for model, name in [(processing, "processing"), (no_processing, "no_processing")
             )
 
 # %%
-# check that embed and unembed for processing and no_processing is the same
-# Check if the embed and unembed methods produce equivalent results between processing and no_processing models
+"""
+check if the embed and unembed methods produce equivalent results between processing and
+no_processing models
+"""
 # Generate a random batch of token IDs
 token_ids = [1000, 1001]
 
@@ -328,7 +365,7 @@ unembedded_tokens_processing = processing.unembed(
     embedded_tokens_processing.unsqueeze(0)
 )
 unembedded_tokens_no_processing = no_processing.unembed(
-    embedded_tokens_no_processing.unsqueeze(0)
+    embedded_tokens_processing.unsqueeze(0)
 )
 # Check if the unembedded tokens are equivalent for processing and no_processing models
 if t.allclose(unembedded_tokens_processing, unembedded_tokens_no_processing):
@@ -352,26 +389,168 @@ else:
         f"({mismatch_percentage_unembed:.1f}%)"
     )
 
+# %%
+"""
+seems like unembedding methods for the two different models produce different results.
+i think this is because we have centered weights writing to the residual stream and
+so the logits are different. however, i think the softmaxes would be the same
+"""
+
+# Check if the unembedded tokens are equivalent for processing and no_processing models
+if t.allclose(
+    unembedded_tokens_processing.softmax(dim=-1),
+    unembedded_tokens_no_processing.softmax(dim=-1),
+):
+    print("Unembedding results match between processing and no_processing models.")
+else:
+    # Calculate the maximum absolute difference
+    max_diff_unembed = t.max(
+        t.abs(
+            unembedded_tokens_processing.softmax(dim=-1)
+            - unembedded_tokens_no_processing.softmax(dim=-1)
+        )
+    ).item()
+    # Calculate the percentage of mismatched elements
+    total_elements_unembed = unembedded_tokens_processing.numel()
+    mismatched_elements_unembed = (
+        t.ne(
+            unembedded_tokens_processing.softmax(dim=-1),
+            unembedded_tokens_no_processing.softmax(dim=-1),
+        )
+        .sum()
+        .item()
+    )
+    mismatch_percentage_unembed = (
+        mismatched_elements_unembed / total_elements_unembed
+    ) * 100
+    print(
+        f"Unembedding results do not match: max difference: {max_diff_unembed}, "
+        f"Mismatched elements: {mismatched_elements_unembed} / {total_elements_unembed} "
+        f"({mismatch_percentage_unembed:.1f}%)"
+    )
+
+"""
+okay, the difference now is a lot less!
+still unsure about why there is still a difference though... like the greatest relative
+difference is quite big. these i think should really be the same! 
+"""
 
 # %%
-# Check if the string representations of processing and no_processing are the same
-processing_str = str(processing)
-no_processing_str = str(no_processing)
+t.testing.assert_close(
+    unembedded_tokens_processing.softmax(dim=-1),
+    unembedded_tokens_no_processing.softmax(dim=-1),
+)
+"""
+huh, is this close enough?
+"""
 
-# Compare the string representations
-str_match = processing_str == no_processing_str
-print(f"String representations match between processing and no_processing: {str_match}")
+# %%
+"""
+for the embedding, does model.embed do:
+ index into W_E
+ layernorm (using ln.w and ln.b?)
 
-# If string representations do not match, indicate the mismatch
-if not str_match:
-    print("String representations between processing and no_processing do not match.")
-    import difflib
+"""
+token_ids = [1000, 1001, 10030, 1]
+a = no_processing.embed.W_E[token_ids]
+a = t.nn.functional.layer_norm(
+    a, [a.shape[-1]], no_processing.embed.ln.w, no_processing.embed.ln.b
+)
 
-    # Generate the diff between the string representations of processing and no_processing
-    diff = difflib.ndiff(
-        processing_str.splitlines(keepends=True),
-        no_processing_str.splitlines(keepends=True),
+b = no_processing.embed(token_ids)
+
+t.testing.assert_close(a, b)
+
+"""
+oh wow yay, that actually worked!
+"""
+
+# %%
+"""
+and the same works for the model with processing?
+"""
+a = processing.embed.W_E[token_ids]
+a = t.nn.functional.layer_norm(
+    a, [a.shape[-1]], processing.embed.ln.w, processing.embed.ln.b
+)
+
+b = processing.embed(token_ids)
+
+t.testing.assert_close(a, b)
+
+"""
+okay, good stuff.
+"""
+
+# %%
+"""
+now for the unembedding, my guess is that for processing, model.unembed does:
+"""
+embed = processing.embed(token_ids).unsqueeze(1)
+
+a = processing.unembed(embed)
+
+b = (
+    einsum(
+        "batch pos d_model, d_model vocab -> batch pos vocab",
+        embed,
+        processing.unembed.W_U,
     )
-    # Print the diff
-    print("Differences between string representations of processing and no_processing:")
-    print("".join(diff))
+    + processing.unembed.b_U
+)
+
+t.testing.assert_close(a, b)
+"""
+it does!
+"""
+
+# %%
+"""
+my guess for no_processing, model.embed only does the multiplication with W_U and
+addition with b_U. as such, for both of these to get the same result, we need to
+layernorm no_processing first
+"""
+a = embed
+a = t.nn.functional.layer_norm(
+    a, [a.shape[-1]], no_processing.ln_final.w, no_processing.ln_final.b
+)
+a = embed @ no_processing.unembed.W_U + no_processing.unembed.b_U
+
+b = no_processing.unembed(embed)
+
+t.testing.assert_close(a, b)
+"""
+this passes!
+"""
+
+# %%
+"""
+okay now how can i get no_processing.unembed to be the same as processing.unembed?
+"""
+# %%
+# no_processing = tl.HookedTransformer.from_pretrained_no_processing(
+#     "bloom-560m"
+# )
+# %%
+embed = no_processing.embed(token_ids).unsqueeze(1)
+a = embed.clone().detach()
+a = t.nn.functional.layer_norm(
+    a, [a.shape[-1]], no_processing.ln_final.w, no_processing.ln_final.b
+)
+a = a @ (
+    no_processing.unembed.W_U - no_processing.unembed.W_U.mean(-1, keepdim=True)
+) + (no_processing.unembed.b_U - no_processing.unembed.b_U.mean(-1, keepdim=True))
+a = a.softmax(-1)
+
+b = embed.clone().detach()
+b = t.nn.functional.layer_norm(b, [b.shape[-1]])
+b = (
+    einsum(
+        "batch pos d_model, d_model vocab -> batch pos vocab",
+        b,
+        processing.unembed.W_U,
+    )
+    + processing.unembed.b_U
+)
+b = b.softmax(-1)
+t.testing.assert_close(a, b)
