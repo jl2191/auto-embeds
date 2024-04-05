@@ -50,10 +50,10 @@ config = {
         "notes": "using transformerlens embed and unembed",
         "tags": [
             "2024-04-02",
-            "test",
+            "actual",
+            # "test",
             "tl_embed_unembed",
             # "embed_or_W_E",
-            # "test",
             # "very test",
             # "new_top_k_algorithm",
             # "processing",
@@ -65,7 +65,7 @@ config = {
         # "bloom-7b",
     ],
     "processings": [
-        True,
+        # True,
         False,
     ],
     "datasets": [
@@ -110,7 +110,7 @@ config = {
         # "uncentered_rotation",
         # "rotation_translation",
     ],
-    "seeds": [1, 2, 3],
+    "seeds": [1, 2, 3, 4, 5],
     "n_epochs": [150],
     "lr": [8e-5],
     "weight_decay": [
@@ -122,9 +122,9 @@ config = {
     "top_k": [200],
     "top_k_selection_methods": [
         "src_and_src",
-        # "tgt_and_tgt",
-        # "top_src",
-        # "top_tgt",
+        "tgt_and_tgt",
+        "top_src",
+        "top_tgt",
     ],
 }
 

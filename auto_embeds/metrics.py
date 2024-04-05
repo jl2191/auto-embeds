@@ -125,7 +125,7 @@ def evaluate_accuracy(
                 model,
                 out=pred,
                 top_k=4,
-                apply_embed=True,
+                apply_unembed=True,
             )
             for i, pred_top_str in enumerate(pred_top_strs):
                 fr_str = fr_strs[i]
@@ -241,10 +241,7 @@ def mark_translation(
             # if statement for performance
             if print_top_preds:
                 most_similar_embeds = get_most_similar_embeddings(
-                    model,
-                    out=pred,
-                    top_k=4,
-                    apply_embed=True,
+                    model, out=pred, top_k=4, apply_unembed=True
                 )
             for i, pred_top_str in enumerate(pred_top_strs):
                 correct = None

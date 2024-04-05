@@ -101,16 +101,14 @@ def get_most_similar_embeddings(
 ) -> Dict[int, Any]:
     assert not (apply_embed and apply_unembed), "Can't apply both embed and unembed"
     results = {}
-    print(out.shape)
     out = out.unsqueeze(0).unsqueeze(0) if out.ndim == 1 else out
     out = model.ln_final(out) if apply_ln_final else out
     if apply_embed:
-        unembeded = model.embed(out).squeeze(1)
+        unembeded = model.embed(out)
     elif apply_unembed:
         unembeded = model.unembed(out)
     else:
         unembeded = out
-
     logits = unembeded.squeeze(1)
     # from shape [batch, pos, d_vocab] to [batch, d_vocab]
     probs = logits.softmax(dim=-1)
@@ -152,7 +150,7 @@ def get_most_similar_embeddings(
                 "rank": i,
                 "logit": logits[batch_idx, sorted_token_values[batch_idx, i]].item(),
                 "prob": sorted_token_probs[batch_idx, i].item(),
-                "token": model.to_string(sorted_token_values[batch_idx, i]),
+                "token": model.tokenizer.decode(sorted_token_values[batch_idx, i]),
             }
             for i in range(top_k)
         ]
