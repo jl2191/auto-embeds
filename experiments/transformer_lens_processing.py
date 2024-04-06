@@ -511,12 +511,12 @@ addition with b_U. as such, for both of these to get the same result, we need to
 layernorm no_processing first
 """
 a = embed
-a = t.nn.functional.layer_norm(
-    a, [a.shape[-1]], no_processing.ln_final.w, no_processing.ln_final.b
-)
-a = embed @ no_processing.unembed.W_U + no_processing.unembed.b_U
+a = a @ no_processing.unembed.W_U + no_processing.unembed.b_U
+a = a.softmax(-1)
 
-b = no_processing.unembed(embed)
+b = embed
+b = no_processing.unembed(b)
+b = b.softmax(-1)
 
 t.testing.assert_close(a, b)
 """
@@ -524,14 +524,11 @@ this passes!
 """
 
 # %%
+# %%
 """
 okay now how can i get no_processing.unembed to be the same as processing.unembed?
 """
-# %%
-# no_processing = tl.HookedTransformer.from_pretrained_no_processing(
-#     "bloom-560m"
-# )
-# %%
+token_ids = [100, 101, 102]
 embed = no_processing.embed(token_ids).unsqueeze(1)
 a = embed.clone().detach()
 a = t.nn.functional.layer_norm(
@@ -553,4 +550,34 @@ b = (
     + processing.unembed.b_U
 )
 b = b.softmax(-1)
+t.testing.assert_close(a, b)
+"""
+woop woop
+"""
+
+# %%
+"""
+and just to check that we can use ln_final.w and ln_final.b outside of
+t.nn.function.layernorm.
+"""
+a = embed.clone().detach()
+a = t.nn.functional.layer_norm(
+    a, [a.shape[-1]], no_processing.ln_final.w, no_processing.ln_final.b
+)
+a = a @ no_processing.unembed.W_U + no_processing.unembed.b_U
+
+b = embed.clone().detach()
+b = t.nn.functional.layer_norm(b, [b.shape[-1]])
+print(b.shape)
+b = (
+    einsum(
+        "batch pos d_model, d_model -> batch pos d_model",
+        b,
+        no_processing.ln_final.w,
+    )
+    + no_processing.ln_final.b
+)
+
+b = b @ no_processing.unembed.W_U + no_processing.unembed.b_U
+
 t.testing.assert_close(a, b)

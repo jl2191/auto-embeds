@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Set
 
 import torch as t
-from einops import einsum, repeat
+from einops import einsum
 from torch.utils.hooks import RemovableHandle
 
 
@@ -86,104 +86,7 @@ def run_prompt(
     print("Testing prompt", model.to_str_tokens(prompt))
     toks = model.to_tokens(prompt, prepend_bos=prepend_bos)
     logits = model(toks)
-    get_most_similar_embeddings(model, logits[0, -1], answer, top_k=top_k)
-
-
-def get_most_similar_embeddings(
-    model: t.nn.Module,
-    out: t.Tensor,
-    answer: Optional[List[str]] = None,
-    top_k: int = 10,
-    apply_ln_final: bool = False,
-    apply_unembed: bool = False,
-    apply_embed: bool = False,
-    print_results: bool = False,
-) -> Dict[int, Any]:
-    assert not (apply_embed and apply_unembed), "Can't apply both embed and unembed"
-    results = {}
-    out = out.unsqueeze(0).unsqueeze(0) if out.ndim == 1 else out
-    out = model.ln_final(out) if apply_ln_final else out
-    if apply_embed:
-        unembeded = model.embed(out)
-    elif apply_unembed:
-        unembeded = model.unembed(out)
-    else:
-        unembeded = out
-    logits = unembeded.squeeze(1)
-    # from shape [batch, pos, d_vocab] to [batch, d_vocab]
-    probs = logits.softmax(dim=-1)
-
-    sorted_token_probs, sorted_token_values = probs.sort(descending=True)
-
-    if answer is not None:
-        answer_token = model.to_tokens(answer, prepend_bos=False)
-        answer_str_token = model.to_str_tokens(answer, prepend_bos=False)
-        correct_rank = repeat(
-            t.arange(sorted_token_values.shape[-1]),
-            "d_vocab -> batch d_vocab",
-            batch=sorted_token_values.shape[0],
-        )[(sorted_token_values == answer_token).cpu()]
-
-    results = {}
-    # This loop compiles a results dictionary per batch, including rankings of correct
-    # answers (if any) and the top-k predicted tokens.
-    for batch_idx in range(sorted_token_values.shape[0]):
-        # Initialize a dictionary to hold results for the current batch.
-        word_results = {}
-        # If an answer is provided, calculate its rank and related information.
-        if answer is not None:
-            # Collect rankings for each answer token.
-            answer_ranks = [
-                {
-                    "token": token,
-                    "rank": correct_rank[idx].item(),  # type: ignore
-                    "logit": logits[idx, answer_token[idx]].item(),  # type: ignore
-                    "prob": probs[idx, answer_token[idx]].item(),  # type: ignore
-                }
-                for idx, token in enumerate(answer_str_token)  # type: ignore
-            ]
-            # Store the collected answer ranks in the results dictionary.
-            word_results["answer_rank"] = answer_ranks
-        # Identify and store the top-k tokens based on their probabilities.
-        top_tokens = [
-            {
-                "rank": i,
-                "logit": logits[batch_idx, sorted_token_values[batch_idx, i]].item(),
-                "prob": sorted_token_probs[batch_idx, i].item(),
-                "token": model.tokenizer.decode(sorted_token_values[batch_idx, i]),
-            }
-            for i in range(top_k)
-        ]
-        word_results["top_tokens"] = top_tokens
-        # Assign results for the current batch to the main results dictionary.
-        results[batch_idx] = word_results
-    # Optionally print the results for each batch.
-    if print_results:
-        for key, batch_results in results.items():
-            print_most_similar_embeddings_dict(batch_results)
-            print()
-    return results
-
-
-def print_most_similar_embeddings_dict(
-    most_similar_embeds_dict: Dict[int, Any]
-) -> None:
-    for i in range(len(most_similar_embeds_dict)):
-        if "answer_rank" in most_similar_embeds_dict[i]:
-            for answer_rank in most_similar_embeds_dict[i]["answer_rank"]:
-                print(answer_rank)
-                print(
-                    f'\n"{answer_rank["token"]}" token rank:',
-                    f'{answer_rank["rank"]: <8}',
-                    f'\nLogit: {answer_rank["logit"]:5.2f}',
-                    f'Prob: {answer_rank["prob"]:6.2%}',
-                )
-        for top_token in most_similar_embeds_dict[i]["top_tokens"]:
-            print(
-                f"Top {top_token['rank']}th token. Logit: {top_token['logit']:5.2f}",
-                f"Prob: {top_token['prob']:6.2%}",
-                f'Token: "{top_token["token"]}"',
-            )
+    # get_most_similar_embeddings(model, logits[0, -1], answer, top_k=top_k)
 
 
 def calculate_gradient_color(

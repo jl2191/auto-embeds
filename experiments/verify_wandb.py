@@ -47,12 +47,13 @@ except Exception:
 # Configuration for experiments
 config = {
     "wandb": {
-        "notes": "using transformerlens embed and unembed",
+        "notes": "may god have mercy on my soul",
         "tags": [
-            "2024-04-02",
+            "2024-04-06",
             "actual",
             # "test",
-            "tl_embed_unembed",
+            "big run",
+            # "selection method",
             # "embed_or_W_E",
             # "very test",
             # "new_top_k_algorithm",
@@ -65,9 +66,15 @@ config = {
         # "bloom-7b",
     ],
     "processings": [
-        # True,
         False,
     ],
+    "embed_apply_ln": [True, False],
+    # "embed_apply_ln": [True],
+    "embed_apply_ln_weights": [True],
+    "transform_apply_ln": [True, False],
+    # "unembed_apply_ln": [True, False],
+    "unembed_apply_ln": [True],
+    "unembed_apply_ln_weights": [True],
     "datasets": [
         {
             "name": "wikdict_en_fr_extracted",
@@ -99,18 +106,17 @@ config = {
         # },
     ],
     "transformations": [
-        # "identity",
-        # "translation",
+        "identity",
+        "translation",
         "linear_map",
-        # "biased_linear_map",
-        # "uncentered_linear_map",
-        # "biased_uncentered_linear_map",
+        "biased_linear_map",
+        "uncentered_linear_map",
+        "biased_uncentered_linear_map",
         "rotation",
-        # "biased_rotation",
-        # "uncentered_rotation",
-        # "rotation_translation",
+        "biased_rotation",
+        "uncentered_rotation",
     ],
-    "seeds": [1, 2, 3, 4, 5],
+    "seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     "n_epochs": [150],
     "lr": [8e-5],
     "weight_decay": [
@@ -121,10 +127,10 @@ config = {
     "test_batch_sizes": [256],
     "top_k": [200],
     "top_k_selection_methods": [
-        "src_and_src",
-        "tgt_and_tgt",
+        # "src_and_src",
+        # "tgt_and_tgt",
         "top_src",
-        "top_tgt",
+        # "top_tgt",
     ],
 }
 
@@ -144,6 +150,11 @@ for (
     model_name,
     processing,
     dataset_config,
+    embed_apply_ln,
+    embed_apply_ln_weights,
+    transform_apply_ln,
+    unembed_apply_ln,
+    unembed_apply_ln_weights,
     transformation,
     n_epoch,
     lr,
@@ -157,6 +168,11 @@ for (
     config["models"],
     config["processings"],
     config["datasets"],
+    config["embed_apply_ln"],
+    config["embed_apply_ln_weights"],
+    config["transform_apply_ln"],
+    config["unembed_apply_ln"],
+    config["unembed_apply_ln_weights"],
     config["transformations"],
     config["n_epochs"],
     config["lr"],
@@ -195,6 +211,15 @@ for (
     with open(file_path, "r") as file:
         word_pairs = json.load(file)
 
+    embed_config = {
+        "apply_ln": embed_apply_ln,
+        "apply_ln_weights": embed_apply_ln_weights,
+    }
+    unembed_config = {
+        "apply_ln": unembed_apply_ln,
+        "apply_ln_weights": unembed_apply_ln_weights,
+    }
+
     word_pairs_needs_loading = (
         last_loaded_word_pairs is None
         or last_loaded_word_pairs["dataset_config"] != dataset_config
@@ -222,6 +247,7 @@ for (
         all_word_pairs=all_word_pairs,
         seed=seed,
         keep_other_pair=True,
+        embed_config=embed_config,
     )
     print(seed)
     print(verify_learning.src.other.words)
@@ -240,6 +266,11 @@ for (
         "processing": processing,
         "dataset_name": dataset_name,
         **dataset_config,
+        "embed_apply_ln": embed_apply_ln,
+        "embed_apply_ln_weights": embed_apply_ln_weights,
+        "transform_apply_ln": transform_apply_ln,
+        "unembed_apply_ln": unembed_apply_ln,
+        "unembed_apply_ln_weights": unembed_apply_ln_weights,
         "transformation": transformation,
         "seed": seed,
         "n_epoch": n_epoch,
@@ -248,6 +279,7 @@ for (
         "train_batch_size": train_batch_size,
         "test_batch_size": test_batch_size,
         "top_k": top_k,
+        "top_k_selection_method": top_k_selection_method,
     }
 
     # WandB setup
@@ -262,6 +294,9 @@ for (
     transform, optim = initialize_transform_and_optim(
         d_model,
         transformation=transformation,
+        transform_kwargs={
+            "apply_ln": transform_apply_ln,
+        },
         optim_kwargs={"lr": lr, "weight_decay": weight_decay},
     )
     loss_module = initialize_loss("cosine_similarity")
@@ -279,6 +314,7 @@ for (
             plot_fig=False,
             wandb=wandb,
             azure_translations_path=azure_translations_path,
+            unembed_config=unembed_config,
         )
 
     # Evaluate and log results
@@ -289,6 +325,7 @@ for (
         exact_match=False,
         print_results=False,
         print_top_preds=False,
+        unembed_config=unembed_config,
     )
 
     mark_translation_acc = mark_translation(
@@ -297,12 +334,14 @@ for (
         test_loader=test_loader,
         azure_translations_path=azure_translations_path,
         print_results=False,
+        unembed_config=unembed_config,
     )
 
     verify_results_dict = verify_transform(
         model=model,
         transformation=transform,
         test_loader=test_loader,
+        unembed_config=unembed_config,
     )
 
     cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)

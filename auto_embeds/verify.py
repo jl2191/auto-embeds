@@ -20,6 +20,8 @@ from auto_embeds.data import (
     VerifyWordPairAnalysis,
     WordCategory,
     WordData,
+    embed,
+    unembed,
     tokenize_word_pairs,
 )
 from auto_embeds.utils.misc import calculate_gradient_color, default_device
@@ -29,6 +31,7 @@ def verify_transform(
     model: tl.HookedTransformer,
     transformation: nn.Module,
     test_loader: DataLoader[Tuple[Tensor, ...]],
+    unembed_config: dict = None,
 ) -> Dict[str, Any]:
     """
     Evaluates the transformation's effectiveness in translating source language tokens
@@ -81,11 +84,21 @@ def verify_transform(
             # we get the embeddings for the source and target language
             en_embeds, fr_embeds = batch
             top_pred_embeds = transformation(en_embeds)
-            en_logits = model.unembed(en_embeds)
+            en_logits = unembed(
+                en_embeds,
+                model=model,
+                apply_ln=unembed_config["apply_ln"],
+                apply_ln_weights=unembed_config["apply_ln_weights"],
+            )
             en_strs: List[str] = model.tokenizer.batch_decode(
                 en_logits.squeeze().argmax(dim=-1)
             )
-            fr_logits = model.unembed(fr_embeds)
+            fr_logits = unembed(
+                fr_embeds,
+                model=model,
+                apply_ln=unembed_config["apply_ln"],
+                apply_ln_weights=unembed_config["apply_ln_weights"],
+            )
             fr_strs: List[str] = model.tokenizer.batch_decode(
                 fr_logits.squeeze().argmax(dim=-1)
             )
@@ -93,7 +106,12 @@ def verify_transform(
             with t.no_grad():
                 top_pred_embeds = transformation(en_embeds)
             # get the top predicted tokens
-            top_pred_logits = model.unembed(top_pred_embeds)
+            top_pred_logits = unembed(
+                top_pred_embeds,
+                model=model,
+                apply_ln=unembed_config["apply_ln"],
+                apply_ln_weights=unembed_config["apply_ln_weights"],
+            )
             top_pred_strs = model.tokenizer.batch_decode(
                 top_pred_logits.squeeze().argmax(dim=-1)
             )
@@ -550,6 +568,7 @@ def prepare_verify_analysis(
     seed: int = 1,
     device: Union[str, t.device] = default_device,
     keep_other_pair: bool = False,
+    embed_config: dict = None,
 ) -> VerifyWordPairAnalysis:
     """Prepares verify analysis by preparing embeddings and calculating distances.
 
@@ -566,10 +585,16 @@ def prepare_verify_analysis(
             default_device.
         keep_other_pair: If True, includes the target token in src_other_toks and
             the source token in tgt_other_toks.
+        embed_config: Configuration for embedding, defaults to {"apply_ln": True,
+            "apply_ln_weights": True} if None.
 
     Returns:
         A VerifyWordPairAnalysis object containing the analysis outcomes.
     """
+    # Set default embed_config if None is provided
+    if embed_config is None:
+        embed_config = {"apply_ln": True, "apply_ln_weights": True}
+
     all_word_pairs_copy = all_word_pairs.copy()
     if model.tokenizer is None or not callable(model.tokenizer):
         raise ValueError("model.tokenizer is not set or not callable")
@@ -592,8 +617,28 @@ def prepare_verify_analysis(
         .to(device)
     )
     ## embed
-    src_embed = model.embed(src_tok).detach().clone().squeeze()
-    tgt_embed = model.embed(tgt_tok).detach().clone().squeeze()
+    src_embed = (
+        embed(
+            src_tok,
+            model=model,
+            apply_ln=embed_config["apply_ln"],
+            apply_ln_weights=embed_config["apply_ln_weights"],
+        )
+        .detach()
+        .clone()
+        .squeeze()
+    )
+    tgt_embed = (
+        embed(
+            tgt_tok,
+            model=model,
+            apply_ln=embed_config["apply_ln"],
+            apply_ln_weights=embed_config["apply_ln_weights"],
+        )
+        .detach()
+        .clone()
+        .squeeze()
+    )
 
     src_other_words = [word_pair[0] for word_pair in all_word_pairs_copy]
     tgt_other_words = [word_pair[1] for word_pair in all_word_pairs_copy]
@@ -613,8 +658,28 @@ def prepare_verify_analysis(
         .to(device)
     )
     ## embed
-    src_other_embeds = model.embed(src_other_toks).detach().clone().squeeze(1)
-    tgt_other_embeds = model.embed(tgt_other_toks).detach().clone().squeeze(1)
+    src_other_embeds = (
+        embed(
+            src_other_toks,
+            model=model,
+            apply_ln=embed_config["apply_ln"],
+            apply_ln_weights=embed_config["apply_ln_weights"],
+        )
+        .detach()
+        .clone()
+        .squeeze(1)
+    )
+    tgt_other_embeds = (
+        embed(
+            tgt_other_toks,
+            model=model,
+            apply_ln=embed_config["apply_ln"],
+            apply_ln_weights=embed_config["apply_ln_weights"],
+        )
+        .detach()
+        .clone()
+        .squeeze(1)
+    )
     # both should have shape [batch, d_model]
 
     # calculate cosine similarities and euclidean distances

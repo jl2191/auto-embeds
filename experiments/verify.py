@@ -292,3 +292,9 @@ for (
 #         # plot_fig=False,
 #         azure_translations_path=azure_translations_path,
 #     )
+verify_learning = prepare_verify_analysis(
+    model=model,
+    all_word_pairs=all_word_pairs,
+    seed=seed,
+    keep_other_pair=True,
+)

@@ -3,11 +3,13 @@ import json
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple, TypeAlias, Union, overload
+from typing import Any, Dict, List, Literal, Optional, Tuple, TypeAlias, Union, overload
+from einops import repeat
 
 import numpy as np
 import torch as t
 import transformer_lens as tl
+from fancy_einsum import einsum
 from Levenshtein import distance as levenshtein_distance
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
@@ -139,31 +141,6 @@ def get_dataset_path(name: str) -> Path:
     if name not in DATASETS:
         raise KeyError(f"Dataset name '{name}' not found.")
     return DATASETS[name]
-
-
-def generate_embeddings(
-    model: tl.HookedTransformer,
-    en_toks: Tensor,
-    fr_toks: Tensor,
-    device: Optional[Union[str, t.device]] = None,
-) -> Tuple[Tensor, Tensor]:
-    """
-    Generates embeddings for English and French tokens.
-
-    Args:
-        model: The transformer model used for generating embeddings.
-        en_toks: Tensor of English token indices.
-        fr_toks: Tensor of French token indices.
-        device: The device on which tensors will be allocated. Defaults to None.
-
-    Returns:
-        Tuple: A tuple of tensors containing embeddings for English and French tokens.
-    """
-    if device is None:
-        device = model.device
-    en_embeds = model.embed.W_E[en_toks].detach().clone().to(device)
-    fr_embeds = model.embed.W_E[fr_toks].detach().clone().to(device)
-    return en_embeds, fr_embeds
 
 
 def generate_tokens(
@@ -534,32 +511,48 @@ def tokenize_word_pairs(
     return en_tokens, fr_tokens, en_mask, fr_mask
 
 
-def embed_word_pairs(
-    *tokens: Tensor, model: tl.HookedTransformer, apply_ln: bool = False
+def embed(
+    tokens: Union[Tensor, Tuple[Tensor, ...]],
+    model: tl.HookedTransformer,
+    apply_ln: bool = True,
+    apply_ln_weights: bool = True,
 ) -> Union[Tensor, Tuple[Tensor, ...]]:
     """
-    Embeds word pairs and optionally applies layer normalization.
+    Embeds words and optionally applies layer normalization.
 
-    This function can handle any number of input token tensors.
+    This function can handle a single tensor or any number of input token tensors.
 
     Args:
-        *tokens (Tensor): Any number of tensors of the tokenized word pairs.
-            Shape: [batch, pos].
+        tokens (Union[Tensor, Tuple[Tensor, ...]]): A single tensor or multiple tensors
+            of the tokenized words. Shape: [batch, pos] for each tensor.
         model (tl.HookedTransformer): The model used for embedding.
         apply_ln (bool, optional): Whether to apply layer normalization.
-            Defaults to False.
+        apply_ln_weights (bool, optional): Whether to apply layer normalization weights.
+            Defaults to true. Only takes effect if apply_ln is True.
 
     Returns:
-        Union[Tensor, Tuple[Tensor, ...]]: The embedded (and optionally
-            layer-normalized) word pairs. Shape: [batch, pos, d_model]. Returns a
-            single tensor if one tensor is provided as input, otherwise returns a
-            tuple of tensors.
+        The embedded (and optionally
+            layer-normalized) words. Shape: [batch, pos, d_model]. Returns a single tensor
+            if one tensor is provided as input, otherwise returns a tuple of tensors.
     """
+    # Convert single tensor input into a tuple to standardize processing
+    if isinstance(tokens, Tensor):
+        tokens = (tokens,)
+
     embedded_tokens = []
     for token in tokens:
         embeds = model.embed.W_E[token].detach().clone()
         if apply_ln:
             embeds = t.nn.functional.layer_norm(embeds, [model.cfg.d_model])
+            if apply_ln_weights:
+                embeds = (
+                    einsum(
+                        "batch pos d_model, d_model -> batch pos d_model",
+                        embeds,
+                        model.ln_final.w,
+                    )
+                    + model.ln_final.b
+                )
         embedded_tokens.append(embeds)
 
     return embedded_tokens[0] if len(embedded_tokens) == 1 else tuple(embedded_tokens)
@@ -583,8 +576,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoTensors:
-    ...
+) -> TwoTensors: ...
 
 
 @overload
@@ -599,8 +591,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> FourTensors:
-    ...
+) -> FourTensors: ...
 
 
 @overload
@@ -615,8 +606,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TensorDataset:
-    ...
+) -> TensorDataset: ...
 
 
 @overload
@@ -631,8 +621,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoDatasets:
-    ...
+) -> TwoDatasets: ...
 
 
 @overload
@@ -647,8 +636,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> DataLoader:
-    ...
+) -> DataLoader: ...
 
 
 @overload
@@ -663,8 +651,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoDataLoaders:
-    ...
+) -> TwoDataLoaders: ...
 
 
 def prepare_data(
@@ -749,11 +736,11 @@ def prepare_data(
         train_en_toks, train_fr_toks, _, _ = tokenize_word_pairs(model, train_pairs)
         test_en_toks, test_fr_toks, _, _ = tokenize_word_pairs(model, test_pairs)
 
-        train_en_embeds, train_fr_embeds = embed_word_pairs(
-            train_en_toks, train_fr_toks, model=model, apply_ln=apply_ln
+        train_en_embeds, train_fr_embeds = embed(
+            (train_en_toks, train_fr_toks), model=model, apply_ln=apply_ln
         )
-        test_en_embeds, test_fr_embeds = embed_word_pairs(
-            test_en_toks, test_fr_toks, model=model, apply_ln=apply_ln
+        test_en_embeds, test_fr_embeds = embed(
+            (test_en_toks, test_fr_toks), model=model, apply_ln=apply_ln
         )
 
         train_dataset = TensorDataset(train_en_embeds, train_fr_embeds)
@@ -773,9 +760,7 @@ def prepare_data(
             return (train_en_embeds, train_fr_embeds, test_en_embeds, test_fr_embeds)
     else:
         en_toks, fr_toks, _, _ = tokenize_word_pairs(model, all_word_pairs)
-        en_embeds, fr_embeds = embed_word_pairs(
-            en_toks, fr_toks, model=model, apply_ln=apply_ln
-        )
+        en_embeds, fr_embeds = embed((en_toks, fr_toks), model=model, apply_ln=apply_ln)
 
         dataset = TensorDataset(en_embeds, fr_embeds)
 
@@ -788,3 +773,149 @@ def prepare_data(
             return dataset
         else:  # return_type == "tensor"
             return (en_embeds, fr_embeds)
+
+
+def unembed(
+    residual: Tensor,
+    model: tl.HookedTransformer,
+    apply_ln: bool = True,
+    apply_ln_weights: bool = True,
+) -> Union[Tensor, Tuple[Tensor, ...]]:
+    """
+    Unembeds tokens and optionally applies layer normalization.
+
+    This function can handle a single tensor or any number of input token tensors.
+
+    Args:
+        residual: A single tensor or multiple tensors in a list to unembed.
+            Shape: [batch, pos, d_model] for each tensor.
+        model (tl.HookedTransformer): The model used for unembedding.
+        apply_ln (bool, optional): Whether to apply layer normalization.
+        apply_ln_weights (bool, optional): Whether to apply layer normalization weights.
+            Defaults to true. Only takes effect if apply_ln is True.
+
+    Returns:
+        The unembedded tokens. Shape: [batch, pos, d_model].
+        Returns a single tensor if one tensor is provided as input, otherwise returns a
+        tuple of tensors.
+    """
+
+    if apply_ln:
+        residual = t.nn.functional.layer_norm(residual, [model.cfg.d_model])
+        if apply_ln_weights:
+            residual = (
+                einsum(
+                    "batch pos d_model, d_model -> batch pos d_model",
+                    residual,
+                    model.ln_final.w,
+                )
+                + model.ln_final.b
+            )
+    residual = residual @ model.unembed.W_U + model.unembed.b_U
+    return residual
+
+
+def print_most_similar_embeddings_dict(
+    most_similar_embeds_dict: Dict[int, Any]
+) -> None:
+    for i in range(len(most_similar_embeds_dict)):
+        if "answer_rank" in most_similar_embeds_dict[i]:
+            for answer_rank in most_similar_embeds_dict[i]["answer_rank"]:
+                print(answer_rank)
+                print(
+                    f'\n"{answer_rank["token"]}" token rank:',
+                    f'{answer_rank["rank"]: <8}',
+                    f'\nLogit: {answer_rank["logit"]:5.2f}',
+                    f'Prob: {answer_rank["prob"]:6.2%}',
+                )
+        for top_token in most_similar_embeds_dict[i]["top_tokens"]:
+            print(
+                f"Top {top_token['rank']}th token. Logit: {top_token['logit']:5.2f}",
+                f"Prob: {top_token['prob']:6.2%}",
+                f'Token: "{top_token["token"]}"',
+            )
+
+
+def get_most_similar_embeddings(
+    model: tl.HookedTransformer,
+    out: t.Tensor,
+    answer: Optional[List[str]] = None,
+    top_k: int = 10,
+    apply_embed: bool = False,
+    apply_unembed: bool = False,
+    embed_config: Optional[dict] = None,
+    unembed_config: Optional[dict] = None,
+    print_results: bool = False,
+) -> Dict[int, Any]:
+    # Ensure only one of apply_embed or apply_unembed is True
+    assert not (apply_embed and apply_unembed), "Can't apply both embed and unembed"
+    # Set default configurations if None provided
+    if embed_config is None:
+        embed_config = {"apply_ln": True, "apply_ln_weights": True}
+    if unembed_config is None:
+        unembed_config = {"apply_ln": True, "apply_ln_weights": True}
+    results = {}
+    # Adjust tensor dimensions if needed
+    out = out.unsqueeze(0).unsqueeze(0) if out.ndim == 1 else out
+    # Apply embedding or unembedding based on flags and configurations
+    if apply_embed:
+        unembeded = embed(out, model=model, **embed_config)
+    elif apply_unembed:
+        unembeded = unembed(out, model=model, **unembed_config)
+    else:
+        unembeded = out
+    # Reshape the output tensor
+    logits = unembeded.squeeze(1)
+    # Convert logits to probabilities
+    probs = logits.softmax(dim=-1)
+
+    sorted_token_probs, sorted_token_values = probs.sort(descending=True)
+
+    if answer is not None:
+        answer_token = model.to_tokens(answer, prepend_bos=False)
+        answer_str_token = model.to_str_tokens(answer, prepend_bos=False)
+        correct_rank = repeat(
+            t.arange(sorted_token_values.shape[-1]),
+            "d_vocab -> batch d_vocab",
+            batch=sorted_token_values.shape[0],
+        )[(sorted_token_values == answer_token).cpu()]
+
+    results = {}
+    # This loop compiles a results dictionary per batch, including rankings of correct
+    # answers (if any) and the top-k predicted tokens.
+    for batch_idx in range(sorted_token_values.shape[0]):
+        # Initialize a dictionary to hold results for the current batch.
+        word_results = {}
+        # If an answer is provided, calculate its rank and related information.
+        if answer is not None:
+            # Collect rankings for each answer token.
+            answer_ranks = [
+                {
+                    "token": token,
+                    "rank": correct_rank[idx].item(),  # type: ignore
+                    "logit": logits[idx, answer_token[idx]].item(),  # type: ignore
+                    "prob": probs[idx, answer_token[idx]].item(),  # type: ignore
+                }
+                for idx, token in enumerate(answer_str_token)  # type: ignore
+            ]
+            # Store the collected answer ranks in the results dictionary.
+            word_results["answer_rank"] = answer_ranks
+        # Identify and store the top-k tokens based on their probabilities.
+        top_tokens = [
+            {
+                "rank": i,
+                "logit": logits[batch_idx, sorted_token_values[batch_idx, i]].item(),
+                "prob": sorted_token_probs[batch_idx, i].item(),
+                "token": model.tokenizer.decode(sorted_token_values[batch_idx, i]),
+            }
+            for i in range(top_k)
+        ]
+        word_results["top_tokens"] = top_tokens
+        # Assign results for the current batch to the main results dictionary.
+        results[batch_idx] = word_results
+    # Optionally print the results for each batch.
+    if print_results:
+        for key, batch_results in results.items():
+            print_most_similar_embeddings_dict(batch_results)
+            print()
+    return results

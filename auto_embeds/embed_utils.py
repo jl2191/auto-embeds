@@ -14,6 +14,8 @@ from auto_embeds.metrics import mark_translation
 from auto_embeds.modules import (
     BiasedRotationTransform,
     CosineSimilarityLoss,
+    IdentityTransform,
+    LinearTransform,
     MeanTranslationTransform,
     MSELoss,
     RotationTransform,
@@ -92,7 +94,7 @@ def initialize_transform_and_optim(
     transform_kwargs["device"] = device
 
     if transformation == "identity":
-        transform = nn.Identity(**transform_kwargs)
+        transform = IdentityTransform(d_model, **transform_kwargs)
         optim = None
 
     elif transformation == "translation":
@@ -106,11 +108,11 @@ def initialize_transform_and_optim(
         optim = None
 
     elif transformation == "linear_map":
-        transform = nn.Linear(d_model, d_model, bias=False, **transform_kwargs)
+        transform = LinearTransform(d_model, bias=False, **transform_kwargs)
         optim = t.optim.Adam(transform.parameters(), **optim_kwargs)
 
     elif transformation == "biased_linear_map":
-        transform = nn.Linear(d_model, d_model, bias=True, **transform_kwargs)
+        transform = LinearTransform(d_model, bias=True, **transform_kwargs)
         optim = t.optim.Adam(transform.parameters(), **optim_kwargs)
 
     elif transformation == "uncentered_linear_map":
@@ -150,6 +152,7 @@ def train_transform(
     device: Union[str, t.device] = default_device,
     wandb: Optional[Any] = None,
     azure_translations_path: Optional[Union[str, Path]] = None,
+    unembed_config: Optional[dict] = None,
 ) -> Tuple[nn.Module, Dict[str, List[Dict[str, Union[float, int]]]]]:
     """Trains the transformation, returning the learned transformation and loss history.
 
@@ -222,6 +225,7 @@ def train_transform(
                     test_loader=test_loader,
                     translations_dict=translations_dict,
                     print_results=False,
+                    unembed_config=unembed_config,
                 )
                 info_dict.update(
                     {
