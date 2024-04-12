@@ -30,9 +30,10 @@ def lookup_translations(words):
     constructed_url = endpoint + path
     body = [{"Text": word} for word in words]
     response = requests.post(constructed_url, headers=headers, json=body).json()
-    print(
-        json.dumps(response, indent=4, ensure_ascii=False)
-    )  # Debugging: Print the response
+    # if words
+    # print(
+    #     json.dumps(response, indent=4, ensure_ascii=False)
+    # )  # Debugging: Print the response
     return response
 
 

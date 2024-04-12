@@ -9,16 +9,13 @@ import transformer_lens as tl
 import wandb
 from torch.utils.data import DataLoader, TensorDataset
 
+from auto_embeds.data import filter_word_pairs, get_dataset_path, tokenize_word_pairs
 from auto_embeds.embed_utils import (
-    calc_cos_sim_acc,
-    evaluate_accuracy,
-    filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
-    tokenize_word_pairs,
     train_transform,
 )
-from auto_embeds.utils.misc import repo_path_to_abs_path
+from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy
 
 
 def run_sweep_for_model(
@@ -53,8 +50,7 @@ def run_sweep_for_model(
     else:
         model = tl.HookedTransformer.from_pretrained(model_name)
 
-    datasets_folder = repo_path_to_abs_path("datasets")
-    file_path = f"{datasets_folder}/wikdict/2_extracted/eng-fra.json"
+    file_path = get_dataset_path("cc_cedict_zh_en_parsed")
     with open(file_path, "r") as file:
         word_pairs = json.load(file)
     random.seed(1)

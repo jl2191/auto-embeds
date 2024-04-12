@@ -12,11 +12,10 @@ import logging
 import pickle
 
 from os import path
+from auto_embeds.utils.misc import repo_path_to_abs_path
 
-BASE_PATH = path.abspath(path.dirname(__file__))
-DATA_DIR = os.path.join(BASE_PATH)
-CEDICT_PATH = os.path.join(DATA_DIR, "cedict_ts.u8")
-DATA_PATH = os.path.join(DATA_DIR, "dump.dat")
+CEDICT_PATH = repo_path_to_abs_path("datasets/cc-cedict/cedict_ts.u8")
+DATA_PATH = repo_path_to_abs_path("datasets/cc-cedict/dump.dat")
 
 
 class CedictParser:
@@ -133,7 +132,7 @@ import json
 # with open("cedict_entries.json", "w", encoding="utf-8") as file:
 #     json.dump(dict_list, file, ensure_ascii=False, indent=4)
 
-# # %%
+# %%
 # with open("cedict_entries.json", "r", encoding="utf-8") as file:
 #     dict_list = json.load(file)
 
@@ -166,7 +165,8 @@ for entry in dict_list:
     cleaned_meaning = re.sub(r"\(.*?\)", "", meaning).strip()
     # Keep the word after "to" if it exists
     if "to " in cleaned_meaning:
-        cleaned_meaning = cleaned_meaning.split("to ")[-1].split()[0]
+        cleaned_meaning = cleaned_meaning.split("to ")[-1]
+        # print(cleaned_meaning)
     filtered_dict_list.append([simplified, cleaned_meaning])
 
 dict_list = filtered_dict_list
@@ -180,7 +180,6 @@ dict_list = [
 ]
 
 # %%
-with open("cedict_entries.json", "w", encoding="utf-8") as file:
+save_path = repo_path_to_abs_path("datasets/cc-cedict/cc-cedict-zh-en-parsed.json")
+with open(save_path, "w", encoding="utf-8") as file:
     json.dump(dict_list, file, ensure_ascii=False, indent=4)
-
-# %%

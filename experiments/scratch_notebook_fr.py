@@ -2,6 +2,9 @@
 import json
 import os
 
+from auto_embeds.data import filter_word_pairs, tokenize_word_pairs
+from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy, mark_translation
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -14,12 +17,8 @@ from IPython.core.getipython import get_ipython
 from torch.utils.data import DataLoader, TensorDataset
 
 from auto_embeds.embed_utils import (
-    calc_cos_sim_acc,
-    evaluate_accuracy,
-    filter_word_pairs,
     initialize_loss,
     initialize_transform_and_optim,
-    tokenize_word_pairs,
     train_transform,
 )
 from auto_embeds.utils.misc import repo_path_to_abs_path
@@ -38,6 +37,7 @@ except Exception:
 # %% model setup
 # model = tl.HookedTransformer.from_pretrained_no_processing("mistral-7b")
 model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
+# model = tl.HookedTransformer.from_pretrained_no_processing("bloom-3b")
 device = model.cfg.device
 d_model = model.cfg.d_model
 n_toks = model.cfg.d_vocab_out
@@ -46,21 +46,26 @@ model_caches_folder = repo_path_to_abs_path("datasets/model_caches")
 token_caches_folder = repo_path_to_abs_path("datasets/token_caches")
 
 # %% -----------------------------------------------------------------------------------
+# file_path = f"{datasets_folder}/muse/3_filtered/en-fr.json"
+# file_path = f"{datasets_folder}/wikdict/3_filtered/eng-fra.json"
 file_path = f"{datasets_folder}/wikdict/2_extracted/eng-fra.json"
-# file_path = f"{datasets_folder}/cc-cedict/cedict-zh-en.json"
 with open(file_path, "r") as file:
     word_pairs = json.load(file)
+
 random.seed(1)
 random.shuffle(word_pairs)
-split_index = int(len(word_pairs) * 0.95)
+split_index = int(len(word_pairs) * 0.97)
+
 train_en_fr_pairs = word_pairs[:split_index]
 test_en_fr_pairs = word_pairs[split_index:]
 
-train_word_pairs = filter_word_pairs(
+
+# %% filtering
+all_word_pairs = filter_word_pairs(
     model,
-    train_en_fr_pairs,
+    word_pairs,
     discard_if_same=True,
-    min_length=3,
+    # min_length=6,
     # capture_diff_case=True,
     capture_space=True,
     # capture_no_space=True,
@@ -69,62 +74,21 @@ train_word_pairs = filter_word_pairs(
     # max_token_id=100_000,
     # most_common_english=True,
     # most_common_french=True,
+    # acceptable_overlap=0.8,
 )
 
-test_word_pairs = filter_word_pairs(
-    model,
-    test_en_fr_pairs,
-    discard_if_same=True,
-    min_length=3,
-    # capture_diff_case=True,
-    capture_space=True,
-    # capture_no_space=True,
-    # print_pairs=True,
-    print_number=True,
-    # max_token_id=100_000,
-    # most_common_english=True,
-    # most_common_french=True,
-)
-
+random.seed(1)
+random.shuffle(all_word_pairs)
+split_index = int(len(all_word_pairs) * 0.97)
+train_en_fr_pairs = all_word_pairs[:split_index]
+test_en_fr_pairs = all_word_pairs[split_index:]
+# %%
 train_en_toks, train_fr_toks, train_en_mask, train_fr_mask = tokenize_word_pairs(
-    model, train_word_pairs
+    model, train_en_fr_pairs
 )
 test_en_toks, test_fr_toks, test_en_mask, test_fr_mask = tokenize_word_pairs(
-    model, test_word_pairs
+    model, test_en_fr_pairs
 )
-# %%
-t.save(
-    {
-        "en_toks": train_en_toks,
-        "fr_toks": train_fr_toks,
-        "en_mask": train_en_mask,
-        "fr_mask": train_fr_mask,
-    },
-    f"{token_caches_folder}/wikdict-train-en-fr-tokens.pt",
-)
-
-t.save(
-    {
-        "en_toks": test_en_toks,
-        "fr_toks": test_fr_toks,
-        "en_mask": test_en_mask,
-        "fr_mask": test_fr_mask,
-    },
-    f"{token_caches_folder}/wikdict-test-en-fr-tokens.pt",
-)
-# %%
-train_data = t.load(f"{token_caches_folder}/wikdict-train-en-fr-tokens.pt")
-test_data = t.load(f"{token_caches_folder}/wikdict-test-en-fr-tokens.pt")
-
-train_en_toks = train_data["en_toks"]
-train_fr_toks = train_data["fr_toks"]
-train_en_mask = train_data["en_mask"]
-train_fr_mask = train_data["fr_mask"]
-
-test_en_toks = test_data["en_toks"]
-test_fr_toks = test_data["fr_toks"]
-test_en_mask = test_data["en_mask"]
-test_fr_mask = test_data["fr_mask"]
 
 # %%
 train_en_embeds = (
@@ -153,17 +117,25 @@ test_fr_embeds = (
 #     model.embed.W_E[test_fr_toks].detach().clone(), [model.cfg.d_model]
 # )
 
+print(train_en_embeds.norm())
+
 print(train_en_embeds.shape)
 train_dataset = TensorDataset(train_en_embeds, train_fr_embeds)
-train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True)
+train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
 test_dataset = TensorDataset(test_en_embeds, test_fr_embeds)
-test_loader = DataLoader(test_dataset, batch_size=128, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=64, shuffle=True)
 # %%
 # run = wandb.init(
 #     project="single_token_tests",
 # )
 # %%
+
+translation_file = repo_path_to_abs_path(
+    # "datasets/muse/4_azure_validation/en-fr.json"
+    "datasets/wikdict/4_azure_validation/eng-fra.json"
+    # "datasets/wikdict-azure-en-fr.json"
+)
 
 transformation_names = [
     # "identity",
@@ -178,13 +150,15 @@ transformation_names = [
 ]
 
 for transformation_name in transformation_names:
+
     transform = None
     optim = None
 
     transform, optim = initialize_transform_and_optim(
         d_model,
         transformation=transformation_name,
-        optim_kwargs={"lr": 2e-5},
+        # optim_kwargs={"lr": 1e-4},
+        optim_kwargs={"lr": 1e-4, "weight_decay": 1e-5},
     )
     loss_module = initialize_loss("cosine_similarity")
 
@@ -197,6 +171,8 @@ for transformation_name in transformation_names:
             optim=optim,
             loss_module=loss_module,
             n_epochs=100,
+            plot_fig=False,
+            save_fig=True,
             # wandb=wandb,
         )
     else:
@@ -209,10 +185,47 @@ for transformation_name in transformation_names:
         transform,
         exact_match=False,
         print_results=True,
-        # print_top_preds=False,
+        print_top_preds=False,
     )
     print(f"{transformation_name}:")
     print(f"Correct Percentage: {accuracy * 100:.2f}%")
     print("Test Accuracy:", calc_cos_sim_acc(test_loader, transform))
 
+    mark_translation(
+        model=model,
+        transformation=transform,
+        test_loader=test_loader,
+        azure_translations_path=translation_file,
+        print_results=True,
+    )
+
 # %%
+translation_file = repo_path_to_abs_path(
+    # "datasets/muse/4_azure_validation/en-fr.json"
+    "datasets/wikdict/4_azure_validation/eng-fra.json"
+    # "datasets/wikdict-azure-en-fr.json"
+)
+# Load acceptable translations from JSON file
+with open(translation_file, "r") as file:
+    allowed_translations = json.load(file)
+
+# Convert list of acceptable translations to a more accessible format
+translations_list = []
+for item in allowed_translations:
+    source = item["normalizedSource"]
+    top_translation = next(
+        (
+            trans["normalizedTarget"]
+            for trans in item["translations"]
+            if trans["normalizedTarget"] is not None
+        ),
+        None,
+    )
+    if top_translation:
+        translations_list.append([source, top_translation])
+
+print(len(translations_list))
+
+wikdict_azure_save_path = repo_path_to_abs_path("datasets/wikdict-azure-en-fr.json")
+with open(wikdict_azure_save_path, "w") as f:
+    json.dump(translations_list, f)
