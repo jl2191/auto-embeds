@@ -116,6 +116,13 @@ DATASETS = {
     "wikdict_en_fr_azure_validation": repo_path_to_abs_path(
         "datasets/wikdict/4_azure_validation/eng-fra.json"
     ),
+    # random datasets to act as controls
+    "random_word_pairs": repo_path_to_abs_path(
+        "datasets/random/random_word_pairs.json"
+    ),
+    "singular_plural_pairs": repo_path_to_abs_path(
+        "datasets/singular-plural/singular_plural_pairs.json"
+    ),
 }
 
 

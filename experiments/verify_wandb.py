@@ -1,11 +1,16 @@
 # %%
+import sys
+import datetime
 import itertools
 import json
 import os
+import multiprocessing
+import argparse
 
 import numpy as np
 import torch as t
 import transformer_lens as tl
+from auto_embeds.utils.custom_tqdm import tqdm
 import wandb
 
 from auto_embeds.data import filter_word_pairs, get_dataset_path
@@ -37,22 +42,17 @@ os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 np.random.seed(1)
 t.manual_seed(1)
 t.cuda.manual_seed(1)
-try:
-    get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore
-    get_ipython().run_line_magic("load_ext", "line_profiler")  # type: ignore
-    get_ipython().run_line_magic("autoreload", "2")  # type: ignore
-except Exception:
-    pass
 
-# Configuration for experiments
-config = {
+# Configuration for overall experiments
+overall_config = {
     "wandb": {
-        "notes": "may god have mercy on my soul",
+        "notes": "blank",
         "tags": [
-            "2024-04-06",
-            "actual",
+            f"{datetime.datetime.now():%Y-%m-%d}",
+            f"{datetime.datetime.now():%Y-%m-%d} plural 1",
+            # "actual",
             # "test",
-            "big run",
+            # "big run",
             # "selection method",
             # "embed_or_W_E",
             # "very test",
@@ -69,19 +69,31 @@ config = {
         False,
     ],
     "embed_apply_ln": [True, False],
-    # "embed_apply_ln": [True],
     "embed_apply_ln_weights": [True],
     "transform_apply_ln": [True, False],
-    # "unembed_apply_ln": [True, False],
-    "unembed_apply_ln": [True],
+    "unembed_apply_ln": [True, False],
     "unembed_apply_ln_weights": [True],
     "datasets": [
+        # {
+        #     "name": "wikdict_en_fr_extracted",
+        #     "min_length": 5,
+        #     "capture_space": True,
+        #     "capture_no_space": False,
+        #     "mark_accuracy_path": "wikdict_en_fr_azure_validation",
+        # },
+        # {
+        #     "name": "random_word_pairs",
+        #     "min_length": 2,
+        #     "capture_space": True,
+        #     "capture_no_space": False,
+        #     "mark_accuracy_path": "muse_en_fr_azure_validation",
+        # },
         {
-            "name": "wikdict_en_fr_extracted",
-            "min_length": 5,
+            "name": "singular_plural_pairs",
+            "min_length": 2,
             "capture_space": True,
             "capture_no_space": False,
-            "mark_accuracy_path": "wikdict_en_fr_azure_validation",
+            "mark_accuracy_path": "muse_en_fr_azure_validation",
         },
         # {
         #     "name": "muse_en_fr_extracted",
@@ -90,13 +102,13 @@ config = {
         #     "capture_no_space": False,
         #     "mark_accuracy_path": "muse_en_fr_azure_validation",
         # },
-        {
-            "name": "cc_cedict_zh_en_extracted",
-            "min_length": 2,
-            "capture_space": False,
-            "capture_no_space": True,
-            "mark_accuracy_path": "cc_cedict_zh_en_azure_validation",
-        },
+        # {
+        #     "name": "cc_cedict_zh_en_extracted",
+        #     "min_length": 2,
+        #     "capture_space": False,
+        #     "capture_no_space": True,
+        #     "mark_accuracy_path": "cc_cedict_zh_en_azure_validation",
+        # },
         # {
         #     "name": "muse_zh_en_extracted_train",
         #     "min_length": 2,
@@ -106,18 +118,18 @@ config = {
         # },
     ],
     "transformations": [
-        "identity",
-        "translation",
+        # "identity",
+        # "translation",
         "linear_map",
-        "biased_linear_map",
-        "uncentered_linear_map",
-        "biased_uncentered_linear_map",
+        # "biased_linear_map",
+        # "uncentered_linear_map",
+        # "biased_uncentered_linear_map",
         "rotation",
-        "biased_rotation",
-        "uncentered_rotation",
+        # "biased_rotation",
+        # "uncentered_rotation",
     ],
-    "seeds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-    "n_epochs": [150],
+    "seeds": [1],
+    "n_epochs": [100],
     "lr": [8e-5],
     "weight_decay": [
         0,
@@ -135,228 +147,335 @@ config = {
 }
 
 total_runs = 1
-for value in config.values():
+for value in overall_config.values():
     if isinstance(value, list):
         total_runs *= len(value)
 
-print(f"Total runs to be executed: {total_runs}")
+print(f"Total experiment runs calculated: {total_runs}")
+
 
 # %%
-# Main experiment loop
-last_loaded_model = None
-last_loaded_word_pairs = None
-model = None
-for (
-    model_name,
-    processing,
-    dataset_config,
-    embed_apply_ln,
-    embed_apply_ln_weights,
-    transform_apply_ln,
-    unembed_apply_ln,
-    unembed_apply_ln_weights,
-    transformation,
-    n_epoch,
-    lr,
-    weight_decay,
-    train_batch_size,
-    test_batch_size,
-    top_k,
-    top_k_selection_method,
-    seed,
-) in itertools.product(
-    config["models"],
-    config["processings"],
-    config["datasets"],
-    config["embed_apply_ln"],
-    config["embed_apply_ln_weights"],
-    config["transform_apply_ln"],
-    config["unembed_apply_ln"],
-    config["unembed_apply_ln_weights"],
-    config["transformations"],
-    config["n_epochs"],
-    config["lr"],
-    config["weight_decay"],
-    config["train_batch_sizes"],
-    config["test_batch_sizes"],
-    config["top_k"],
-    config["top_k_selection_methods"],
-    config["seeds"],
-):
-    # Model setup
-    model_needs_loading = (
-        last_loaded_model is None
-        or last_loaded_model["model_name"] != model_name
-        or last_loaded_model["processing"] != processing
-    )
-    if model_needs_loading:
-        if processing:
-            model = tl.HookedTransformer.from_pretrained(model_name)
-        else:
-            model = tl.HookedTransformer.from_pretrained_no_processing(model_name)
-        last_loaded_model = {
+# Encapsulate the experiment loop in a function to be called concurrently
+def run_experiment(config_list):
+    for (
+        model_name,
+        processing,
+        dataset_config,
+        embed_apply_ln,
+        embed_apply_ln_weights,
+        transform_apply_ln,
+        unembed_apply_ln,
+        unembed_apply_ln_weights,
+        transformation,
+        n_epoch,
+        lr,
+        weight_decay,
+        train_batch_size,
+        test_batch_size,
+        top_k,
+        top_k_selection_method,
+        seed,
+    ) in tqdm(config_list, total=len(config_list)):
+
+        last_loaded_model = None
+        last_loaded_word_pairs = None
+        model = None
+
+        # Model setup
+        model_needs_loading = (
+            last_loaded_model is None
+            or last_loaded_model["model_name"] != model_name
+            or last_loaded_model["processing"] != processing
+        )
+        if model_needs_loading:
+            if processing:
+                model = tl.HookedTransformer.from_pretrained(model_name)
+            else:
+                model = tl.HookedTransformer.from_pretrained_no_processing(model_name)
+            last_loaded_model = {
+                "model_name": model_name,
+                "processing": processing,
+                "model": model,
+            }
+
+        assert model is not None, "The model has not been loaded successfully."
+
+        d_model = model.cfg.d_model
+        n_toks = model.cfg.d_vocab_out
+
+        # Dataset filtering
+        dataset_name = dataset_config["name"]
+        file_path = get_dataset_path(dataset_name)
+        with open(file_path, "r") as file:
+            word_pairs = json.load(file)
+
+        embed_config = {
+            "apply_ln": embed_apply_ln,
+            "apply_ln_weights": embed_apply_ln_weights,
+        }
+        unembed_config = {
+            "apply_ln": unembed_apply_ln,
+            "apply_ln_weights": unembed_apply_ln_weights,
+        }
+
+        word_pairs_needs_loading = (
+            last_loaded_word_pairs is None
+            or last_loaded_word_pairs["dataset_config"] != dataset_config
+        )
+        if word_pairs_needs_loading:
+            all_word_pairs = filter_word_pairs(
+                model,
+                word_pairs,
+                discard_if_same=True,
+                min_length=dataset_config["min_length"],
+                capture_space=dataset_config["capture_space"],
+                capture_no_space=dataset_config["capture_no_space"],
+                print_number=True,
+                verbose_count=True,
+            )
+            last_loaded_word_pairs = {
+                "dataset_config": dataset_config,
+                "filtered_word_pairs": all_word_pairs,
+            }
+            all_word_pairs = last_loaded_word_pairs["filtered_word_pairs"]
+
+        # Prepare datasets
+        verify_learning = prepare_verify_analysis(
+            model=model,
+            all_word_pairs=all_word_pairs,
+            seed=seed,
+            keep_other_pair=True,
+            embed_config=embed_config,
+        )
+
+        train_loader, test_loader = prepare_verify_datasets(
+            verify_learning=verify_learning,
+            batch_sizes=(train_batch_size, test_batch_size),
+            top_k=top_k,
+            top_k_selection_method=top_k_selection_method,
+        )
+
+        azure_translations_path = get_dataset_path(dataset_config["mark_accuracy_path"])
+
+        run_config = {
             "model_name": model_name,
             "processing": processing,
-            "model": model,
+            "dataset_name": dataset_name,
+            **dataset_config,
+            "embed_apply_ln": embed_apply_ln,
+            "embed_apply_ln_weights": embed_apply_ln_weights,
+            "transform_apply_ln": transform_apply_ln,
+            "unembed_apply_ln": unembed_apply_ln,
+            "unembed_apply_ln_weights": unembed_apply_ln_weights,
+            "transformation": transformation,
+            "seed": seed,
+            "n_epoch": n_epoch,
+            "lr": lr,
+            "weight_decay": weight_decay,
+            "train_batch_size": train_batch_size,
+            "test_batch_size": test_batch_size,
+            "top_k": top_k,
+            "top_k_selection_method": top_k_selection_method,
         }
 
-    assert model is not None, "The model has not been loaded successfully."
-
-    d_model = model.cfg.d_model
-    n_toks = model.cfg.d_vocab_out
-
-    # Dataset filtering
-    dataset_name = dataset_config["name"]
-    file_path = get_dataset_path(dataset_name)
-    with open(file_path, "r") as file:
-        word_pairs = json.load(file)
-
-    embed_config = {
-        "apply_ln": embed_apply_ln,
-        "apply_ln_weights": embed_apply_ln_weights,
-    }
-    unembed_config = {
-        "apply_ln": unembed_apply_ln,
-        "apply_ln_weights": unembed_apply_ln_weights,
-    }
-
-    word_pairs_needs_loading = (
-        last_loaded_word_pairs is None
-        or last_loaded_word_pairs["dataset_config"] != dataset_config
-    )
-    if word_pairs_needs_loading:
-        all_word_pairs = filter_word_pairs(
-            model,
-            word_pairs,
-            discard_if_same=True,
-            min_length=dataset_config["min_length"],
-            capture_space=dataset_config["capture_space"],
-            capture_no_space=dataset_config["capture_no_space"],
-            print_number=True,
-            verbose_count=True,
+        # WandB setup
+        run = wandb.init(
+            project="language-transformations",
+            config=run_config,
+            notes=overall_config["wandb"]["notes"],
+            tags=overall_config["wandb"]["tags"],
         )
-        last_loaded_word_pairs = {
-            "dataset_config": dataset_config,
-            "filtered_word_pairs": all_word_pairs,
-        }
-        all_word_pairs = last_loaded_word_pairs["filtered_word_pairs"]
 
-    # Prepare datasets
-    verify_learning = prepare_verify_analysis(
-        model=model,
-        all_word_pairs=all_word_pairs,
-        seed=seed,
-        keep_other_pair=True,
-        embed_config=embed_config,
-    )
-    print(seed)
-    print(verify_learning.src.other.words)
+        # Initialize transformation and optimizer
+        transform, optim = initialize_transform_and_optim(
+            d_model,
+            transformation=transformation,
+            transform_kwargs={
+                "apply_ln": transform_apply_ln,
+            },
+            optim_kwargs={"lr": lr, "weight_decay": weight_decay},
+        )
+        loss_module = initialize_loss("cosine_similarity")
 
-    train_loader, test_loader = prepare_verify_datasets(
-        verify_learning=verify_learning,
-        batch_sizes=(train_batch_size, test_batch_size),
-        top_k=top_k,
-        top_k_selection_method=top_k_selection_method,
-    )
+        # Train transformation
+        if optim is not None:
+            transform, loss_history = train_transform(
+                model=model,
+                train_loader=train_loader,
+                test_loader=test_loader,
+                transform=transform,
+                optim=optim,
+                loss_module=loss_module,
+                n_epochs=n_epoch,
+                plot_fig=False,
+                wandb=wandb,
+                azure_translations_path=azure_translations_path,
+                unembed_config=unembed_config,
+            )
 
-    azure_translations_path = get_dataset_path(dataset_config["mark_accuracy_path"])
-
-    run_config = {
-        "model_name": model_name,
-        "processing": processing,
-        "dataset_name": dataset_name,
-        **dataset_config,
-        "embed_apply_ln": embed_apply_ln,
-        "embed_apply_ln_weights": embed_apply_ln_weights,
-        "transform_apply_ln": transform_apply_ln,
-        "unembed_apply_ln": unembed_apply_ln,
-        "unembed_apply_ln_weights": unembed_apply_ln_weights,
-        "transformation": transformation,
-        "seed": seed,
-        "n_epoch": n_epoch,
-        "lr": lr,
-        "weight_decay": weight_decay,
-        "train_batch_size": train_batch_size,
-        "test_batch_size": test_batch_size,
-        "top_k": top_k,
-        "top_k_selection_method": top_k_selection_method,
-    }
-
-    # WandB setup
-    run = wandb.init(
-        project="language-transformations",
-        config=run_config,
-        notes=config["wandb"]["notes"],
-        tags=config["wandb"]["tags"],
-    )
-
-    # Initialize transformation and optimizer
-    transform, optim = initialize_transform_and_optim(
-        d_model,
-        transformation=transformation,
-        transform_kwargs={
-            "apply_ln": transform_apply_ln,
-        },
-        optim_kwargs={"lr": lr, "weight_decay": weight_decay},
-    )
-    loss_module = initialize_loss("cosine_similarity")
-
-    # Train transformation
-    if optim is not None:
-        transform, loss_history = train_transform(
-            model=model,
-            train_loader=train_loader,
-            test_loader=test_loader,
-            transform=transform,
-            optim=optim,
-            loss_module=loss_module,
-            n_epochs=n_epoch,
-            plot_fig=False,
-            wandb=wandb,
-            azure_translations_path=azure_translations_path,
+        # Evaluate and log results
+        accuracy = evaluate_accuracy(
+            model,
+            test_loader,
+            transform,
+            exact_match=False,
+            print_results=False,
+            print_top_preds=False,
             unembed_config=unembed_config,
         )
 
-    # Evaluate and log results
-    accuracy = evaluate_accuracy(
-        model,
-        test_loader,
-        transform,
-        exact_match=False,
-        print_results=False,
-        print_top_preds=False,
-        unembed_config=unembed_config,
+        mark_translation_acc = mark_translation(
+            model=model,
+            transformation=transform,
+            test_loader=test_loader,
+            azure_translations_path=azure_translations_path,
+            print_results=False,
+            unembed_config=unembed_config,
+        )
+
+        verify_results_dict = verify_transform(
+            model=model,
+            transformation=transform,
+            test_loader=test_loader,
+            unembed_config=unembed_config,
+        )
+
+        cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
+
+        # cos_sims_trend_plot.show(config={"responsive": True, "autosize": True})
+
+        test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
+
+        wandb.log(
+            {
+                "mark_translation_acc": mark_translation_acc,
+                "cos_sims_trend_plot": cos_sims_trend_plot,
+                "test_cos_sim_diff": test_cos_sim_diff,
+                # "model.cfg": model.cfg,
+            }
+        )
+
+        wandb.finish()
+
+
+# %%
+def setup_arg_parser():
+    """Set up and return the argument parser."""
+    parser = argparse.ArgumentParser(
+        description="Run experiments with specified worker configuration."
     )
-
-    mark_translation_acc = mark_translation(
-        model=model,
-        transformation=transform,
-        test_loader=test_loader,
-        azure_translations_path=azure_translations_path,
-        print_results=False,
-        unembed_config=unembed_config,
+    parser.add_argument(
+        "--worker_id",
+        type=int,
+        choices=[1, 2],
+        help="Optional: Worker ID to use for running the experiment.",
     )
+    return parser
 
-    verify_results_dict = verify_transform(
-        model=model,
-        transformation=transform,
-        test_loader=test_loader,
-        unembed_config=unembed_config,
-    )
 
-    cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
+# Define a function to generate configurations for workers
+def get_worker_config(split, worker_id):
+    """
+    Generate configuration based on a specified split and worker ID. If worker_id is 0,
+    the entire configuration is returned without splitting. When splitting, the entry
+    is removed and reinserted at the same index to maintain order.
 
-    # cos_sims_trend_plot.show(config={"responsive": True, "autosize": True})
+    Args:
+        split (str): The property to split the configuration along.
+        worker_id (int): The ID of the worker to determine which product to return, or 0
+                         to return the entire configuration.
 
-    test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
+    Returns:
+        itertools.product: The product of configurations for the experiment.
+    """
+    # Initial configuration values
+    config_values = [
+        overall_config["models"],
+        overall_config["processings"],
+        overall_config["datasets"],
+        overall_config["embed_apply_ln"],
+        overall_config["embed_apply_ln_weights"],
+        overall_config["transform_apply_ln"],
+        overall_config["unembed_apply_ln"],
+        overall_config["unembed_apply_ln_weights"],
+        overall_config["transformations"],
+        overall_config["n_epochs"],
+        overall_config["lr"],
+        overall_config["weight_decay"],
+        overall_config["train_batch_sizes"],
+        overall_config["test_batch_sizes"],
+        overall_config["top_k"],
+        overall_config["top_k_selection_methods"],
+        overall_config["seeds"],
+    ]
+    # Modify tags based on worker_id
+    if worker_id == 0:
+        overall_config["wandb"]["tags"].append("test")
+    else:
+        overall_config["wandb"]["tags"].append("actual")
 
-    wandb.log(
-        {
-            "mark_translation_acc": mark_translation_acc,
-            "cos_sims_trend_plot": cos_sims_trend_plot,
-            "test_cos_sim_diff": test_cos_sim_diff,
-            # "model.cfg": model.cfg,
-        }
-    )
+    if worker_id != 0:
+        # Validate the split property exists in the configuration
+        if split not in overall_config:
+            raise ValueError(f"Split property '{split}' not found in config.")
 
-    wandb.finish()
+        # Find the index of the split in the config_values list
+        split_index = [
+            i
+            for i, config in enumerate(config_values)
+            if config == overall_config[split]
+        ][0]
+
+        # Remove the split from the config_values at its index
+        del config_values[split_index]
+
+        # Determine the appropriate value based on the worker ID
+        split_value = [
+            (
+                overall_config[split][worker_id - 1]
+                if worker_id <= len(overall_config[split])
+                else None
+            )
+        ]
+
+        # Validate the selected split value
+        if split_value[0] is None:
+            raise ValueError(
+                f"Worker ID {worker_id} is out of range for split '{split}'."
+            )
+
+        # Reinsert the split value at the original index
+        config_values.insert(split_index, split_value)
+
+    return list(itertools.product(*config_values))
+
+
+def is_notebook():
+    """Check if the script is running in a Jupyter notebook/IPython session."""
+    try:
+        from IPython import get_ipython
+
+        if "IPKernelApp" not in get_ipython().config:
+            return False
+    except ImportError:
+        return False
+    except AttributeError:
+        return False
+    return True
+
+
+# %%
+if __name__ == "__main__":
+    if is_notebook():
+        # If running in a Jupyter notebook, run all experiments
+        print("Detected Jupyter notebook or IPython session. Running all experiments.")
+        run_experiment(get_worker_config("embed_apply_ln", 0))
+    else:
+        # Command-line execution
+        parser = setup_arg_parser()
+        args = parser.parse_args()
+
+        if args.worker_id:
+            config_to_use = get_worker_config("embed_apply_ln", args.worker_id)
+            print(f"Running experiment for worker ID = {args.worker_id}")
+            run_experiment(config_to_use)

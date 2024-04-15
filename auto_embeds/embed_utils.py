@@ -207,34 +207,37 @@ def train_transform(
             if wandb:
                 wandb.log(info_dict)
             epoch_pbar.set_description(f"train loss: {train_loss.item():.3f}")
-        # Calculate and log test loss at the end of each epoch
-        with t.no_grad():
-            total_test_loss = 0
-            for test_en_embed, test_fr_embed in test_loader:
-                test_pred = transform(test_en_embed)
-                test_loss = loss_module(test_pred.squeeze(), test_fr_embed.squeeze())
-                total_test_loss += test_loss.item()
-            avg_test_loss = total_test_loss / len(test_loader)
-            info_dict = {"test_loss": avg_test_loss, "epoch": epoch}
-            train_history["test_loss"].append(info_dict)
-            # Calculate and log mark_translation score if azure_translations_path
-            if azure_translations_path:
-                mark_translation_score = mark_translation(
-                    model=model,
-                    transformation=transform,
-                    test_loader=test_loader,
-                    translations_dict=translations_dict,
-                    print_results=False,
-                    unembed_config=unembed_config,
-                )
-                info_dict.update(
-                    {
-                        "mark_translation_score": mark_translation_score,
-                    }
-                )
-                train_history["mark_translation_score"].append(info_dict)
-            if wandb:
-                wandb.log(info_dict)
+        # Calculate and log test loss at the end of each epoch divisible by 10
+        if epoch % 10 == 0:
+            with t.no_grad():
+                total_test_loss = 0
+                for test_en_embed, test_fr_embed in test_loader:
+                    test_pred = transform(test_en_embed)
+                    test_loss = loss_module(
+                        test_pred.squeeze(), test_fr_embed.squeeze()
+                    )
+                    total_test_loss += test_loss.item()
+                avg_test_loss = total_test_loss / len(test_loader)
+                info_dict = {"test_loss": avg_test_loss, "epoch": epoch}
+                train_history["test_loss"].append(info_dict)
+                # Calculate and log mark_translation score if azure_translations_path
+                if azure_translations_path:
+                    mark_translation_score = mark_translation(
+                        model=model,
+                        transformation=transform,
+                        test_loader=test_loader,
+                        translations_dict=translations_dict,
+                        print_results=False,
+                        unembed_config=unembed_config,
+                    )
+                    info_dict.update(
+                        {
+                            "mark_translation_score": mark_translation_score,
+                        }
+                    )
+                    train_history["mark_translation_score"].append(info_dict)
+                if wandb:
+                    wandb.log(info_dict)
     if plot_fig or save_fig:
         fig = px.line(title="Train and Test Loss with Mark Correct Score")
         fig.add_scatter(

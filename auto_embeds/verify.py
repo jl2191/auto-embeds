@@ -423,7 +423,8 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
     Plots the trend of cosine similarity across ranks with the ability to toggle
     between a line of best fit and a moving average trend line via the legend.
     Rolling standard deviation for the moving average is shown when the moving average
-    is toggled on.
+    is toggled on. Dots are colored green when the predicted word matches the target
+    word, otherwise red.
 
     Args:
         verify_results: A dictionary containing the cosine similarities, source words,
@@ -435,6 +436,8 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
     """
     cos_sims = verify_results["cos_sims"].tolist()
     ranks = list(range(len(cos_sims)))
+    target_words = verify_results["fr_strs"]
+    predicted_words = verify_results["top_pred_strs"]
 
     # Prepare DataFrame for plotting
     df = pd.DataFrame(
@@ -442,8 +445,8 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
             "Rank": ranks,
             "Cosine Similarity": cos_sims,
             "Source Word": verify_results["en_strs"],
-            "Target Word": verify_results["fr_strs"],
-            "Predicted Word": verify_results["top_pred_strs"],
+            "Target Word": target_words,
+            "Predicted Word": predicted_words,
         }
     )
 
@@ -456,7 +459,13 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
         "Predicted Word: %{customdata[2]}"
     )
 
-    # Create the main line plot
+    # Determine dot colors based on word match
+    dot_colors = [
+        "green" if target == pred else "red"
+        for target, pred in zip(target_words, predicted_words)
+    ]
+
+    # Create the main line plot with conditional coloring
     fig = px.line(
         df,
         x="Rank",
@@ -466,6 +475,12 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
         markers=True,
         template="plotly_white",
         custom_data=["Source Word", "Target Word", "Predicted Word"],
+    )
+
+    # Update dots with conditional colors
+    fig.update_traces(
+        marker=dict(size=8, color=dot_colors, symbol="circle"),
+        hovertemplate=hover_template,
     )
 
     # Calculate and add line of best fit
@@ -506,12 +521,6 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
             name="Rolling Std Dev",
             visible="legendonly",  # Shown with moving average
         )
-    )
-
-    # Update traces for better visualization
-    fig.update_traces(
-        marker=dict(size=8, color="skyblue", symbol="circle"),
-        hovertemplate=hover_template,
     )
 
     # Update layout for a cleaner look
