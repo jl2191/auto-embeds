@@ -33,7 +33,8 @@ def verify_transform(
     test_loader: DataLoader[Tuple[Tensor, ...]],
     unembed_config: dict = None,
 ) -> Dict[str, Any]:
-    """
+    """Evaluates the transformation's effectiveness.
+
     Evaluates the transformation's effectiveness in translating source language tokens
     to target language tokens by examining the relationship between accuracy and the
     cosine similarity of embeddings. Returns a dictionary containing cosine similarity,
@@ -143,7 +144,8 @@ def verify_transform(
 
 
 def verify_transform_table_from_dict(verify_results: Dict[str, Any]) -> Table:
-    """
+    """Returns a rich table.
+
     Returns a rich table comparing cosine similarity and Euclidean distance between
     predicted and actual tokens using the results from a verify_transform dictionary.
 
@@ -211,7 +213,8 @@ def calc_tgt_is_closest_embed(
     all_word_pairs: List[List[str]],
     device: Union[str, t.device] = default_device,
 ) -> Dict[str, Union[str, List[str]]]:
-    """
+    """Calculates the percentage of target tokens in top closest.
+
     Calculates the percentage of instances where the target language token is within
     the top 1 and top 5 closest tokens in terms of cosine similarity.
 
@@ -316,7 +319,7 @@ def generate_top_word_pairs_table(
     exclude_identical: bool = False,
     device: Union[str, t.device] = default_device,
 ) -> Table:
-    """Generates a table of top word pairs based on a specified metric.
+    """Generates a table of top word pairs.
 
     Highlights the relationship between a selected word and other tokens based on
     either cosine similarity or Euclidean distance. It displays a limited number of
@@ -419,7 +422,8 @@ def generate_top_word_pairs_table(
 
 
 def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
-    """
+    """Plots the trend of cosine similarity across ranks.
+
     Plots the trend of cosine similarity across ranks with the ability to toggle
     between a line of best fit and a moving average trend line via the legend.
     Rolling standard deviation for the moving average is shown when the moving average
@@ -538,8 +542,9 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
 def test_cos_sim_difference(
     verify_results: Dict[str, t.Tensor], n: int = 25
 ) -> Dict[str, Union[float, bool, int]]:
-    """Tests for difference in cosine similarity between first and last n entries
+    """Tests for difference in cosine similarity.
 
+    Tests for difference in cosine similarity between first and last n entries.
     This function performs a two-sample t-test on the first n and last n cosine
     similarity values in a verify_results dictionary to check for a significant
     difference. The results are returned in a dictionary.
@@ -579,8 +584,9 @@ def prepare_verify_analysis(
     keep_other_pair: bool = False,
     embed_config: dict = None,
 ) -> VerifyWordPairAnalysis:
-    """Prepares verify analysis by preparing embeddings and calculating distances.
+    """Prepares verify analysis.
 
+    Prepares verify analysis by preparing embeddings and calculating distances.
     This function calculates and stores the top indices for cosine similarities and
     Euclidean distances within the WordCategory data structure, removing the need to
     pass these indices separately to other functions. If keep_other_pair is True,
@@ -731,7 +737,8 @@ def prepare_verify_datasets(
     seed=None,
     top_k_selection_method="src_and_src",
 ):
-    """
+    """Prepares training and testing datasets.
+
     Prepares training and testing datasets from embeddings, selecting top-k
     embeddings based on cosine similarity and allows for deterministic shuffling
     with a specified seed. The selection can be based on the cosine similarities

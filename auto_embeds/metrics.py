@@ -186,7 +186,7 @@ def mark_translation(
     translations_dict: Optional[Dict[str, List[str]]] = None,
     unembed_config: Optional[dict] = None,
 ) -> float:
-    """Marks translations as correct.
+    """Marks translations as correct according to a dictionary of translations.
 
     Can either take in a dictionary of translations or a path to a JSON file containing
     translations from Azure. At least one of `azure_translations_path` or
@@ -321,8 +321,9 @@ def mark_translation(
 
 
 def calc_canonical_angles(A: t.Tensor, B: t.Tensor) -> t.Tensor:
-    """
-    Calculates the canonical angles between two matrices to measure their rotational
+    """Calculates the canonical angles between two matrices.
+
+    This is to measure their rotational
     similarity. This function supports tensors of shape [n, m] and [n, 1, m], where 1
     usually represents a positional dimension.
 

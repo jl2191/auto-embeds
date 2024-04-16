@@ -524,8 +524,7 @@ def embed(
     apply_ln: bool = True,
     apply_ln_weights: bool = True,
 ) -> Union[Tensor, Tuple[Tensor, ...]]:
-    """
-    Embeds words and optionally applies layer normalization.
+    """Embeds words and optionally applies layer normalization.
 
     This function can handle a single tensor or any number of input token tensors.
 
@@ -539,8 +538,9 @@ def embed(
 
     Returns:
         The embedded (and optionally
-            layer-normalized) words. Shape: [batch, pos, d_model]. Returns a single tensor
-            if one tensor is provided as input, otherwise returns a tuple of tensors.
+            layer-normalized) words. Shape: [batch, pos, d_model]. Returns a single
+            tensor if one tensor is provided as input, otherwise returns a tuple of
+            tensors.
     """
     # Convert single tensor input into a tuple to standardize processing
     if isinstance(tokens, Tensor):
@@ -675,8 +675,7 @@ def prepare_data(
 ) -> (
     TensorDataset | TwoDatasets | TwoTensors | FourTensors | DataLoader | TwoDataLoaders
 ):
-    """
-    Prepares and processes data from a specified dataset for training and testing.
+    """Prepares and processes data from a specified dataset for training and testing.
 
     This function is overloaded to return different types based on the `return_type`
         and `dataloader` parameters.
@@ -788,8 +787,7 @@ def unembed(
     apply_ln: bool = True,
     apply_ln_weights: bool = True,
 ) -> Union[Tensor, Tuple[Tensor, ...]]:
-    """
-    Unembeds tokens and optionally applies layer normalization.
+    """Unembeds tokens and optionally applies layer normalization.
 
     This function can handle a single tensor or any number of input token tensors.
 

@@ -28,10 +28,12 @@ from auto_embeds.utils.misc import default_device
 
 
 def initialize_loss(loss: str, loss_kwargs: Dict[str, Any] = {}) -> nn.Module:
-    """Initializes a loss module based on the specified loss type and optional kwargs.
+    """Initializes a loss module.
+
+    Initializes a loss module based on the specified loss type and optional kwargs.
 
     Args:
-        loss: A string specifying the type of loss to initialize. Supported types
+        loss: The type of loss to initialize. Supported types
             include 't_cosine_similarity', 't_l1_loss', 't_mse_loss', 'mse_loss',
             'cosine_similarity', 'l1_cosine_similarity', and 'l2_cosine_similarity'.
         loss_kwargs: A dictionary of keyword arguments for the loss module.
@@ -67,7 +69,7 @@ def initialize_transform_and_optim(
     optim_kwargs: Dict[str, Any] = {},
     device: Union[str, t.device] = default_device,
 ) -> Tuple[nn.Module, Optional[Optimizer]]:
-    """Initializes a transformation and its corresponding optimizer.
+    """Initializes a transformation and its optimizer.
 
     Initializes a transformation and its optimizer based on the specified type,
     allowing for flexible configuration through keyword argument dictionaries for
@@ -133,7 +135,8 @@ def initialize_transform_and_optim(
 def initialize_manual_transform(
     transform_name, train_loader, apply_ln=False, d_model=None
 ):
-    """
+    """Initializes a ManualTransformModule.
+
     Initializes a ManualTransformModule with transformations derived analytically from
     the training data. Also calculates expected metrics for the transformation.
 
@@ -188,7 +191,9 @@ def train_transform(
     azure_translations_path: Optional[Union[str, Path]] = None,
     unembed_config: Optional[dict] = None,
 ) -> Tuple[nn.Module, Dict[str, List[Dict[str, Union[float, int]]]]]:
-    """Trains the transformation, returning the learned transformation and loss history.
+    """Trains the transformation.
+
+    Trains the transformation, returning the learned transformation and loss history.
 
     Args:
         model: The transformer model used for training.
@@ -309,9 +314,9 @@ def generate_new_embeddings_from_noise(
     num_copies: int = 1,
     dist_dict: dict = {"distribution": "uniform", "alpha": 0.01},
 ) -> t.Tensor:
-    """Generate multiple new embeddings by adding noise to the original embeddings.
+    """Generates new embeddings.
 
-    This function generates multiple new embeddings by adding noise to the original
+    Generates multiple new embeddings by adding noise to the original
     embeddings multiple times based on the specified distribution.
 
     Args:
