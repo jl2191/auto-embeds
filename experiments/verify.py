@@ -171,7 +171,7 @@ for (
     # Dataset filtering
     dataset_name = dataset_config["name"]
     file_path = get_dataset_path(dataset_name)
-    with open(file_path, "r") as file:
+    with open(file_path, "r", encoding="utf-8") as file:
         word_pairs = json.load(file)
 
     word_pairs_needs_loading = (

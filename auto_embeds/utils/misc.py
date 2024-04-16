@@ -1,3 +1,4 @@
+import itertools
 import pickle
 from contextlib import contextmanager
 from datetime import datetime
@@ -119,3 +120,137 @@ def calculate_gradient_color(
     green = int(255 * normalized)
     # Format as hex color
     return f"#{red:02x}{green:02x}00"
+
+
+def get_experiment_worker_config(
+    experiment_config, split_parameter, n_splits, worker_id, print_config=True
+) -> dict:
+    """
+    Generate a subset of the experiment configuration based on the specified split
+    parameter, number of splits, and worker ID. This function divides the
+    configuration into n_splits parts and returns the part corresponding to the
+    worker_id as a dictionary.
+
+    Args:
+        experiment_config (dict): The full experiment configuration dictionary.
+        split_parameter (str): The key in the configuration to split by.
+        n_splits (int): The total number of splits to divide the configuration into.
+        worker_id (int): The ID of the worker, determining which part of the split
+                         to return, or 0 to indicate a test run of all experiments.
+        print_config (bool): If True, prints the resulting configuration subset along
+                             with additional information about how the division was
+                             made.
+
+    Returns:
+        dict: A subset of the configuration based on the provided arguments.
+    """
+    # Add "test" or "actual" tag to wandb configuration based on worker_id
+    tag = "test" if worker_id == 0 else "actual"
+    experiment_config["wandb"]["tags"].append(tag)
+
+    if worker_id == 0:
+        # If worker_id is 0, return the entire configuration for testing
+        if print_config:
+            print("Running all experiments in test mode with 'test' tag.")
+        return experiment_config
+
+    # Validate the split parameter exists in the configuration
+    if split_parameter not in experiment_config:
+        raise ValueError(f"Split parameter '{split_parameter}' not found in config.")
+
+    # Validate worker_id and n_splits
+    if worker_id < 1 or worker_id > n_splits:
+        raise ValueError(
+            f"Worker ID {worker_id} is out of range for n_splits {n_splits}."
+        )
+
+    # Calculate the size of each split
+    total_items = len(experiment_config[split_parameter])
+    split_size = total_items // n_splits
+    remainder = total_items % n_splits
+
+    # Adjust start and end indices for workers (1 and above)
+    start_index = (worker_id - 1) * split_size
+    if worker_id <= remainder:
+        start_index += worker_id - 1
+    else:
+        start_index += remainder
+
+    end_index = start_index + split_size
+    if worker_id <= remainder:
+        end_index += 1
+
+    # Update only the split_parameter part of the configuration for the given worker_id
+    experiment_config[split_parameter] = experiment_config[split_parameter][
+        start_index:end_index
+    ]
+
+    if print_config:
+        print(
+            f"Configuration for '{split_parameter}' is divided into {n_splits} parts."
+        )
+        print(f"Each part has up to {split_size} items.")
+        print(
+            f"Worker ID {worker_id} will process items from index {start_index} "
+            f"to {end_index - 1}."
+        )
+        print(
+            f"Config subset particular to worker_id {worker_id}: "
+            f"{experiment_config[split_parameter]}"
+        )
+
+    return experiment_config
+
+
+def is_notebook():
+    """Check if the script is running in a Jupyter notebook/IPython session."""
+    try:
+        from IPython import get_ipython  # type: ignore
+
+        if "IPKernelApp" in get_ipython().config:  # type: ignore
+            return True
+    except ImportError:
+        return False
+    except AttributeError:
+        return False
+    return False
+
+
+def dynamic_text_wrap(text, plot_width_px, font_size=12, font_width_approx=7):
+    """
+    Dynamically wraps text for Plotly annotations based on the estimated plot width.
+
+    Args:
+    - text: The original text to wrap.
+    - plot_width_px: The estimated width of the plot in pixels.
+    - font_size: The font size used in the plot annotations.
+    - font_width_approx: Approx width of each char in pixels, can vary by font.
+
+    Returns:
+    - str: The wrapped text with <br> tags inserted at appropriate intervals.
+    """
+    # Estimate the number of characters per line based on plot width and font size
+    chars_per_line = max(1, plot_width_px // (font_size * font_width_approx / 12))
+
+    # Split the text into words
+    words = text.split()
+
+    # Initialize variables for the wrapped text and the current line length
+    wrapped_text = ""
+    current_line_length = 0
+
+    for word in words:
+        # Check if adding the next word exceeds the line length
+        if current_line_length + len(word) > chars_per_line:
+            # If so, add a line break before the word
+            wrapped_text += "<br>"
+            current_line_length = 0
+        elif wrapped_text:  # If not the first word, add a space before the word
+            wrapped_text += " "
+            current_line_length += 1
+
+        # Add the word to the wrapped text and update the current line length
+        wrapped_text += word
+        current_line_length += len(word)
+
+    return wrapped_text

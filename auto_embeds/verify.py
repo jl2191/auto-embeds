@@ -21,8 +21,8 @@ from auto_embeds.data import (
     WordCategory,
     WordData,
     embed,
-    unembed,
     tokenize_word_pairs,
+    unembed,
 )
 from auto_embeds.utils.misc import calculate_gradient_color, default_device
 
@@ -461,7 +461,7 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
 
     # Determine dot colors based on word match
     dot_colors = [
-        "green" if target == pred else "red"
+        "lightgreen" if target == pred else "lightcoral"
         for target, pred in zip(target_words, predicted_words)
     ]
 

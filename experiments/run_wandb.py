@@ -1,16 +1,13 @@
 # %%
-import sys
+import argparse
 import datetime
 import itertools
 import json
 import os
-import multiprocessing
-import argparse
 
 import numpy as np
 import torch as t
 import transformer_lens as tl
-from auto_embeds.utils.custom_tqdm import tqdm
 import wandb
 
 from auto_embeds.data import filter_word_pairs, get_dataset_path
@@ -20,13 +17,12 @@ from auto_embeds.embed_utils import (
     train_transform,
 )
 from auto_embeds.metrics import (
-    calc_canonical_angles,
     evaluate_accuracy,
     mark_translation,
 )
-from auto_embeds.utils.misc import repo_path_to_abs_path
+from auto_embeds.utils.custom_tqdm import tqdm
+from auto_embeds.utils.misc import get_experiment_worker_config, is_notebook
 from auto_embeds.verify import (
-    calc_tgt_is_closest_embed,
     plot_cosine_similarity_trend,
     prepare_verify_analysis,
     prepare_verify_datasets,
@@ -44,20 +40,15 @@ t.manual_seed(1)
 t.cuda.manual_seed(1)
 
 # Configuration for overall experiments
-overall_config = {
+experiment_config = {
     "wandb": {
         "notes": "blank",
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
-            f"{datetime.datetime.now():%Y-%m-%d} plural 1",
+            f"{datetime.datetime.now():%Y-%m-%d} effect of layernorm 7",
+            "run group 1",
             # "actual",
             # "test",
-            # "big run",
-            # "selection method",
-            # "embed_or_W_E",
-            # "very test",
-            # "new_top_k_algorithm",
-            # "processing",
         ],
     },
     "models": [
@@ -68,11 +59,6 @@ overall_config = {
     "processings": [
         False,
     ],
-    "embed_apply_ln": [True, False],
-    "embed_apply_ln_weights": [True],
-    "transform_apply_ln": [True, False],
-    "unembed_apply_ln": [True, False],
-    "unembed_apply_ln_weights": [True],
     "datasets": [
         # {
         #     "name": "wikdict_en_fr_extracted",
@@ -81,19 +67,17 @@ overall_config = {
         #     "capture_no_space": False,
         #     "mark_accuracy_path": "wikdict_en_fr_azure_validation",
         # },
-        # {
-        #     "name": "random_word_pairs",
-        #     "min_length": 2,
-        #     "capture_space": True,
-        #     "capture_no_space": False,
-        #     "mark_accuracy_path": "muse_en_fr_azure_validation",
-        # },
+        {
+            "name": "random_word_pairs",
+            "min_length": 2,
+            "capture_space": True,
+            "capture_no_space": False,
+        },
         {
             "name": "singular_plural_pairs",
             "min_length": 2,
             "capture_space": True,
             "capture_no_space": False,
-            "mark_accuracy_path": "muse_en_fr_azure_validation",
         },
         # {
         #     "name": "muse_en_fr_extracted",
@@ -128,13 +112,6 @@ overall_config = {
         # "biased_rotation",
         # "uncentered_rotation",
     ],
-    "seeds": [1],
-    "n_epochs": [100],
-    "lr": [8e-5],
-    "weight_decay": [
-        0,
-        # 2e-5,
-    ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
     "top_k": [200],
@@ -144,10 +121,22 @@ overall_config = {
         "top_src",
         # "top_tgt",
     ],
+    "seeds": [1, 2],
+    "embed_apply_ln": [True, False],
+    "embed_apply_ln_weights": [True],
+    "transform_apply_ln": [True, False],
+    "unembed_apply_ln": [True, False],
+    "unembed_apply_ln_weights": [True],
+    "n_epochs": [100],
+    "weight_decay": [
+        0,
+        # 2e-5,
+    ],
+    "lr": [8e-5],
 }
 
 total_runs = 1
-for value in overall_config.values():
+for value in experiment_config.values():
     if isinstance(value, list):
         total_runs *= len(value)
 
@@ -155,31 +144,68 @@ print(f"Total experiment runs calculated: {total_runs}")
 
 
 # %%
-# Encapsulate the experiment loop in a function to be called concurrently
-def run_experiment(config_list):
+def run_experiment(config_dict):
+    # Extracting 'wandb' configuration and generating all combinations of configurations
+    # as a list of lists
+    wandb_config = config_dict.pop("wandb")
+    config_values = [
+        config_dict[entry] if entry != "datasets" else config_dict[entry]
+        for entry in config_dict
+    ]
+    config_list = list(itertools.product(*config_values))
+
+    # To prevent unnecessary reloading
+    last_loaded_model = None
+    last_loaded_word_pairs = None
+    model = None
+
     for (
         model_name,
         processing,
         dataset_config,
-        embed_apply_ln,
-        embed_apply_ln_weights,
-        transform_apply_ln,
-        unembed_apply_ln,
-        unembed_apply_ln_weights,
         transformation,
-        n_epoch,
-        lr,
-        weight_decay,
         train_batch_size,
         test_batch_size,
         top_k,
         top_k_selection_method,
         seed,
+        embed_apply_ln,
+        embed_apply_ln_weights,
+        transform_apply_ln,
+        unembed_apply_ln,
+        unembed_apply_ln_weights,
+        n_epoch,
+        weight_decay,
+        lr,
     ) in tqdm(config_list, total=len(config_list)):
 
-        last_loaded_model = None
-        last_loaded_word_pairs = None
-        model = None
+        run_config = {
+            "model_name": model_name,
+            "processing": processing,
+            "dataset": dataset_config,
+            "transformation": transformation,
+            "train_batch_size": train_batch_size,
+            "test_batch_size": test_batch_size,
+            "top_k": top_k,
+            "top_k_selection_method": top_k_selection_method,
+            "seed": seed,
+            "embed_apply_ln": embed_apply_ln,
+            "embed_apply_ln_weights": embed_apply_ln_weights,
+            "transform_apply_ln": transform_apply_ln,
+            "unembed_apply_ln": unembed_apply_ln,
+            "unembed_apply_ln_weights": unembed_apply_ln_weights,
+            "n_epoch": n_epoch,
+            "weight_decay": weight_decay,
+            "lr": lr,
+        }
+
+        # WandB run init
+        run = wandb.init(
+            project="language-transformations",
+            config=run_config,
+            notes=wandb_config["notes"],
+            tags=wandb_config["tags"],
+        )
 
         # Model setup
         model_needs_loading = (
@@ -206,7 +232,7 @@ def run_experiment(config_list):
         # Dataset filtering
         dataset_name = dataset_config["name"]
         file_path = get_dataset_path(dataset_name)
-        with open(file_path, "r") as file:
+        with open(file_path, "r", encoding="utf-8") as file:
             word_pairs = json.load(file)
 
         embed_config = {
@@ -255,36 +281,12 @@ def run_experiment(config_list):
             top_k_selection_method=top_k_selection_method,
         )
 
-        azure_translations_path = get_dataset_path(dataset_config["mark_accuracy_path"])
-
-        run_config = {
-            "model_name": model_name,
-            "processing": processing,
-            "dataset_name": dataset_name,
-            **dataset_config,
-            "embed_apply_ln": embed_apply_ln,
-            "embed_apply_ln_weights": embed_apply_ln_weights,
-            "transform_apply_ln": transform_apply_ln,
-            "unembed_apply_ln": unembed_apply_ln,
-            "unembed_apply_ln_weights": unembed_apply_ln_weights,
-            "transformation": transformation,
-            "seed": seed,
-            "n_epoch": n_epoch,
-            "lr": lr,
-            "weight_decay": weight_decay,
-            "train_batch_size": train_batch_size,
-            "test_batch_size": test_batch_size,
-            "top_k": top_k,
-            "top_k_selection_method": top_k_selection_method,
-        }
-
-        # WandB setup
-        run = wandb.init(
-            project="language-transformations",
-            config=run_config,
-            notes=overall_config["wandb"]["notes"],
-            tags=overall_config["wandb"]["tags"],
-        )
+        if "mark_accuracy_path" in dataset_config:
+            azure_translations_path = get_dataset_path(
+                dataset_config["mark_accuracy_path"]
+            )
+        else:
+            azure_translations_path = None
 
         # Initialize transformation and optimizer
         transform, optim = initialize_transform_and_optim(
@@ -314,7 +316,7 @@ def run_experiment(config_list):
             )
 
         # Evaluate and log results
-        accuracy = evaluate_accuracy(
+        test_accuracy = evaluate_accuracy(
             model,
             test_loader,
             transform,
@@ -324,14 +326,17 @@ def run_experiment(config_list):
             unembed_config=unembed_config,
         )
 
-        mark_translation_acc = mark_translation(
-            model=model,
-            transformation=transform,
-            test_loader=test_loader,
-            azure_translations_path=azure_translations_path,
-            print_results=False,
-            unembed_config=unembed_config,
-        )
+        if azure_translations_path is None:
+            mark_translation_acc = None
+        else:
+            mark_translation_acc = mark_translation(
+                model=model,
+                transformation=transform,
+                test_loader=test_loader,
+                azure_translations_path=azure_translations_path,
+                print_results=False,
+                unembed_config=unembed_config,
+            )
 
         verify_results_dict = verify_transform(
             model=model,
@@ -348,17 +353,16 @@ def run_experiment(config_list):
 
         wandb.log(
             {
+                "test_accuracy": test_accuracy,
                 "mark_translation_acc": mark_translation_acc,
                 "cos_sims_trend_plot": cos_sims_trend_plot,
                 "test_cos_sim_diff": test_cos_sim_diff,
-                # "model.cfg": model.cfg,
             }
         )
 
         wandb.finish()
 
 
-# %%
 def setup_arg_parser():
     """Set up and return the argument parser."""
     parser = argparse.ArgumentParser(
@@ -373,109 +377,32 @@ def setup_arg_parser():
     return parser
 
 
-# Define a function to generate configurations for workers
-def get_worker_config(split, worker_id):
-    """
-    Generate configuration based on a specified split and worker ID. If worker_id is 0,
-    the entire configuration is returned without splitting. When splitting, the entry
-    is removed and reinserted at the same index to maintain order.
-
-    Args:
-        split (str): The property to split the configuration along.
-        worker_id (int): The ID of the worker to determine which product to return, or 0
-                         to return the entire configuration.
-
-    Returns:
-        itertools.product: The product of configurations for the experiment.
-    """
-    # Initial configuration values
-    config_values = [
-        overall_config["models"],
-        overall_config["processings"],
-        overall_config["datasets"],
-        overall_config["embed_apply_ln"],
-        overall_config["embed_apply_ln_weights"],
-        overall_config["transform_apply_ln"],
-        overall_config["unembed_apply_ln"],
-        overall_config["unembed_apply_ln_weights"],
-        overall_config["transformations"],
-        overall_config["n_epochs"],
-        overall_config["lr"],
-        overall_config["weight_decay"],
-        overall_config["train_batch_sizes"],
-        overall_config["test_batch_sizes"],
-        overall_config["top_k"],
-        overall_config["top_k_selection_methods"],
-        overall_config["seeds"],
-    ]
-    # Modify tags based on worker_id
-    if worker_id == 0:
-        overall_config["wandb"]["tags"].append("test")
-    else:
-        overall_config["wandb"]["tags"].append("actual")
-
-    if worker_id != 0:
-        # Validate the split property exists in the configuration
-        if split not in overall_config:
-            raise ValueError(f"Split property '{split}' not found in config.")
-
-        # Find the index of the split in the config_values list
-        split_index = [
-            i
-            for i, config in enumerate(config_values)
-            if config == overall_config[split]
-        ][0]
-
-        # Remove the split from the config_values at its index
-        del config_values[split_index]
-
-        # Determine the appropriate value based on the worker ID
-        split_value = [
-            (
-                overall_config[split][worker_id - 1]
-                if worker_id <= len(overall_config[split])
-                else None
-            )
-        ]
-
-        # Validate the selected split value
-        if split_value[0] is None:
-            raise ValueError(
-                f"Worker ID {worker_id} is out of range for split '{split}'."
-            )
-
-        # Reinsert the split value at the original index
-        config_values.insert(split_index, split_value)
-
-    return list(itertools.product(*config_values))
-
-
-def is_notebook():
-    """Check if the script is running in a Jupyter notebook/IPython session."""
-    try:
-        from IPython import get_ipython
-
-        if "IPKernelApp" not in get_ipython().config:
-            return False
-    except ImportError:
-        return False
-    except AttributeError:
-        return False
-    return True
-
-
-# %%
 if __name__ == "__main__":
     if is_notebook():
         # If running in a Jupyter notebook, run all experiments
-        print("Detected Jupyter notebook or IPython session. Running all experiments.")
-        run_experiment(get_worker_config("embed_apply_ln", 0))
+        print(
+            "Detected Jupyter notebook or IPython session. Running all experiments "
+            "and adding 'test' wandb tag."
+        )
+        run_experiment(
+            get_experiment_worker_config(
+                experiment_config=experiment_config,
+                split_parameter="datasets",
+                n_splits=1,
+                worker_id=0,
+            )
+        )
     else:
         # Command-line execution
         parser = setup_arg_parser()
         args = parser.parse_args()
 
         if args.worker_id:
-            config_to_use = get_worker_config("embed_apply_ln", args.worker_id)
+            config_to_use = get_experiment_worker_config(
+                experiment_config=experiment_config,
+                split_parameter="datasets",
+                n_splits=2,
+                worker_id=args.worker_id,
+            )
             print(f"Running experiment for worker ID = {args.worker_id}")
             run_experiment(config_to_use)

@@ -171,49 +171,6 @@ class TranslationTransform(nn.Module):
         return x
 
 
-class MeanTranslationTransform(nn.Module):
-    """
-    A nn.Module that applies a mean translation transformation to the input tensor.
-
-    Args:
-        mean_diff (Tensor): The mean difference tensor.
-        apply_ln (bool): If True, applies layer normalization to the output.
-        device (Optional[Union[str, t.device]]): The device on which the module should
-        be initialised on.
-
-    Attributes:
-        mean_diff (Tensor): The mean difference tensor.
-    """
-
-    def __init__(
-        self,
-        mean_diff: Float[Tensor, "d_model"],
-        apply_ln: bool = False,
-        device: Optional[Union[str, t.device]] = default_device,
-    ):
-        super().__init__()
-        self.mean_diff = mean_diff.to(device)
-        self.apply_ln = apply_ln
-
-    def forward(
-        self, x: Float[Tensor, "batch d_model"]
-    ) -> Float[Tensor, "batch d_model"]:
-        """
-        Applies the mean translation transformation to the input tensor. If `apply_ln` is True,
-        layer normalization is applied to the output.
-
-        Args:
-            x (Tensor): The input tensor.
-
-        Returns:
-            Tensor: The transformed tensor, possibly layer-normalized.
-        """
-        x = x + self.mean_diff
-        if self.apply_ln:
-            x = t.nn.functional.layer_norm(x, [self.d_model])
-        return x
-
-
 class UncenteredLinearMapTransform(nn.Module):
     """
     A nn.Module that applies an uncentered linear map transformation to the input
@@ -431,143 +388,40 @@ class UncenteredRotationTransform(nn.Module):
         return x
 
 
-class ManualMatMulModule(nn.Module):
+class ManualTransformModule(nn.Module):
     """
-    Implements a module for applying a fixed matrix transformation to input tensors.
-
-    This is particularly useful for operations like fixed rotations or scalings that
-    do not change during the training process.
+    A module that applies a sequence of affine transformations to the input tensor.
+    Transformations are applied via matrix multiplication ('multiply') or vector addition ('add'),
+    supporting a broad range of affine transformations.
 
     Args:
-        transform: A static matrix to apply to input tensors.
-        apply_ln (bool): If True, applies layer normalization to the output.
-
-    Attributes:
-        transform: Stores the transformation matrix as a fixed parameter.
+        transformations (List[Tuple[str, torch.Tensor]]): A list of tuples where
+            the first element is a string indicating the operation ('multiply' or 'add')
+            and the second element is a tensor representing the transformation.
     """
 
-    def __init__(
-        self, transform: Float[Tensor, "d_model d_model"], apply_ln: bool = False
-    ):
-        super().__init__()
-        # Initialize the transformation matrix as a non-trainable parameter.
-        self.transform = nn.Parameter(transform, requires_grad=False)
-        self.apply_ln = apply_ln
+    def __init__(self, transformations):
+        super(ManualTransformModule, self).__init__()
+        self.transformations = transformations
 
-    def forward(
-        self, x: Float[Tensor, "batch d_model"]
-    ) -> Float[Tensor, "batch d_model"]:
+    def forward(self, x):
         """
-        Applies the fixed matrix transformation to the input tensor. If `apply_ln` is True,
-        layer normalization is applied to the output.
+        Applies the sequence of affine transformations to the input tensor.
 
         Args:
-            x (Tensor): The input tensor to be transformed.
+            x (torch.Tensor): The input tensor to be transformed.
 
         Returns:
-            Tensor: The tensor after applying the transformation, possibly
-            layer-normalized.
+            torch.Tensor: The transformed tensor.
         """
-        # Perform matrix multiplication between input and transformation matrix.
-        x = t.matmul(x, self.transform)
-        if self.apply_ln:
-            x = t.nn.functional.layer_norm(x, [self.d_model])
-        return x
+        for operation, transform_tensor in self.transformations:
+            if operation == "multiply":
+                x = t.matmul(x, transform_tensor)
+            elif operation == "add":
+                x = x + transform_tensor
+            else:
+                raise ValueError(f"Unsupported operation: {operation}")
 
-
-class ManualRotateTranslateModule(nn.Module):
-    """
-    A module for applying a fixed rotation followed by a translation to input tensors.
-
-    This module is useful for operations that involve a rotation and a translation
-    that do not change during the training process, such as certain geometric
-    transformations.
-
-    Args:
-        rotation (Tensor): A static matrix representing the rotation.
-        translation (Tensor): A static vector representing the translation.
-        apply_ln (bool): If True, applies layer normalization to the output.
-
-    Attributes:
-        rotation (Parameter): Stores the rotation matrix as a fixed parameter.
-        translation (Parameter): Stores the translation vector as a fixed parameter.
-    """
-
-    def __init__(
-        self,
-        rotation: Float[Tensor, "d_model d_model"],
-        translation: Float[Tensor, "d_model"],
-        apply_ln: bool = False,
-    ):
-        super().__init__()
-        self.rotation = nn.Parameter(rotation, requires_grad=False)
-        self.translation = nn.Parameter(translation, requires_grad=False)
-        self.apply_ln = apply_ln
-
-    def forward(
-        self, x: Float[Tensor, "batch d_model"]
-    ) -> Float[Tensor, "batch d_model"]:
-        """
-        Applies the fixed rotation and translation to the input tensor. If `apply_ln`
-        is True, layer normalization is applied to the output.
-
-        Args:
-            x (Tensor): The input tensor to be transformed.
-
-        Returns:
-            Tensor: The tensor after applying the rotation and translation, possibly
-            layer-normalized.
-        """
-        x_rotated = t.matmul(x, self.rotation)
-        x_translated = t.add(x_rotated, self.translation)
-        if self.apply_ln:
-            x_translated = t.nn.functional.layer_norm(x_translated, [self.d_model])
-        return x_translated
-
-
-class ManualMatAddModule(nn.Module):
-    """
-    Implements a module for applying a fixed addition transformation to input tensors.
-
-    This module is useful for operations that involve a fixed addition, such as
-    applying a constant bias that does not change during the training process.
-
-    Args:
-        transform (Tensor): A static tensor to be added to input tensors.
-        apply_ln (bool): If True, applies layer normalization to the output.
-
-    Attributes:
-        transform (Parameter): Stores the addition tensor as a fixed parameter.
-    """
-
-    def __init__(self, transform: Tensor, apply_ln: bool = False):
-        """
-        Initializes the ManualMatAddModule with a fixed addition tensor.
-
-        Args:
-            transform (Tensor): The static tensor to be added to input tensors.
-            apply_ln (bool): If True, applies layer normalization to the output.
-        """
-        super().__init__()
-        self.transform = nn.Parameter(transform, requires_grad=False)
-        self.apply_ln = apply_ln
-
-    def forward(self, x: Tensor) -> Tensor:
-        """
-        Applies the fixed addition transformation to the input tensor. If `apply_ln` is True,
-        layer normalization is applied to the output.
-
-        Args:
-            x (Tensor): The input tensor to be transformed.
-
-        Returns:
-            Tensor: The tensor after applying the addition, possibly layer-normalized.
-        """
-        x = t.add(x, self.transform)
-        if self.apply_ln:
-            x = t.nn.functional.layer_norm(
-                x, [len(x[0])]
-            )  # Assuming x is [batch, d_model]
         return x
 
 

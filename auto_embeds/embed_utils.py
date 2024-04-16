@@ -16,7 +16,7 @@ from auto_embeds.modules import (
     CosineSimilarityLoss,
     IdentityTransform,
     LinearTransform,
-    MeanTranslationTransform,
+    ManualTransformModule,
     MSELoss,
     RotationTransform,
     TranslationTransform,
@@ -63,7 +63,6 @@ def initialize_loss(loss: str, loss_kwargs: Dict[str, Any] = {}) -> nn.Module:
 def initialize_transform_and_optim(
     d_model: int,
     transformation: str,
-    mean_diff: Optional[Tensor] = None,
     transform_kwargs: Dict[str, Any] = {},
     optim_kwargs: Dict[str, Any] = {},
     device: Union[str, t.device] = default_device,
@@ -81,8 +80,6 @@ def initialize_transform_and_optim(
             'biased_linear_map', 'uncentered_linear_map',
             'biased_uncentered_linear_map', 'rotation', 'biased_rotation',
             'uncentered_rotation'.
-        mean_diff: Optional tensor containing the mean difference for mean-centered
-            steering transformation.
         transform_kwargs: Dict containing kwargs for transformation initialization.
         optim_kwargs: Dict containing kwargs for optimizer initialization.
         device: The device on which to allocate tensors. If None, defaults to
@@ -100,12 +97,6 @@ def initialize_transform_and_optim(
     elif transformation == "translation":
         transform = TranslationTransform(d_model, **transform_kwargs)
         optim = t.optim.Adam([transform.translation], **optim_kwargs)
-
-    elif transformation == "mean_translation":
-        if mean_diff is None:
-            raise ValueError(("The mean difference tensor must be provided "))
-        transform = MeanTranslationTransform(mean_diff, **transform_kwargs)
-        optim = None
 
     elif transformation == "linear_map":
         transform = LinearTransform(d_model, bias=False, **transform_kwargs)
@@ -137,6 +128,49 @@ def initialize_transform_and_optim(
     else:
         raise Exception(f"the supplied transform '{transformation}' was unrecognized")
     return transform, optim
+
+
+def initialize_manual_transform(
+    transform_name, train_loader, apply_ln=False, d_model=None
+):
+    """
+    Initializes a ManualTransformModule with transformations derived analytically from
+    the training data. Also calculates expected metrics for the transformation.
+
+    Args:
+        transform_name: The name of the transformation to apply. Supported names
+            include 'analytical_rotation', 'analytical_translation', etc.
+        train_loader: DataLoader containing the training data used to
+            calculate the transformation weights.
+        apply_ln: If True, applies layer normalization after the transformations.
+        d_model: The dimensionality of the model embeddings. Required if apply_ln is True.
+
+    Returns:
+        ManualTransformModule: The initialized module with specified transformations.
+        dict: A dictionary of expected metrics for the transformation.
+    """
+    transformations = []
+    metrics = {}
+
+    # Placeholder for actual transformation calculation logic
+    if transform_name == "analytical_rotation":
+        # Example calculation logic for rotation
+        # This should be replaced with actual calculation based on train_loader data
+        rotation_matrix = t.eye(d_model)  # Placeholder for actual calculation
+        transformations.append(("multiply", rotation_matrix))
+        metrics["expected_loss"] = 0.0  # Placeholder for expected metric calculation
+
+    # Add more elif blocks for other transformation types like 'analytical_translation'
+
+    transform_module = ManualTransformModule(transformations)
+
+    if apply_ln:
+        if d_model is None:
+            raise ValueError("d_model must be specified if apply_ln is True.")
+        # Wrap the ManualTransformModule with LayerNorm
+        transform_module = nn.Sequential(transform_module, LayerNorm(d_model))
+
+    return transform_module, metrics
 
 
 def train_transform(
@@ -180,7 +214,7 @@ def train_transform(
     # more accessible format just once to speed up the marking, passing a
     # translations_dict directly into mark_translate()
     if azure_translations_path:
-        with open(azure_translations_path, "r") as file:
+        with open(azure_translations_path, "r", encoding="utf-8") as file:
             allowed_translations = json.load(file)
         translations_dict = {}
         for item in allowed_translations:
@@ -205,7 +239,7 @@ def train_transform(
             train_loss.backward()
             optim.step()
             if wandb:
-                wandb.log(info_dict)
+                wandb.log(info_dict, commit=False)
             epoch_pbar.set_description(f"train loss: {train_loss.item():.3f}")
         # Calculate and log test loss at the end of each epoch divisible by 10
         if epoch % 10 == 0:

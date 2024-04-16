@@ -219,7 +219,7 @@ def mark_translation(
         )
     # load acceptable translations from JSON file if given
     if azure_translations_path:
-        with open(azure_translations_path, "r") as file:
+        with open(azure_translations_path, "r", encoding="utf-8") as file:
             azure_translations = json.load(file)
 
     # convert list of acceptable translations to a dict is this is not already provided.
