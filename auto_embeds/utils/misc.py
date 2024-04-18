@@ -1,4 +1,5 @@
 import itertools
+import logging
 import pickle
 from contextlib import contextmanager
 from datetime import datetime
@@ -6,9 +7,14 @@ from functools import reduce
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Set
 
+import numpy as np
+import pandas as pd
+import plotly.express as px
 import torch as t
+import wandb
 from einops import einsum
 from torch.utils.hooks import RemovableHandle
+from tqdm import tqdm
 
 
 def get_default_device():
@@ -254,3 +260,230 @@ def dynamic_text_wrap(text, plot_width_px, font_size=12, font_width_approx=7):
         current_line_length += len(word)
 
     return wrapped_text
+
+
+# %%
+def fetch_wandb_runs_as_lists(
+    project_name: str, tags: list, samples: int = 10000
+) -> tuple:
+    """
+    Fetches runs data from a specified project filtered by tags and compiles lists of
+    run names, summaries, configurations, and histories.
+
+    Args:
+        project_name: The name of the project in wandb to fetch runs from.
+        tags: A list of tags to filter the runs by.
+        samples: The number of samples to fetch for each run history. Defaults to 10000.
+
+    Returns:
+        A tuple of lists: (name_list, summary_list, config_list, history_list).
+        Each list contains elements corresponding to each run that matches the filters.
+    """
+    api = wandb.Api()
+    filters = {"$and": [{"tags": tag} for tag in tags]}
+    print(filters)
+    runs = api.runs(project_name, filters=filters)
+
+    name_list, summary_list, config_list, history_list = [], [], [], []
+
+    for run_value in tqdm(runs, desc="Processing runs"):
+        # .name is the human-readable name of the run.
+        name_list.append(run_value.name)
+
+        # .summary contains output keys/values for
+        # metrics such as accuracy.
+        #  We call ._json_dict to omit large files
+        summary_list.append(run_value.summary._json_dict)
+
+        # .config contains the hyperparameters.
+        #  We remove special values that start with _.
+        config_list.append(
+            {k: v for k, v in run_value.config.items() if not k.startswith("_")}
+        )
+
+        # added me-self
+        history_list.append(run_value.history(samples=samples, pandas=False))
+        # history_list.append(run_value.scan_history())
+
+    return name_list, summary_list, config_list, history_list
+
+
+def fetch_wandb_runs_as_df(
+    project_name: str, tags: list, custom_labels: dict = None
+) -> pd.DataFrame:
+    """
+    Fetches runs data from WandB, filters out runs with empty 'history' or 'summary',
+    and creates a DataFrame. These happen usually because they are still in progress.
+
+    Args:
+        project_name: The name of the WandB project.
+        tags: A list of tags to filter the runs by.
+        custom_labels: Optional; Dict for custom column entry labels.
+
+    Returns:
+        A DataFrame with columns for 'name', 'summary', 'config', and 'history'.
+    """
+    name_list, summary_list, config_list, history_list = fetch_wandb_runs_as_lists(
+        project_name=project_name,
+        tags=tags,
+    )
+
+    df = pd.DataFrame(
+        {
+            "name": name_list,
+            "summary": summary_list,
+            "config": config_list,
+            "history": history_list,
+        }
+    )
+
+    filtered_df = df[
+        df["history"].map(lambda x: len(x) > 0)
+        | df["summary"].map(lambda x: len(x) > 0)
+    ]
+    num_filtered_out = len(df) - len(filtered_df)
+    if num_filtered_out > 0:
+        print(
+            f"Warning: {num_filtered_out} run(s) with empty 'history' or 'summary' "
+            "were removed. This is likely because they are still in progress."
+        )
+
+    df = filtered_df
+
+    df = (
+        # stealing columns but processed
+        df.assign(
+            run_name=lambda df: df["name"],
+            dataset=lambda df: df["config"].apply(lambda x: x["dataset"]["name"]),
+            seed=lambda df: df["config"].apply(lambda x: x["seed"]),
+            transformation=lambda df: df["config"].apply(lambda x: x["transformation"]),
+            embed_apply_ln=lambda df: df["config"].apply(lambda x: x["embed_apply_ln"]),
+            transform_apply_ln=lambda df: df["config"].apply(
+                lambda x: x["transform_apply_ln"]
+            ),
+            unembed_apply_ln=lambda df: df["config"].apply(
+                lambda x: x["unembed_apply_ln"]
+            ),
+        )
+        # process train_loss and test_loss
+        .assign(
+            train_loss=lambda df: df["history"].apply(
+                lambda history: [
+                    step["train_loss"]
+                    for step in history
+                ]
+            )
+        )
+        .assign(
+            test_loss=lambda df: df["history"].apply(
+                lambda history: [
+                    step["test_loss"]
+                    for step in history
+                ]
+            )
+        )
+        # process mark translation scores
+        .assign(
+            mark_translation_scores=lambda df: df["history"].apply(
+                lambda history: [
+                    step["mark_translation_score"]
+                    for step in history
+                    if "mark_translation_score" in step
+                ]
+            )
+        ).assign(
+            avg_mark_translation_scores=lambda df: df["mark_translation_scores"].apply(
+                lambda scores: (
+                    np.nan
+                    if not scores
+                    else np.mean([score for score in scores if score is not None])
+                )
+            ),
+            max_mark_translation_scores=lambda df: df["mark_translation_scores"].apply(
+                lambda scores: (
+                    np.nan
+                    if not scores
+                    else max([score for score in scores if score is not None])
+                )
+            ),
+        )
+        # turn these booleans into strings
+        .astype(
+            {
+                "embed_apply_ln": str,
+                "transform_apply_ln": str,
+                "unembed_apply_ln": str,
+            }
+        )
+    )
+    labels_to_use = custom_labels if custom_labels is not None else {}
+    df = df.replace(labels_to_use)
+    return df
+
+
+def create_parallel_categories_plot(
+    df,
+    dimensions,
+    color,
+    title,
+    annotation_text,
+    groupby_conditions=None,
+    query=None,
+    labels=None,
+):
+    """
+    Creates and displays a parallel categories plot based on the provided parameters,
+    with options to filter the DataFrame using a query string and to group the DataFrame
+    by specified conditions. Rows where the color column is NA are filtered out.
+
+    Args:
+        df (pd.DataFrame): The DataFrame to plot.
+        dimensions (list): The dimensions to use in the plot.
+        color (str): The column name to color the lines by.
+        title (str): The title of the plot.
+        annotation_text (str): Text for the annotation to add to the plot.
+        groupby_conditions (list, optional): Conditions to group the DataFrame by.
+        query (str, optional): A query string to filter the DataFrame before plotting.
+        labels (dict, optional): A mapping of column names to display labels.
+            Defaults to a predefined dictionary.
+    """
+
+    # Apply query if provided
+    if query:
+        df = df.query(query)
+
+    # Filter out rows where the color column is NA and log the action
+    filtered_df = df.dropna(subset=[color])
+    num_filtered = len(df) - len(filtered_df)
+    if num_filtered > 0:
+        logging.info(f"Filtered out {num_filtered} rows with NA in '{color}' column.")
+
+    df = filtered_df
+
+    # Use the DataFrame directly for plotting, applying groupby conditions if provided
+    if groupby_conditions:
+        df = df.groupby(groupby_conditions)[color].mean().reset_index()
+
+    fig = (
+        px.parallel_categories(
+            df,
+            dimensions=dimensions,
+            color=color,
+            labels=labels,
+            title=title,
+        )
+        .update_traces(arrangement="freeform")
+        .add_annotation(
+            text=dynamic_text_wrap(annotation_text, 600),
+            align="left",
+            showarrow=False,
+            xref="paper",
+            yref="paper",
+            x=0,
+            y=-0.25,
+            font=dict(size=13),
+        )
+        .update_layout(autosize=True)
+    )
+
+    fig.show(config={"responsive": True})
