@@ -13,8 +13,13 @@ import plotly.express as px
 import torch as t
 import wandb
 from einops import einsum
+from joblib import Memory
 from torch.utils.hooks import RemovableHandle
 from tqdm import tqdm
+
+# temporary directory for caching wandb runs
+cachedir = "/tmp"
+memory = Memory(cachedir, verbose=0)
 
 
 def get_default_device():
@@ -263,22 +268,28 @@ def dynamic_text_wrap(text, plot_width_px, font_size=12, font_width_approx=7):
 
 
 # %%
-def fetch_wandb_runs_as_lists(
-    project_name: str, tags: list, samples: int = 10000
-) -> tuple:
+@memory.cache
+def fetch_wandb_runs(
+    project_name: str, tags: list, samples: int = 10000, use_cache: bool = True
+) -> pd.DataFrame:
     """
-    Fetches runs data from a specified project filtered by tags and compiles lists of
-    run names, summaries, configurations, and histories.
+    Fetches runs data from a specified project filtered by tags and compiles a DataFrame
+    with run names, summaries, configurations, and histories. By default uses disk
+    caching to speed up repeated calls with the same arguments.
 
     Args:
         project_name: The name of the project in wandb to fetch runs from.
         tags: A list of tags to filter the runs by.
         samples: The number of samples to fetch for each run history. Defaults to 10000.
+        use_cache: Whether to use disk caching for the results. Defaults to True.
 
     Returns:
-        A tuple of lists: (name_list, summary_list, config_list, history_list).
-        Each list contains elements corresponding to each run that matches the filters.
+        A pandas DataFrame with columns: 'name', 'summary', 'config', 'history'.
+        Each row corresponds to each run that matches the filters.
     """
+    if not use_cache:
+        memory.clear(warn=False)  # Clear the cache if not using it
+
     api = wandb.Api()
     filters = {"$and": [{"tags": tag} for tag in tags]}
     print(filters)
@@ -305,29 +316,6 @@ def fetch_wandb_runs_as_lists(
         history_list.append(run_value.history(samples=samples, pandas=False))
         # history_list.append(run_value.scan_history())
 
-    return name_list, summary_list, config_list, history_list
-
-
-def fetch_wandb_runs_as_df(
-    project_name: str, tags: list, custom_labels: dict = None
-) -> pd.DataFrame:
-    """
-    Fetches runs data from WandB, filters out runs with empty 'history' or 'summary',
-    and creates a DataFrame. These happen usually because they are still in progress.
-
-    Args:
-        project_name: The name of the WandB project.
-        tags: A list of tags to filter the runs by.
-        custom_labels: Optional; Dict for custom column entry labels.
-
-    Returns:
-        A DataFrame with columns for 'name', 'summary', 'config', and 'history'.
-    """
-    name_list, summary_list, config_list, history_list = fetch_wandb_runs_as_lists(
-        project_name=project_name,
-        tags=tags,
-    )
-
     df = pd.DataFrame(
         {
             "name": name_list,
@@ -348,50 +336,89 @@ def fetch_wandb_runs_as_df(
             "were removed. This is likely because they are still in progress."
         )
 
-    df = filtered_df
+    return filtered_df
+
+
+def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.DataFrame:
+    """
+    Processes a DataFrame of WandB runs returned by fetch_wandb_runs.
+
+    Args:
+        wandb_run_df: A DataFrame containing WandB runs data.
+        custom_labels: Optional; Dict for custom column entry labels.
+
+    Returns:
+        A DataFrame with columns for 'name', 'summary', 'config', and 'history'.
+    """
+    # ensure the DataFrame contains the expected columns
+    expected_columns = ["name", "summary", "config", "history"]
+    if not all(column in df.columns for column in expected_columns):
+        raise ValueError(f"Input DataFrame must contain columns: {expected_columns}")
+
+    # define a helper function to attempt processing and fail elegantly
+    def attempt_to_process(df, process_func, fallback_value=None):
+        try:
+            return process_func(df)
+        except Exception:
+            return fallback_value
 
     df = (
-        # stealing columns but processed
+        # processing these fine gentlemen
         df.assign(
             run_name=lambda df: df["name"],
-            dataset=lambda df: df["config"].apply(lambda x: x["dataset"]["name"]),
-            seed=lambda df: df["config"].apply(lambda x: x["seed"]),
-            transformation=lambda df: df["config"].apply(lambda x: x["transformation"]),
-            embed_apply_ln=lambda df: df["config"].apply(lambda x: x["embed_apply_ln"]),
-            transform_apply_ln=lambda df: df["config"].apply(
-                lambda x: x["transform_apply_ln"]
+            dataset=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["dataset"]["name"])
             ),
-            unembed_apply_ln=lambda df: df["config"].apply(
-                lambda x: x["unembed_apply_ln"]
+            seed=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["seed"])
+            ),
+            transformation=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["transformation"])
+            ),
+            embed_apply_ln=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["embed_apply_ln"])
+            ),
+            transform_apply_ln=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["transform_apply_ln"])
+            ),
+            unembed_apply_ln=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["unembed_apply_ln"])
             ),
         )
         # process train_loss and test_loss
         .assign(
-            train_loss=lambda df: df["history"].apply(
-                lambda history: [
-                    step["train_loss"]
-                    for step in history
-                ]
-            )
+            train_loss=lambda df: attempt_to_process(
+                df,
+                lambda x: x["history"].apply(
+                    lambda history: [step["train_loss"] for step in history]
+                ),
+            ),
+            test_loss=lambda df: attempt_to_process(
+                df,
+                lambda x: x["history"].apply(
+                    lambda history: [step["test_loss"] for step in history]
+                ),
+            ),
+            epoch=lambda df: attempt_to_process(
+                df,
+                lambda x: x["history"].apply(
+                    lambda history: [step["epoch"] for step in history]
+                ),
+            ),
         )
         .assign(
-            test_loss=lambda df: df["history"].apply(
-                lambda history: [
-                    step["test_loss"]
-                    for step in history
-                ]
-            )
+            mark_translation_scores=lambda df: attempt_to_process(
+                df,
+                lambda x: x["history"].apply(
+                    lambda history: [
+                        step["mark_translation_score"]
+                        for step in history
+                        if "mark_translation_score" in step
+                    ]
+                ),
+            ),
         )
-        # process mark translation scores
         .assign(
-            mark_translation_scores=lambda df: df["history"].apply(
-                lambda history: [
-                    step["mark_translation_score"]
-                    for step in history
-                    if "mark_translation_score" in step
-                ]
-            )
-        ).assign(
             avg_mark_translation_scores=lambda df: df["mark_translation_scores"].apply(
                 lambda scores: (
                     np.nan
@@ -476,9 +503,9 @@ def create_parallel_categories_plot(
         .add_annotation(
             text=dynamic_text_wrap(annotation_text, 600),
             align="left",
-            showarrow=False,
             xref="paper",
             yref="paper",
+            showarrow=False,
             x=0,
             y=-0.25,
             font=dict(size=13),

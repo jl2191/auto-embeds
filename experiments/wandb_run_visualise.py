@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 from auto_embeds.utils.misc import (
     create_parallel_categories_plot,
-    fetch_wandb_runs_as_lists,
+    fetch_wandb_runs,
 )
 
 try:
@@ -18,6 +18,7 @@ except Exception:
 # %%
 # feel free to ignore, reduplicating this code here from misc.py because some wandb
 # config names were changed around. this is the appropriate one for this file.
+
 
 def fetch_wandb_runs_as_df(
     project_name: str, tags: list, custom_labels: dict = None
@@ -34,7 +35,7 @@ def fetch_wandb_runs_as_df(
     Returns:
         A DataFrame with columns for 'name', 'summary', 'config', and 'history'.
     """
-    name_list, summary_list, config_list, history_list = fetch_wandb_runs_as_lists(
+    name_list, summary_list, config_list, history_list = fetch_wandb_runs(
         project_name=project_name,
         tags=tags,
     )
@@ -114,6 +115,7 @@ def fetch_wandb_runs_as_df(
     df = df.replace(labels_to_use)
     return df
 
+
 # %%
 
 # fetching data and creating DataFrame
@@ -123,10 +125,10 @@ original_df = fetch_wandb_runs_as_df(
     custom_labels={
         "transformation": {"rotation": "Rotation", "linear_map": "Linear Map"},
         "dataset": {
-                "wikdict_en_fr_extracted": "wikdict_en_fr",
-                "cc_cedict_zh_en_extracted": "cc_cedict_zh_en",
-            },
-        }
+            "wikdict_en_fr_extracted": "wikdict_en_fr",
+            "cc_cedict_zh_en_extracted": "cc_cedict_zh_en",
+        },
+    },
 )
 
 # %%
