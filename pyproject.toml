@@ -19,20 +19,15 @@ blobfile = "2.0.2"
 word2word = "^1.0.0"
 tracr = { git = "https://github.com/google-deepmind/tracr.git" }
 jaxtyping = "^0.2.25"
-debugpy = "^1.8.1"
-importmagic = "^0.1.7"
-epc = "^0.0.5"
 scikit-learn = "^1.4.1.post1"
 umap-learn = "^0.5.5"
 line-profiler = "^4.1.2"
 tensorboard = "^2.16.2"
-torch-tb-profiler = "^0.4.3"
 transformers-stream-generator = "^0.0.5"
 pyarrow-hotfix = "^0.6"
 tiktoken = "^0.6.0"
 levenshtein = "^0.25.0"
-rich = {extras = ["jupyter"], version = "^13.7.1"}
-scalene = "^1.5.38"
+rich = { extras = ["jupyter"], version = "^13.7.1" }
 seaborn = "^0.13.2"
 nltk = "^3.8.1"
 inflect = "^7"
@@ -47,7 +42,22 @@ jupyter = "^1.0.0"
 pytest = "^7.4.0"
 pyright = "^1.1.350"
 ipytest = "^0.13.3"
-# torch-tb-profiler = "^0.4.1"
+importmagic = "^0.1.7"
+epc = "^0.0.5"
+
+
+[tool.poetry.group.debug.dependencies]
+debugpy = "^1.8.1"
+torch-tb-profiler = "^0.4.3"
+pysnooper = "^1.2.0"
+code2flow = "^2.5.1"
+python-call-graph = "^2.1.2"
+birdseye = "^0.9.5"
+scalene = "^1.5.38"
+
+
+[tool.poetry.group.plotly-dash.dependencies]
+diskcache = "^5.6.3"
 
 [build-system]
 requires = ["poetry-core"]
