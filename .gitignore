@@ -161,3 +161,6 @@ cython_debug/
 
 # wandb
 wandb/
+
+# plotly dash
+media/
