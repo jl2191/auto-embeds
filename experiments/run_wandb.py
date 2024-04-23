@@ -45,7 +45,7 @@ experiment_config = {
         "notes": "blank",
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
-            f"{datetime.datetime.now():%Y-%m-%d} random and singular plural",
+            f"{datetime.datetime.now():%Y-%m-%d} analytical solutions",
             "run group 2",
             # "actual",
             # "test",

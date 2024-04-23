@@ -821,7 +821,7 @@ def unembed(
 
 
 def print_most_similar_embeddings_dict(
-    most_similar_embeds_dict: Dict[int, Any]
+    most_similar_embeds_dict: Dict[int, Any],
 ) -> None:
     for i in range(len(most_similar_embeds_dict)):
         if "answer_rank" in most_similar_embeds_dict[i]:

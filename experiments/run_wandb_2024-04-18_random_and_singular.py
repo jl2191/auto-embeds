@@ -4,6 +4,7 @@ import dash
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
 from plotly.subplots import make_subplots
 from tqdm import tqdm
 
@@ -26,6 +27,7 @@ except Exception:
 original_df = fetch_wandb_runs(
     project_name="jl2191/language-transformations",
     tags=["actual", "2024-04-17 random and singular plural", "run group 2"],
+    get_artifacts=True,
 )
 
 # %%

@@ -13,6 +13,7 @@ import plotly.express as px
 import torch as t
 import wandb
 from einops import einsum
+from IPython.display import Image, display
 from joblib import Memory
 from torch.utils.hooks import RemovableHandle
 from tqdm import tqdm
@@ -270,7 +271,11 @@ def dynamic_text_wrap(text, plot_width_px, font_size=12, font_width_approx=7):
 # %%
 @memory.cache
 def fetch_wandb_runs(
-    project_name: str, tags: list, samples: int = 10000, use_cache: bool = True
+    project_name: str,
+    tags: list,
+    samples: int = 10000,
+    use_cache: bool = True,
+    get_artifacts: bool = False,
 ) -> pd.DataFrame:
     """
     Fetches runs data from a specified project filtered by tags and compiles a DataFrame
@@ -282,6 +287,8 @@ def fetch_wandb_runs(
         tags: A list of tags to filter the runs by.
         samples: The number of samples to fetch for each run history. Defaults to 10000.
         use_cache: Whether to use disk caching for the results. Defaults to True.
+        get_artifacts: Whether to download artifacts for the runs. If true, the artifact
+            is saved to the summary dictionary. Defaults to False.
 
     Returns:
         A pandas DataFrame with columns: 'name', 'summary', 'config', 'history'.
@@ -304,7 +311,15 @@ def fetch_wandb_runs(
         # .summary contains output keys/values for
         # metrics such as accuracy.
         #  We call ._json_dict to omit large files
-        summary_list.append(run_value.summary._json_dict)
+        summary = run_value.summary._json_dict
+        if get_artifacts:
+            # for artifact in run_value.logged_artifacts():
+            for file in run_value.files():
+                if "cos_sims_trend_plot" in file.name:
+                    plot_json = file.download(exist_ok=True).read()
+                    summary["cos_sims_trend_plot"] = plot_json
+
+        summary_list.append(summary)
 
         # .config contains the hyperparameters.
         #  We remove special values that start with _.
@@ -325,10 +340,8 @@ def fetch_wandb_runs(
         }
     )
 
-    filtered_df = df[
-        df["history"].map(lambda x: len(x) > 0)
-        | df["summary"].map(lambda x: len(x) > 0)
-    ]
+    filtered_df = df.query("history.str.len() > 0 or summary.str.len() > 0")
+
     num_filtered_out = len(df) - len(filtered_df)
     if num_filtered_out > 0:
         print(
@@ -383,6 +396,9 @@ def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.Da
             ),
             unembed_apply_ln=lambda df: attempt_to_process(
                 df, lambda x: x["config"].apply(lambda x: x["unembed_apply_ln"])
+            ),
+            cos_sims_trend_plot=lambda df: attempt_to_process(
+                df, lambda x: x["summary"].apply(lambda x: x["cos_sims_trend_plot"])
             ),
         )
         # process train_loss and test_loss
