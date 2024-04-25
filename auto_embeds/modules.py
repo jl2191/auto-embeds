@@ -3,6 +3,7 @@ from typing import Optional, Union
 
 import torch as t
 import torch.nn as nn
+from fancy_einsum import einsum
 from jaxtyping import Float
 from torch import Tensor
 
@@ -391,8 +392,8 @@ class UncenteredRotationTransform(nn.Module):
 class ManualTransformModule(nn.Module):
     """
     A module that applies a sequence of affine transformations to the input tensor.
-    Transformations are applied via matrix multiplication ('multiply') or vector addition ('add'),
-    supporting a broad range of affine transformations.
+    Transformations are applied via matrix multiplication ('multiply') or vector
+    addition ('add'), supporting a broad range of affine transformations.
 
     Args:
         transformations (List[Tuple[str, torch.Tensor]]): A list of tuples where
@@ -423,6 +424,118 @@ class ManualTransformModule(nn.Module):
                 raise ValueError(f"Unsupported operation: {operation}")
 
         return x
+
+
+class Embed(nn.Module):
+    """
+    A nn.Module that embeds words and optionally applies layer normalization.
+
+    Initializes an embedding module that can optionally apply layer normalization
+    to the embedded output.
+
+    Args:
+        d_model (int): The dimensionality of the model embeddings.
+        apply_ln (bool, optional): If True, applies layer normalization to the embeddings.
+            Defaults to True.
+        device (Optional[Union[str, t.device]]): The device on which the module should
+            be initialized.
+
+    Attributes:
+        W_E (nn.Parameter): The weight matrix for embeddings.
+        embed_ln (nn.LayerNorm, optional): The layer normalization module, initialized
+            if apply_ln is True.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        d_vocab: int,
+        apply_ln: bool = True,
+        device: Optional[Union[str, t.device]] = default_device,
+    ):
+        super().__init__()
+        self.W_E: Float[t.Tensor, "d_vocab d_model"] = nn.Parameter(
+            t.empty(d_vocab, d_model, device=device)
+        )
+        if apply_ln:
+            self.embed_ln = nn.LayerNorm(d_model, device=device)
+
+    def forward(
+        self, tokens: Float[Tensor, "batch pos"]
+    ) -> Float[Tensor, "batch pos d_model"]:
+        """
+        Applies embeds the input tokens and optionally applies layer normalization
+        post-embeddings.
+
+        Args:
+            tokens (Tensor): A tensor of tokenized word indices.
+
+        Returns:
+            Tensor: The embedded (and optionally layer-normalized) tokens.
+        """
+        if self.embed_ln:
+            return self.embed_ln(self.W_E[tokens, :])
+        return self.W_E[tokens, :]
+
+
+class Unembed(nn.Module):
+    """
+    A nn.Module that provides functionality for unembedding, converting high-dimensional
+    embeddings back to a vocabulary space, with optional layer normalization applied
+    before the linear transformation.
+
+    Args:
+        d_model (int): The dimensionality of the embedding space.
+        d_vocab (int): The dimensionality of the output vocabulary space.
+        apply_ln (bool, optional): If True, applies layer normalization to the
+            embeddings before unembedding. Defaults to False.
+        device (Optional[Union[str, t.device]]): The device on which the module should
+            be initialized.
+
+    Attributes:
+        W_U (nn.Parameter): The weight matrix for unembedding.
+        b_U (nn.Parameter): The bias vector for unembedding.
+        ln_final (nn.LayerNorm, optional): The layer normalization applied before
+        unembedding if apply_ln is True.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        d_vocab: int,
+        apply_ln: bool = False,
+        device: Optional[Union[str, t.device]] = default_device,
+    ):
+        super().__init__()
+        self.apply_ln = apply_ln
+        self.W_U = nn.Parameter(t.empty(d_model, d_vocab, device=device))
+        self.b_U = nn.Parameter(t.zeros(d_vocab, device=device))
+        if self.apply_ln:
+            self.ln_final = nn.LayerNorm(d_model, device=device)
+
+    def forward(
+        self, x: Float[t.Tensor, "batch pos d_model"]
+    ) -> Float[t.Tensor, "batch pos d_vocab"]:
+        """
+        Forward pass for unembedding, optionally applying layer normalization before
+        converting embeddings back to the vocabulary space.
+
+        Args:
+            x (Tensor): Input tensor containing embeddings.
+
+        Returns:
+            Tensor: The unembedded tensor, transformed to the vocabulary space.
+        """
+        if self.apply_ln:
+            x = self.ln_final(x)
+        return (
+            einsum(
+                "batch pos d_model, d_model vocab -> batch pos vocab",
+                x,
+                self.W_U,
+            )
+            + self.b_U
+        )
 
 
 # losses ===============================================================================

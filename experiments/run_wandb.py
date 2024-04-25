@@ -12,6 +12,7 @@ import wandb
 
 from auto_embeds.data import filter_word_pairs, get_dataset_path
 from auto_embeds.embed_utils import (
+    initialize_embed_and_unembed,
     initialize_loss,
     initialize_transform_and_optim,
     train_transform,
@@ -20,6 +21,7 @@ from auto_embeds.metrics import (
     evaluate_accuracy,
     mark_translation,
 )
+from auto_embeds.utils.cache import auto_embeds_cache
 from auto_embeds.utils.custom_tqdm import tqdm
 from auto_embeds.utils.misc import get_experiment_worker_config, is_notebook
 from auto_embeds.verify import (
@@ -33,6 +35,7 @@ from auto_embeds.verify import (
 # Set environment variables
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["AUTOEMBEDS_CACHING"] = "true"
 
 # Seed for reproducibility
 np.random.seed(1)
@@ -46,7 +49,7 @@ experiment_config = {
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
             f"{datetime.datetime.now():%Y-%m-%d} analytical solutions",
-            "run group 2",
+            "run group 1",
             # "actual",
             # "test",
         ],
@@ -60,25 +63,25 @@ experiment_config = {
         False,
     ],
     "datasets": [
+        {
+            "name": "wikdict_en_fr_extracted",
+            "min_length": 5,
+            "capture_space": True,
+            "capture_no_space": False,
+            "mark_accuracy_path": "wikdict_en_fr_azure_validation",
+        },
         # {
-        #     "name": "wikdict_en_fr_extracted",
-        #     "min_length": 5,
+        #     "name": "random_word_pairs",
+        #     "min_length": 2,
         #     "capture_space": True,
         #     "capture_no_space": False,
-        #     "mark_accuracy_path": "wikdict_en_fr_azure_validation",
         # },
-        {
-            "name": "random_word_pairs",
-            "min_length": 2,
-            "capture_space": True,
-            "capture_no_space": False,
-        },
-        {
-            "name": "singular_plural_pairs",
-            "min_length": 2,
-            "capture_space": True,
-            "capture_no_space": False,
-        },
+        # {
+        #     "name": "singular_plural_pairs",
+        #     "min_length": 2,
+        #     "capture_space": True,
+        #     "capture_no_space": False,
+        # },
         # {
         #     "name": "muse_en_fr_extracted",
         #     "min_length": 5,
@@ -103,14 +106,16 @@ experiment_config = {
     ],
     "transformations": [
         # "identity",
-        "translation",
+        # "translation",
         "linear_map",
         # "biased_linear_map",
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
-        "rotation",
+        # "rotation",
         # "biased_rotation",
         # "uncentered_rotation",
+        # "analytical_rotation",
+        # "analytical_translation",
     ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
@@ -121,7 +126,7 @@ experiment_config = {
         "top_src",
         # "top_tgt",
     ],
-    "seeds": [5, 6, 7, 8],
+    "seeds": [1],
     "embed_apply_ln": [True, False],
     "embed_apply_ln_weights": [True],
     "transform_apply_ln": [True],
@@ -153,11 +158,6 @@ def run_experiment(config_dict):
         for entry in config_dict
     ]
     config_list = list(itertools.product(*config_values))
-
-    # To prevent unnecessary reloading
-    last_loaded_model = None
-    last_loaded_word_pairs = None
-    model = None
 
     for (
         model_name,
@@ -207,24 +207,27 @@ def run_experiment(config_dict):
             tags=wandb_config["tags"],
         )
 
-        # Model setup
-        model_needs_loading = (
-            last_loaded_model is None
-            or last_loaded_model["model_name"] != model_name
-            or last_loaded_model["processing"] != processing
-        )
-        if model_needs_loading:
+        @auto_embeds_cache
+        def load_model(processing, model_name):
             if processing:
                 model = tl.HookedTransformer.from_pretrained(model_name)
             else:
                 model = tl.HookedTransformer.from_pretrained_no_processing(model_name)
-            last_loaded_model = {
-                "model_name": model_name,
-                "processing": processing,
-                "model": model,
-            }
+            return model
+
+        model = load_model(processing, model_name)
 
         assert model is not None, "The model has not been loaded successfully."
+
+        # Initialize embed and unembed modules
+        embed_module, unembed_module = initialize_embed_and_unembed(
+            model=model,
+            use_model_weights=True,
+            apply_embed_ln=embed_apply_ln,
+            apply_ln_final=unembed_apply_ln,
+        )
+
+        print(embed_module.W_E)
 
         d_model = model.cfg.d_model
         n_toks = model.cfg.d_vocab_out
@@ -235,43 +238,24 @@ def run_experiment(config_dict):
         with open(file_path, "r", encoding="utf-8") as file:
             word_pairs = json.load(file)
 
-        embed_config = {
-            "apply_ln": embed_apply_ln,
-            "apply_ln_weights": embed_apply_ln_weights,
-        }
-        unembed_config = {
-            "apply_ln": unembed_apply_ln,
-            "apply_ln_weights": unembed_apply_ln_weights,
-        }
-
-        word_pairs_needs_loading = (
-            last_loaded_word_pairs is None
-            or last_loaded_word_pairs["dataset_config"] != dataset_config
+        all_word_pairs = filter_word_pairs(
+            model,
+            word_pairs,
+            discard_if_same=True,
+            min_length=dataset_config["min_length"],
+            capture_space=dataset_config["capture_space"],
+            capture_no_space=dataset_config["capture_no_space"],
+            print_number=True,
+            verbose_count=True,
         )
-        if word_pairs_needs_loading:
-            all_word_pairs = filter_word_pairs(
-                model,
-                word_pairs,
-                discard_if_same=True,
-                min_length=dataset_config["min_length"],
-                capture_space=dataset_config["capture_space"],
-                capture_no_space=dataset_config["capture_no_space"],
-                print_number=True,
-                verbose_count=True,
-            )
-            last_loaded_word_pairs = {
-                "dataset_config": dataset_config,
-                "filtered_word_pairs": all_word_pairs,
-            }
-            all_word_pairs = last_loaded_word_pairs["filtered_word_pairs"]
 
         # Prepare datasets
         verify_learning = prepare_verify_analysis(
             model=model,
+            embed_module=embed_module,
             all_word_pairs=all_word_pairs,
             seed=seed,
             keep_other_pair=True,
-            embed_config=embed_config,
         )
 
         train_loader, test_loader = prepare_verify_datasets(
@@ -307,12 +291,12 @@ def run_experiment(config_dict):
                 test_loader=test_loader,
                 transform=transform,
                 optim=optim,
+                unembed_module=unembed_module,
                 loss_module=loss_module,
                 n_epochs=n_epoch,
                 plot_fig=False,
                 wandb=wandb,
                 azure_translations_path=azure_translations_path,
-                unembed_config=unembed_config,
             )
 
         # Evaluate and log results
@@ -320,10 +304,10 @@ def run_experiment(config_dict):
             model,
             test_loader,
             transform,
+            unembed_module=unembed_module,
             exact_match=False,
             print_results=False,
             print_top_preds=False,
-            unembed_config=unembed_config,
         )
 
         if azure_translations_path is None:
@@ -332,17 +316,17 @@ def run_experiment(config_dict):
             mark_translation_acc = mark_translation(
                 model=model,
                 transformation=transform,
+                unembed_module=unembed_module,
                 test_loader=test_loader,
                 azure_translations_path=azure_translations_path,
                 print_results=False,
-                unembed_config=unembed_config,
             )
 
         verify_results_dict = verify_transform(
             model=model,
             transformation=transform,
             test_loader=test_loader,
-            unembed_config=unembed_config,
+            unembed_module=unembed_module,
         )
 
         cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)

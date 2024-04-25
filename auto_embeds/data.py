@@ -4,18 +4,22 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, TypeAlias, Union, overload
-from einops import repeat
 
 import numpy as np
 import torch as t
 import transformer_lens as tl
+from einops import repeat
 from fancy_einsum import einsum
 from Levenshtein import distance as levenshtein_distance
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
 from word2word import Word2word
 
-from auto_embeds.utils.misc import default_device, repo_path_to_abs_path
+from auto_embeds.utils.cache import auto_embeds_cache
+from auto_embeds.utils.misc import (
+    default_device,
+    repo_path_to_abs_path,
+)
 
 
 @dataclass(frozen=True)
@@ -194,6 +198,7 @@ def generate_tokens(
     return t.tensor(en_toks, device=device), t.tensor(fr_toks, device=device)
 
 
+@auto_embeds_cache
 def filter_word_pairs(
     model: tl.HookedTransformer,
     word_pairs: List[List[str]],
@@ -518,53 +523,6 @@ def tokenize_word_pairs(
     return en_tokens, fr_tokens, en_mask, fr_mask
 
 
-def embed(
-    tokens: Union[Tensor, Tuple[Tensor, ...]],
-    model: tl.HookedTransformer,
-    apply_ln: bool = True,
-    apply_ln_weights: bool = True,
-) -> Union[Tensor, Tuple[Tensor, ...]]:
-    """Embeds words and optionally applies layer normalization.
-
-    This function can handle a single tensor or any number of input token tensors.
-
-    Args:
-        tokens (Union[Tensor, Tuple[Tensor, ...]]): A single tensor or multiple tensors
-            of the tokenized words. Shape: [batch, pos] for each tensor.
-        model (tl.HookedTransformer): The model used for embedding.
-        apply_ln (bool, optional): Whether to apply layer normalization.
-        apply_ln_weights (bool, optional): Whether to apply layer normalization weights.
-            Defaults to true. Only takes effect if apply_ln is True.
-
-    Returns:
-        The embedded (and optionally
-            layer-normalized) words. Shape: [batch, pos, d_model]. Returns a single
-            tensor if one tensor is provided as input, otherwise returns a tuple of
-            tensors.
-    """
-    # Convert single tensor input into a tuple to standardize processing
-    if isinstance(tokens, Tensor):
-        tokens = (tokens,)
-
-    embedded_tokens = []
-    for token in tokens:
-        embeds = model.embed.W_E[token].detach().clone()
-        if apply_ln:
-            embeds = t.nn.functional.layer_norm(embeds, [model.cfg.d_model])
-            if apply_ln_weights:
-                embeds = (
-                    einsum(
-                        "batch pos d_model, d_model -> batch pos d_model",
-                        embeds,
-                        model.ln_final.w,
-                    )
-                    + model.ln_final.b
-                )
-        embedded_tokens.append(embeds)
-
-    return embedded_tokens[0] if len(embedded_tokens) == 1 else tuple(embedded_tokens)
-
-
 TwoDataLoaders: TypeAlias = Tuple[DataLoader, DataLoader]
 TwoTensors: TypeAlias = Tuple[Tensor, Tensor]
 FourTensors: TypeAlias = Tuple[Tensor, Tensor, Tensor, Tensor]
@@ -574,10 +532,10 @@ TwoDatasets: TypeAlias = Tuple[TensorDataset, TensorDataset]
 @overload
 def prepare_data(
     model: tl.HookedTransformer,
+    embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["tensor"],
     split_ratio: None = None,
-    apply_ln: bool = True,
     seed: int | None = None,
     filter_options: dict[str, bool | int | str] | None = None,
     batch_size: int = 128,
@@ -589,10 +547,10 @@ def prepare_data(
 @overload
 def prepare_data(
     model: tl.HookedTransformer,
+    embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["tensor"],
     split_ratio: float,
-    apply_ln: bool = True,
     seed: int | None = None,
     filter_options: dict[str, bool | int | str] | None = None,
     batch_size: int = 128,
@@ -604,10 +562,10 @@ def prepare_data(
 @overload
 def prepare_data(
     model: tl.HookedTransformer,
+    embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataset"],
     split_ratio: None = None,
-    apply_ln: bool = True,
     seed: int | None = None,
     filter_options: dict[str, bool | int | str] | None = None,
     batch_size: int = 128,
@@ -619,10 +577,10 @@ def prepare_data(
 @overload
 def prepare_data(
     model: tl.HookedTransformer,
+    embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataset"],
     split_ratio: float,
-    apply_ln: bool = True,
     seed: int | None = None,
     filter_options: dict[str, bool | int | str] | None = None,
     batch_size: int = 128,
@@ -634,10 +592,10 @@ def prepare_data(
 @overload
 def prepare_data(
     model: tl.HookedTransformer,
+    embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataloader"],
     split_ratio: None = None,
-    apply_ln: bool = True,
     seed: int | None = None,
     filter_options: dict[str, bool | int | str] | None = None,
     batch_size: int = 128,
@@ -649,10 +607,10 @@ def prepare_data(
 @overload
 def prepare_data(
     model: tl.HookedTransformer,
+    embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataloader"],
     split_ratio: float,
-    apply_ln: bool = True,
     seed: int | None = None,
     filter_options: dict[str, bool | int | str] | None = None,
     batch_size: int = 128,
@@ -663,10 +621,10 @@ def prepare_data(
 
 def prepare_data(
     model: tl.HookedTransformer,
+    embed_module: t.nn.Module,
     dataset_name: str,
     return_type: str = "dataset",
     split_ratio: float | None = None,
-    apply_ln: bool = True,
     seed: int | None = None,
     filter_options: dict[str, bool | int | str] | None = None,
     batch_size: int = 128,
@@ -681,12 +639,10 @@ def prepare_data(
         and `dataloader` parameters.
 
     Args:
-        model: The model used for embedding and tokenization.
+        model: The model used for tokenization.
         dataset_name: The name of the dataset to load.
         split_ratio: The ratio to split the dataset into training and testing sets. If
             None, no splitting is performed.
-        apply_ln: Whether to apply layer normalization on embeddings. Defaults to
-            True.
         seed: The seed for random word_pair and dataloader shuffling operations.
             Setting a seed should make the results deterministic. Defaults to None.
         filter_options: Additional options for filtering word pairs. Defaults to
@@ -701,6 +657,7 @@ def prepare_data(
         shuffle_word_pairs: Whether to shuffle the word pairs before processing.
             Defaults to False.
         shuffle_dataloader: Whether to shuffle the DataLoader. Defaults to True.
+        embed_module: The module used for embedding operations.
 
     Returns:
         Depending on return_type, dataloader, and whether a split is performed, either
@@ -742,12 +699,10 @@ def prepare_data(
         train_en_toks, train_fr_toks, _, _ = tokenize_word_pairs(model, train_pairs)
         test_en_toks, test_fr_toks, _, _ = tokenize_word_pairs(model, test_pairs)
 
-        train_en_embeds, train_fr_embeds = embed(
-            (train_en_toks, train_fr_toks), model=model, apply_ln=apply_ln
+        train_en_embeds, train_fr_embeds = map(
+            embed_module, (train_en_toks, train_fr_toks)
         )
-        test_en_embeds, test_fr_embeds = embed(
-            (test_en_toks, test_fr_toks), model=model, apply_ln=apply_ln
-        )
+        test_en_embeds, test_fr_embeds = map(embed_module, (test_en_toks, test_fr_toks))
 
         train_dataset = TensorDataset(train_en_embeds, train_fr_embeds)
         test_dataset = TensorDataset(test_en_embeds, test_fr_embeds)
@@ -766,7 +721,7 @@ def prepare_data(
             return (train_en_embeds, train_fr_embeds, test_en_embeds, test_fr_embeds)
     else:
         en_toks, fr_toks, _, _ = tokenize_word_pairs(model, all_word_pairs)
-        en_embeds, fr_embeds = embed((en_toks, fr_toks), model=model, apply_ln=apply_ln)
+        en_embeds, fr_embeds = map(embed_module, (en_toks, fr_toks))
 
         dataset = TensorDataset(en_embeds, fr_embeds)
 
@@ -779,45 +734,6 @@ def prepare_data(
             return dataset
         else:  # return_type == "tensor"
             return (en_embeds, fr_embeds)
-
-
-def unembed(
-    residual: Tensor,
-    model: tl.HookedTransformer,
-    apply_ln: bool = True,
-    apply_ln_weights: bool = True,
-) -> Union[Tensor, Tuple[Tensor, ...]]:
-    """Unembeds tokens and optionally applies layer normalization.
-
-    This function can handle a single tensor or any number of input token tensors.
-
-    Args:
-        residual: A single tensor or multiple tensors in a list to unembed.
-            Shape: [batch, pos, d_model] for each tensor.
-        model (tl.HookedTransformer): The model used for unembedding.
-        apply_ln (bool, optional): Whether to apply layer normalization.
-        apply_ln_weights (bool, optional): Whether to apply layer normalization weights.
-            Defaults to true. Only takes effect if apply_ln is True.
-
-    Returns:
-        The unembedded tokens. Shape: [batch, pos, d_model].
-        Returns a single tensor if one tensor is provided as input, otherwise returns a
-        tuple of tensors.
-    """
-
-    if apply_ln:
-        residual = t.nn.functional.layer_norm(residual, [model.cfg.d_model])
-        if apply_ln_weights:
-            residual = (
-                einsum(
-                    "batch pos d_model, d_model -> batch pos d_model",
-                    residual,
-                    model.ln_final.w,
-                )
-                + model.ln_final.b
-            )
-    residual = residual @ model.unembed.W_U + model.unembed.b_U
-    return residual
 
 
 def print_most_similar_embeddings_dict(
@@ -846,31 +762,14 @@ def get_most_similar_embeddings(
     out: t.Tensor,
     answer: Optional[List[str]] = None,
     top_k: int = 10,
-    apply_embed: bool = False,
-    apply_unembed: bool = False,
-    embed_config: Optional[dict] = None,
-    unembed_config: Optional[dict] = None,
     print_results: bool = False,
 ) -> Dict[int, Any]:
-    # Ensure only one of apply_embed or apply_unembed is True
-    assert not (apply_embed and apply_unembed), "Can't apply both embed and unembed"
-    # Set default configurations if None provided
-    if embed_config is None:
-        embed_config = {"apply_ln": True, "apply_ln_weights": True}
-    if unembed_config is None:
-        unembed_config = {"apply_ln": True, "apply_ln_weights": True}
+
     results = {}
     # Adjust tensor dimensions if needed
     out = out.unsqueeze(0).unsqueeze(0) if out.ndim == 1 else out
-    # Apply embedding or unembedding based on flags and configurations
-    if apply_embed:
-        unembeded = embed(out, model=model, **embed_config)
-    elif apply_unembed:
-        unembeded = unembed(out, model=model, **unembed_config)
-    else:
-        unembeded = out
     # Reshape the output tensor
-    logits = unembeded.squeeze(1)
+    logits = out.squeeze(1)
     # Convert logits to probabilities
     probs = logits.softmax(dim=-1)
 

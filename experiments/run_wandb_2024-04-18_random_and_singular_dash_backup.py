@@ -5,12 +5,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, callback, callback_context, dcc, html
 from plotly.subplots import make_subplots
+from auto_embeds.utils.wandb import process_wandb_runs_df
 
 from auto_embeds.utils.misc import (
     dynamic_text_wrap,
-    fetch_wandb_runs,
-    process_wandb_runs_df,
 )
+from auto_embeds.utils.wandb import fetch_wandb_runs
 
 # Load and preprocess data outside of callbacks
 original_df = fetch_wandb_runs(

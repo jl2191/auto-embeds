@@ -4,8 +4,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
+from auto_embeds.utils.wandb import fetch_wandb_runs
 
-from auto_embeds.utils.misc import fetch_wandb_runs, process_wandb_runs_df
+from auto_embeds.utils.wandb import process_wandb_runs_df
 
 
 def generate_train_loss_figure(color_var, df, highlighted_name=None):

@@ -12,7 +12,6 @@ from torch.utils.data import DataLoader
 from auto_embeds.data import (
     get_most_similar_embeddings,
     print_most_similar_embeddings_dict,
-    unembed,
 )
 from auto_embeds.utils.misc import (
     default_device,
@@ -80,12 +79,12 @@ def evaluate_accuracy(
     model: tl.HookedTransformer,
     test_loader: DataLoader[Tuple[Tensor, ...]],
     transformation: nn.Module,
+    unembed_module: nn.Module,
     exact_match: bool,
     device: Optional[Union[str, t.device]] = default_device,
     print_results: bool = False,
     print_top_preds: bool = True,
     print_acc: bool = True,
-    unembed_config: Optional[dict] = None,
 ) -> float:
     """Evaluates the accuracy of the learned transformation by comparing the predicted
     embeddings to the actual French embeddings.
@@ -113,28 +112,13 @@ def evaluate_accuracy(
         total_count = 0
         for batch in test_loader:
             en_embeds, fr_embeds = batch
-            en_logits = unembed(
-                en_embeds,
-                model=model,
-                apply_ln=unembed_config["apply_ln"],
-                apply_ln_weights=unembed_config["apply_ln_weights"],
-            )
+            en_logits = unembed_module(en_embeds)
             en_strs: List[str] = model.to_str_tokens(en_logits.argmax(dim=-1))  # type: ignore
-            fr_logits = unembed(
-                fr_embeds,
-                model=model,
-                apply_ln=unembed_config["apply_ln"],
-                apply_ln_weights=unembed_config["apply_ln_weights"],
-            )
+            fr_logits = unembed_module(fr_embeds)
             fr_strs: List[str] = model.to_str_tokens(fr_logits.argmax(dim=-1))  # type: ignore
             with t.no_grad():
                 pred = transformation(en_embeds)
-            pred_logits = unembed(
-                pred,
-                model=model,
-                apply_ln=unembed_config["apply_ln"],
-                apply_ln_weights=unembed_config["apply_ln_weights"],
-            )
+            pred_logits = unembed_module(pred)
             pred_top_strs = model.to_str_tokens(pred_logits.argmax(dim=-1))
             pred_top_strs = [
                 item if isinstance(item, str) else item[0] for item in pred_top_strs
@@ -142,10 +126,8 @@ def evaluate_accuracy(
             assert all(isinstance(item, str) for item in pred_top_strs)
             most_similar_embeds = get_most_similar_embeddings(
                 model,
-                out=pred,
+                out=pred_logits,
                 top_k=4,
-                apply_unembed=True,
-                unembed_config=unembed_config,
             )
             for i, pred_top_str in enumerate(pred_top_strs):
                 fr_str = fr_strs[i]
@@ -179,12 +161,12 @@ def evaluate_accuracy(
 def mark_translation(
     model: tl.HookedTransformer,
     transformation: nn.Module,
+    unembed_module: nn.Module,
     test_loader: DataLoader[Tuple[Tensor, ...]],
     azure_translations_path: Optional[Union[str, Path]] = None,
     print_results: bool = False,
     print_top_preds: bool = True,
     translations_dict: Optional[Dict[str, List[str]]] = None,
-    unembed_config: Optional[dict] = None,
 ) -> float:
     """Marks translations as correct according to a dictionary of translations.
 
@@ -195,6 +177,7 @@ def mark_translation(
     Args:
         model: The model whose tokenizer we are using.
         transformation: The transformation module to evaluate.
+        unembed_module: The module used for unembedding.
         test_loader: DataLoader for the test dataset.
         azure_translations_path: Optional; Path to the JSON file containing acceptable
             translations from Azure Translator. Defaults to None.
@@ -241,32 +224,17 @@ def mark_translation(
     with t.no_grad():
         for batch in test_loader:
             en_embeds, fr_embeds = batch
-            en_logits = unembed(
-                en_embeds,
-                model=model,
-                apply_ln=unembed_config["apply_ln"],
-                apply_ln_weights=unembed_config["apply_ln_weights"],
-            )
+            en_logits = unembed_module(en_embeds)
             en_strs: List[str] = model.tokenizer.batch_decode(
                 en_logits.squeeze().argmax(dim=-1)
             )
-            fr_logits = unembed(
-                fr_embeds,
-                model=model,
-                apply_ln=unembed_config["apply_ln"],
-                apply_ln_weights=unembed_config["apply_ln_weights"],
-            )
+            fr_logits = unembed_module(fr_embeds)
             fr_strs: List[str] = model.tokenizer.batch_decode(
                 fr_logits.squeeze().argmax(dim=-1)
             )
             with t.no_grad():
                 pred = transformation(en_embeds)
-            pred_logits = unembed(
-                pred,
-                model=model,
-                apply_ln=unembed_config["apply_ln"],
-                apply_ln_weights=unembed_config["apply_ln_weights"],
-            )
+            pred_logits = unembed_module(pred)
             pred_top_strs = model.tokenizer.batch_decode(
                 pred_logits.squeeze().argmax(dim=-1)
             )
@@ -280,8 +248,6 @@ def mark_translation(
                     model,
                     out=pred,
                     top_k=4,
-                    apply_unembed=True,
-                    unembed_config=unembed_config,
                 )
             for i, pred_top_str in enumerate(pred_top_strs):
                 correct = None

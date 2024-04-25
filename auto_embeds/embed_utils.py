@@ -14,14 +14,15 @@ from auto_embeds.metrics import mark_translation
 from auto_embeds.modules import (
     BiasedRotationTransform,
     CosineSimilarityLoss,
+    Embed,
     IdentityTransform,
     LinearTransform,
-    ManualTransformModule,
     MSELoss,
     RotationTransform,
     TranslationTransform,
     UncenteredLinearMapTransform,
     UncenteredRotationTransform,
+    Unembed,
 )
 from auto_embeds.utils.custom_tqdm import tqdm
 from auto_embeds.utils.misc import default_device
@@ -132,48 +133,51 @@ def initialize_transform_and_optim(
     return transform, optim
 
 
-def initialize_manual_transform(
-    transform_name, train_loader, apply_ln=False, d_model=None
+def initialize_embed_and_unembed(
+    model,
+    use_model_weights=True,
+    apply_embed_ln=True,
+    apply_ln_final=True,
+    device=default_device,
 ):
-    """Initializes a ManualTransformModule.
-
-    Initializes a ManualTransformModule with transformations derived analytically from
-    the training data. Also calculates expected metrics for the transformation.
+    """
+    Initializes instances of Embed and Unembed with optional layer normalization
+    and the ability to use weights from a provided model.
 
     Args:
-        transform_name: The name of the transformation to apply. Supported names
-            include 'analytical_rotation', 'analytical_translation', etc.
-        train_loader: DataLoader containing the training data used to
-            calculate the transformation weights.
-        apply_ln: If True, applies layer normalization after the transformations.
-        d_model: The dimensionality of the model embeddings. Required if apply_ln is True.
+        model: The model containing configuration and potentially weights for
+            initialization.
+        use_model_weights: If True, initializes layer normalization weights from
+            the model. Defaults to True.
+        apply_embed_ln: If True, applies layer normalization in the EmbedModule.
+            Defaults to True.
+        apply_ln_final: If True, applies layer normalization in the Unembed module.
+            Defaults to True.
 
     Returns:
-        ManualTransformModule: The initialized module with specified transformations.
-        dict: A dictionary of expected metrics for the transformation.
+        A tuple containing instances of Embed and Unembed.
     """
-    transformations = []
-    metrics = {}
+    d_model = model.cfg.d_model
+    d_vocab = model.cfg.d_vocab
 
-    # Placeholder for actual transformation calculation logic
-    if transform_name == "analytical_rotation":
-        # Example calculation logic for rotation
-        # This should be replaced with actual calculation based on train_loader data
-        rotation_matrix = t.eye(d_model)  # Placeholder for actual calculation
-        transformations.append(("multiply", rotation_matrix))
-        metrics["expected_loss"] = 0.0  # Placeholder for expected metric calculation
+    # Initialize EmbedModule
+    embed_module = Embed(d_model, d_vocab, apply_ln=apply_embed_ln)
+    if use_model_weights:
+        embed_module.W_E.data = model.embed.W_E.data.detach().clone()
+    if apply_embed_ln and use_model_weights:
+        embed_module.embed_ln.weight.data = model.embed.ln.w.data.detach().clone()
+        embed_module.embed_ln.bias.data = model.embed.ln.b.data.detach().clone()
 
-    # Add more elif blocks for other transformation types like 'analytical_translation'
+    # Initialize Unembed
+    unembed_module = Unembed(d_model, d_vocab, apply_ln=apply_ln_final)
+    if use_model_weights:
+        unembed_module.W_U.data = model.unembed.W_U.data.detach().clone()
+        unembed_module.b_U.data = model.unembed.b_U.data.detach().clone()
+    if apply_ln_final and use_model_weights:
+        unembed_module.ln_final.weight.data = model.ln_final.w.data.detach().clone()
+        unembed_module.ln_final.bias.data = model.ln_final.b.data.detach().clone()
 
-    transform_module = ManualTransformModule(transformations)
-
-    if apply_ln:
-        if d_model is None:
-            raise ValueError("d_model must be specified if apply_ln is True.")
-        # Wrap the ManualTransformModule with LayerNorm
-        transform_module = nn.Sequential(transform_module, LayerNorm(d_model))
-
-    return transform_module, metrics
+    return embed_module, unembed_module
 
 
 def train_transform(
@@ -183,13 +187,13 @@ def train_transform(
     transform: nn.Module,
     optim: Optimizer,
     loss_module: nn.Module,
+    unembed_module: nn.Module,
     n_epochs: int,
     plot_fig: bool = True,
     save_fig: bool = False,
     device: Union[str, t.device] = default_device,
     wandb: Optional[Any] = None,
     azure_translations_path: Optional[Union[str, Path]] = None,
-    unembed_config: Optional[dict] = None,
 ) -> Tuple[nn.Module, Dict[str, List[Dict[str, Union[float, int]]]]]:
     """Trains the transformation.
 
@@ -264,10 +268,10 @@ def train_transform(
                     mark_translation_score = mark_translation(
                         model=model,
                         transformation=transform,
+                        unembed_module=unembed_module,
                         test_loader=test_loader,
                         translations_dict=translations_dict,
                         print_results=False,
-                        unembed_config=unembed_config,
                     )
                     info_dict.update(
                         {

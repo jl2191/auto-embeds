@@ -7,13 +7,12 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
 from tqdm import tqdm
+from auto_embeds.utils.plot import create_parallel_categories_plot
 
 from auto_embeds.utils.misc import (
-    create_parallel_categories_plot,
     dynamic_text_wrap,
-    fetch_wandb_runs,
-    process_wandb_runs_df,
 )
+from auto_embeds.utils.wandb import fetch_wandb_runs, process_wandb_runs_df
 
 try:
     get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore

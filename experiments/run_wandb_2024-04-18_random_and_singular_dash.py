@@ -8,8 +8,9 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from dash import Dash, Input, Output, State, callback_context, dcc, html, no_update
 from plotly.subplots import make_subplots
+from auto_embeds.utils.wandb import fetch_wandb_runs
 
-from auto_embeds.utils.misc import fetch_wandb_runs, process_wandb_runs_df
+from auto_embeds.utils.wandb import process_wandb_runs_df
 
 # Load and preprocess data outside of callbacks
 original_df = fetch_wandb_runs(

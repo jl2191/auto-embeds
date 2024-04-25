@@ -3,10 +3,10 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 from tqdm import tqdm
+from auto_embeds.utils.wandb import fetch_wandb_runs
 
-from auto_embeds.utils.misc import (
+from auto_embeds.utils.plot import (
     create_parallel_categories_plot,
-    fetch_wandb_runs,
 )
 
 try:
