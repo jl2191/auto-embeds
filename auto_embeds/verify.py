@@ -24,14 +24,16 @@ from auto_embeds.data import (
 )
 from auto_embeds.utils.misc import calculate_gradient_color, default_device
 
+from transformers import PreTrainedTokenizerFast
+
 
 def verify_transform(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     transformation: nn.Module,
     test_loader: DataLoader[Tuple[Tensor, ...]],
     unembed_module: nn.Module,
 ) -> Dict[str, Any]:
-    """Evaluates the transformation's effectiveness.
+    """Evaluates the transformation's effectiveness using a tokenizer.
 
     Evaluates the transformation's effectiveness in translating source language tokens
     to target language tokens by examining the relationship between accuracy and the
@@ -39,7 +41,7 @@ def verify_transform(
     Euclidean distance, and strings for source, target, and predicted tokens.
 
     Args:
-        model: A transformer model with hooked embeddings and a tokenizer.
+        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
         transformation: The transformation module applied to source language embeddings.
         test_loader: DataLoader for the test dataset with source and
                      target language embeddings tuples.
@@ -67,10 +69,6 @@ def verify_transform(
     # this seems to increase the odds that we have found a general source to target
     # language translation transformation
 
-    # Ensure model.tokenizer is not None and is callable to satisfy linter
-    if model.tokenizer is None or not callable(model.tokenizer):
-        raise ValueError("model.tokenizer is not set or not callable")
-
     verify_results = {
         "cos_sims": [],
         "euc_dists": [],
@@ -85,11 +83,11 @@ def verify_transform(
             en_embeds, fr_embeds = batch
             top_pred_embeds = transformation(en_embeds)
             en_logits = unembed_module(en_embeds)
-            en_strs: List[str] = model.tokenizer.batch_decode(
+            en_strs: List[str] = tokenizer.batch_decode(
                 en_logits.squeeze().argmax(dim=-1)
             )
             fr_logits = unembed_module(fr_embeds)
-            fr_strs: List[str] = model.tokenizer.batch_decode(
+            fr_strs: List[str] = tokenizer.batch_decode(
                 fr_logits.squeeze().argmax(dim=-1)
             )
             # transform it using our learned rotation
@@ -97,7 +95,7 @@ def verify_transform(
                 top_pred_embeds = transformation(en_embeds)
             # get the top predicted tokens
             top_pred_logits = unembed_module(top_pred_embeds)
-            top_pred_strs = model.tokenizer.batch_decode(
+            top_pred_strs = tokenizer.batch_decode(
                 top_pred_logits.squeeze().argmax(dim=-1)
             )
             top_pred_strs = [
@@ -193,7 +191,7 @@ def verify_transform_table_from_dict(verify_results: Dict[str, Any]) -> Table:
 
 
 def calc_tgt_is_closest_embed(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     all_word_pairs: List[List[str]],
     device: Union[str, t.device] = default_device,
 ) -> Dict[str, Union[str, List[str]]]:
@@ -203,7 +201,7 @@ def calc_tgt_is_closest_embed(
     the top 1 and top 5 closest tokens in terms of cosine similarity.
 
     Args:
-        model: The model used for embedding and token decoding.
+        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
         all_word_pairs: A list of tuples containing source and target word pairs.
         device: The device on which to allocate tensors. If None, defaults to
             default_device
@@ -212,9 +210,6 @@ def calc_tgt_is_closest_embed(
         A dictionary containing a summary of the results and detailed results for each
         source token. Keys are ["summary"] and ["details"].
     """
-    # Ensure model.tokenizer is not None and is callable to satisfy linter
-    if model.tokenizer is None or not callable(model.tokenizer):
-        raise ValueError("model.tokenizer is not set or not callable")
 
     correct_count_top_5 = 0
     correct_count_top_1 = 0
@@ -222,7 +217,7 @@ def calc_tgt_is_closest_embed(
 
     details = []
 
-    src_toks, tgt_toks, _, _ = tokenize_word_pairs(model, all_word_pairs)
+    src_toks, tgt_toks, _, _ = tokenize_word_pairs(tokenizer, all_word_pairs)
 
     all_toks = t.cat([src_toks, tgt_toks], dim=0)
     all_embeds = model.embed.W_E[all_toks].detach().clone()
@@ -261,10 +256,10 @@ def calc_tgt_is_closest_embed(
         else:
             status = "Incorrect ❌"
 
-        src_tok_str = model.tokenizer.decode(src_tok)
-        correct_tgt_tok_str = model.tokenizer.decode(correct_tgt_tok)
+        src_tok_str = tokenizer.decode(src_tok)
+        correct_tgt_tok_str = tokenizer.decode(correct_tgt_tok)
         top_5_tokens = [
-            model.tokenizer.decode(valid_other_toks[index], skip_special_tokens=True)
+            tokenizer.decode(valid_other_toks[index], skip_special_tokens=True)
             for index in top_5_indices
         ]
         cos_sim_values = [cos_sims[index].item() for index in top_5_indices]
@@ -295,7 +290,7 @@ def calc_tgt_is_closest_embed(
 
 
 def generate_top_word_pairs_table(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     word_category_data: WordCategory,
     sort_by: str = "cos_sim",
     display_limit: int = 50,
@@ -311,8 +306,8 @@ def generate_top_word_pairs_table(
     the selected word to ensure more meaningful comparisons.
 
     Args:
-        model: The model used for token decoding.
-        selected_word_data: Data for the selected word including other words to compare.
+        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
+        word_category_data: Data for the selected word including other words to compare.
         sort_by: Criterion for sorting the tokens ('cos_sim' or 'euc_dist').
         display_limit: Number of entries to display in the table.
         top_k: The number of top entries to consider for any given metric.
@@ -323,10 +318,6 @@ def generate_top_word_pairs_table(
         and Euclidean distance to the selected word, excluding identical tokens if
         specified.
     """
-    # Ensure model.tokenizer is not None and is callable to satisfy linter
-    if model.tokenizer is None or not callable(model.tokenizer):
-        raise ValueError("model.tokenizer is not set or not callable")
-
     # Preprocess tokens to exclude identical ones if requested
     if exclude_identical:
         identical_token_index = t.where(
@@ -388,7 +379,7 @@ def generate_top_word_pairs_table(
         elif rank > display_start and rank <= len(other_toks) - display_start:
             continue
         else:
-            word = model.tokenizer.decode(token)
+            word = tokenizer.decode(token)
             cos_sim = cos_sim.item()
             euc_dist = euc_dist.item()
 
@@ -561,14 +552,14 @@ def test_cos_sim_difference(
 
 
 def prepare_verify_analysis(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     embed_module: nn.Module,
     all_word_pairs: List[List[str]],
     seed: int = 1,
     device: Union[str, t.device] = default_device,
     keep_other_pair: bool = False,
 ) -> VerifyWordPairAnalysis:
-    """Prepares verify analysis.
+    """Prepares verify analysis using a tokenizer.
 
     Prepares verify analysis by preparing embeddings and calculating distances.
     This function calculates and stores the top indices for cosine similarities and
@@ -577,7 +568,7 @@ def prepare_verify_analysis(
     src_other_toks will include the tgt_tok and vice versa.
 
     Args:
-        model: The transformer model used for tokenization and generating embeddings.
+        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
         embed_module: The module used for embedding.
         all_word_pairs: A collection of word pairs to be analyzed.
         seed: An integer used to seed the random number generator.
@@ -591,8 +582,6 @@ def prepare_verify_analysis(
     """
 
     all_word_pairs_copy = all_word_pairs.copy()
-    if model.tokenizer is None or not callable(model.tokenizer):
-        raise ValueError("model.tokenizer is not set or not callable")
     random.seed(seed)
     random.shuffle(all_word_pairs_copy)
     selected_index = random.randint(0, len(all_word_pairs_copy) - 1)
@@ -602,12 +591,12 @@ def prepare_verify_analysis(
     # for our selected src and tgt word
     ## tokenize
     src_tok = (
-        model.tokenizer(src_word, return_tensors="pt", add_special_tokens=False)
+        tokenizer(src_word, return_tensors="pt", add_special_tokens=False)
         .data["input_ids"]
         .to(device)
     )
     tgt_tok = (
-        model.tokenizer(tgt_word, return_tensors="pt", add_special_tokens=False)
+        tokenizer(tgt_word, return_tensors="pt", add_special_tokens=False)
         .data["input_ids"]
         .to(device)
     )
@@ -623,12 +612,12 @@ def prepare_verify_analysis(
         tgt_other_words.append(src_word)
     # tokenize
     src_other_toks = (
-        model.tokenizer(src_other_words, return_tensors="pt", add_special_tokens=False)
+        tokenizer(src_other_words, return_tensors="pt", add_special_tokens=False)
         .data["input_ids"]
         .to(device)
     )
     tgt_other_toks = (
-        model.tokenizer(tgt_other_words, return_tensors="pt", add_special_tokens=False)
+        tokenizer(tgt_other_words, return_tensors="pt", add_special_tokens=False)
         .data["input_ids"]
         .to(device)
     )

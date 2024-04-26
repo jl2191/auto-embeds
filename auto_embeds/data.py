@@ -13,6 +13,7 @@ from fancy_einsum import einsum
 from Levenshtein import distance as levenshtein_distance
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
+from transformers import PreTrainedTokenizerFast
 from word2word import Word2word
 
 from auto_embeds.utils.misc import (
@@ -154,20 +155,20 @@ def get_dataset_path(name: str) -> Path:
 
 
 def generate_tokens(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     n_toks: int,
     device: Union[str, t.device] = default_device,
 ) -> Tuple[Tensor, Tensor]:
     """
-    Generate token pairs from a model for a given number of tokens.
+    Generate token pairs from a tokenizer for a given number of tokens.
 
-    This function generates English and French token pairs using a HookedTransformer
-    model. It filters out tokens based on specific criteria and attempts to translate
+    This function generates English and French token pairs using a tokenizer.
+    It filters out tokens based on specific criteria and attempts to translate
     English tokens to French using the Word2word library. The function returns tensors
     of English and French tokens that meet the criteria.
 
     Args:
-        model: The transformer model used for token generation.
+        tokenizer: The tokenizer used for token generation.
         n_toks: The number of tokens to generate.
         device: The device on which to allocate tensors. Defaults to model's device.
 
@@ -177,7 +178,7 @@ def generate_tokens(
     en2fr = Word2word("en", "fr")
     en_toks, fr_toks = [], []
     for tok in range(n_toks):
-        en_tok_str = model.to_string([tok])
+        en_tok_str = tokenizer.decode([tok])
         if len(en_tok_str) < 7 or en_tok_str[0] != " ":
             continue
         try:
@@ -188,7 +189,7 @@ def generate_tokens(
         if en_tok_str.lower() == fr_tok_str.lower():  # type: ignore
             continue
         try:
-            fr_tok = model.to_single_token(fr_tok_str)
+            fr_tok = tokenizer.encode(fr_tok_str, add_special_tokens=False)
         except Exception as e:
             print(f"Token conversion failed for {fr_tok_str}: {e}")
             continue
@@ -198,7 +199,7 @@ def generate_tokens(
 
 
 def filter_word_pairs(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     word_pairs: List[List[str]],
     max_token_id: Optional[int] = None,
     discard_if_same: bool = False,
@@ -214,13 +215,13 @@ def filter_word_pairs(
     acceptable_english_overlap: float = 1.0,
     acceptable_french_overlap: float = 1.0,
 ) -> List[List[str]]:
-    """Filters and tokenizes Source-Target word pairs.
+    """Filters and tokenizes Source-Target word pairs using a tokenizer.
 
     This function filters the input word pairs, retaining only those that result in
     single-token outputs upon tokenization.
 
     Args:
-        model: The model equipped with a tokenizer for processing the texts.
+        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
         word_pairs: A list containing pairs of words to be tokenized.
         max_token_id: Filters out words with a tokenized ID above this threshold.
         discard_if_same: Exclude word pairs that are identical.
@@ -245,10 +246,7 @@ def filter_word_pairs(
         A list of filtered word pairs that tokenize into single tokens.
     """
     if max_token_id is None:
-        max_token_id = model.cfg.d_vocab
-    # Ensure model.tokenizer is not None and is callable to satisfy linter
-    if model.tokenizer is None or not callable(model.tokenizer):
-        raise ValueError("model.tokenizer is not set or not callable")
+        max_token_id = tokenizer.vocab_size
 
     if discard_if_same:
         word_pairs = [pair for pair in word_pairs if pair[0].lower() != pair[1].lower()]
@@ -288,12 +286,9 @@ def filter_word_pairs(
     english_words, french_words = [
         list(words) for words in zip(*pairs_to_filter, strict=True)
     ]
-    en_tokens = model.tokenizer(english_words, add_special_tokens=False).data[
-        "input_ids"
-    ]
-    fr_tokens = model.tokenizer(french_words, add_special_tokens=False).data[
-        "input_ids"
-    ]
+
+    en_tokens = tokenizer(english_words, add_special_tokens=False).data["input_ids"]
+    fr_tokens = tokenizer(french_words, add_special_tokens=False).data["input_ids"]
 
     # overwrites pairs_to_filter so we have the word tokens as well
     pairs_to_filter_with_tokens = [
@@ -477,14 +472,14 @@ def filter_word_pairs(
 
 
 def tokenize_word_pairs(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     word_pairs: List[List[str]],
     device: Union[str, t.device] = default_device,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """Converts a list of word pairs into tensors suitable for model input.
 
     Args:
-        model: A HookedTransformer model instance with a tokenizer.
+        tokenizer: The tokenizer to use for tokenizing the words.
         word_pairs: A list of word pairs, where each pair is a list of two strings.
         device: The device to perform calculations on. Defaults to None.
 
@@ -495,17 +490,16 @@ def tokenize_word_pairs(
         - en_mask: Attention mask for English tokens.
         - fr_mask: Attention mask for French tokens.
     """
-    # Ensure model.tokenizer is not None and is callable to satisfy linter
-    if model.tokenizer is None or not callable(model.tokenizer):
-        raise ValueError("model.tokenizer is not set or not callable")
 
     english_words, french_words = zip(*word_pairs)
     combined_texts = list(english_words) + list(french_words)
     # print(combined_texts)
 
-    tokenized = model.tokenizer(
+    tokenized = tokenizer(
         combined_texts, padding="longest", return_tensors="pt", add_special_tokens=False
-    ).to(device)  # type: ignore
+    ).to(
+        device
+    )  # type: ignore
     num_pairs = tokenized.input_ids.shape[0]
     assert num_pairs % 2 == 0
     word_each = num_pairs // 2
@@ -525,7 +519,7 @@ TwoDatasets: TypeAlias = Tuple[TensorDataset, TensorDataset]
 
 @overload
 def prepare_data(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["tensor"],
@@ -540,7 +534,7 @@ def prepare_data(
 
 @overload
 def prepare_data(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["tensor"],
@@ -555,7 +549,7 @@ def prepare_data(
 
 @overload
 def prepare_data(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataset"],
@@ -570,7 +564,7 @@ def prepare_data(
 
 @overload
 def prepare_data(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataset"],
@@ -585,7 +579,7 @@ def prepare_data(
 
 @overload
 def prepare_data(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataloader"],
@@ -600,7 +594,7 @@ def prepare_data(
 
 @overload
 def prepare_data(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataloader"],
@@ -614,7 +608,7 @@ def prepare_data(
 
 
 def prepare_data(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: str = "dataset",
@@ -633,7 +627,7 @@ def prepare_data(
         and `dataloader` parameters.
 
     Args:
-        model: The model used for tokenization.
+        tokenizer: The tokenizer used for tokenization.
         dataset_name: The name of the dataset to load.
         split_ratio: The ratio to split the dataset into training and testing sets. If
             None, no splitting is performed.
@@ -679,7 +673,7 @@ def prepare_data(
     if filter_options is not None:
         default_filter_options.update(filter_options)
 
-    all_word_pairs = filter_word_pairs(model, word_pairs, **default_filter_options)
+    all_word_pairs = filter_word_pairs(tokenizer, word_pairs, **default_filter_options)
 
     if shuffle_word_pairs:
         random.shuffle(all_word_pairs)
@@ -690,8 +684,8 @@ def prepare_data(
         train_pairs = all_word_pairs[:split_index]
         test_pairs = all_word_pairs[split_index:]
 
-        train_en_toks, train_fr_toks, _, _ = tokenize_word_pairs(model, train_pairs)
-        test_en_toks, test_fr_toks, _, _ = tokenize_word_pairs(model, test_pairs)
+        train_en_toks, train_fr_toks, _, _ = tokenize_word_pairs(tokenizer, train_pairs)
+        test_en_toks, test_fr_toks, _, _ = tokenize_word_pairs(tokenizer, test_pairs)
 
         train_en_embeds, train_fr_embeds = map(
             embed_module, (train_en_toks, train_fr_toks)
@@ -714,7 +708,7 @@ def prepare_data(
         else:  # return_type == "tensor"
             return (train_en_embeds, train_fr_embeds, test_en_embeds, test_fr_embeds)
     else:
-        en_toks, fr_toks, _, _ = tokenize_word_pairs(model, all_word_pairs)
+        en_toks, fr_toks, _, _ = tokenize_word_pairs(tokenizer, all_word_pairs)
         en_embeds, fr_embeds = map(embed_module, (en_toks, fr_toks))
 
         dataset = TensorDataset(en_embeds, fr_embeds)
@@ -752,7 +746,7 @@ def print_most_similar_embeddings_dict(
 
 
 def get_most_similar_embeddings(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     out: t.Tensor,
     answer: Optional[List[str]] = None,
     top_k: int = 10,
@@ -769,8 +763,8 @@ def get_most_similar_embeddings(
     sorted_token_probs, sorted_token_values = probs.sort(descending=True)
 
     if answer is not None:
-        answer_token = model.to_tokens(answer, prepend_bos=False)
-        answer_str_token = model.to_str_tokens(answer, prepend_bos=False)
+        answer_token = tokenizer.encode(answer, add_special_tokens=False)
+        answer_str_token = tokenizer.decode(answer_token)
         correct_rank = repeat(
             t.arange(sorted_token_values.shape[-1]),
             "d_vocab -> batch d_vocab",
@@ -803,7 +797,7 @@ def get_most_similar_embeddings(
                 "rank": i,
                 "logit": logits[batch_idx, sorted_token_values[batch_idx, i]].item(),
                 "prob": sorted_token_probs[batch_idx, i].item(),
-                "token": model.tokenizer.decode(sorted_token_values[batch_idx, i]),
+                "token": tokenizer.decode([sorted_token_values[batch_idx, i]]),
             }
             for i in range(top_k)
         ]

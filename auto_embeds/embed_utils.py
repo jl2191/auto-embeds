@@ -9,6 +9,7 @@ import transformer_lens as tl
 from torch import Tensor
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
+from transformers import PreTrainedTokenizerFast
 
 from auto_embeds.metrics import mark_translation
 from auto_embeds.modules import (
@@ -134,7 +135,8 @@ def initialize_transform_and_optim(
 
 
 def initialize_embed_and_unembed(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
+    model_weights: Dict[str, Tensor],
     embed_weight: str = "model_weights",
     embed_ln: bool = True,
     embed_ln_weights: str = "model_weights",
@@ -148,8 +150,9 @@ def initialize_embed_and_unembed(
     and the ability to use weights from a provided model or initialize randomly.
 
     Args:
-        model: The model containing configuration and potentially weights for
-            initialization.
+        tokenizer: The tokenizer used for tokenization.
+        model_weights: Dict with keys "W_E", "W_U", "embed.ln.w", "embed.ln.b",
+            "ln_final.w", "ln_final.b".
         embed_weight: If "model_weights", uses weights from the model for EmbedModule. If
             "random_normal" or "random_uniform", initializes weights randomly with
             normal or uniform distribution respectively. Defaults to "model_weights".
@@ -165,13 +168,13 @@ def initialize_embed_and_unembed(
     Returns:
         A tuple containing instances of Embed and Unembed.
     """
-    d_model = model.cfg.d_model
-    d_vocab = model.cfg.d_vocab
+    d_model = model_weights["W_E"].shape[1]
+    d_vocab = tokenizer.vocab_size
 
     # Initialize EmbedModule
     embed_module = Embed(d_model, d_vocab, apply_ln=embed_ln, device=device)
     if embed_weight == "model_weights":
-        embed_module.W_E.data = model.embed.W_E.data.detach().clone()
+        embed_module.W_E.data = model_weights["W_E"].detach().clone()
     elif embed_weight == "random_normal":
         t.nn.init.normal_(embed_module.W_E.data, mean=0, std=1)
     elif embed_weight == "random_uniform":
@@ -182,8 +185,8 @@ def initialize_embed_and_unembed(
         raise ValueError(f"Unsupported embedding initialization method: {embed_weight}")
 
     if embed_ln and embed_ln_weights == "model_weights":
-        embed_module.embed_ln.weight.data = model.embed.ln.w.data.detach().clone()
-        embed_module.embed_ln.bias.data = model.embed.ln.b.data.detach().clone()
+        embed_module.embed_ln.weight.data = model_weights["embed.ln.w"].detach().clone()
+        embed_module.embed_ln.bias.data = model_weights["embed.ln.b"].detach().clone()
     elif embed_ln and embed_ln_weights == "random_normal":
         t.nn.init.normal_(embed_module.embed_ln.weight.data, mean=0, std=1)
         t.nn.init.normal_(embed_module.embed_ln.bias.data, mean=0, std=1)
@@ -196,14 +199,14 @@ def initialize_embed_and_unembed(
         pass
     else:
         raise ValueError(
-            f"Unsupported embedding layer normalization method: " f"{embed_ln_weights}"
+            f"Unsupported embedding layer normalization method: {embed_ln_weights}"
         )
 
     # Initialize Unembed
     unembed_module = Unembed(d_model, d_vocab, apply_ln=unembed_ln, device=device)
     if unembed_weight == "model_weights":
-        unembed_module.W_U.data = model.unembed.W_U.data.detach().clone()
-        unembed_module.b_U.data = model.unembed.b_U.data.detach().clone()
+        unembed_module.W_U.data = model_weights["W_U"].detach().clone()
+        unembed_module.b_U.data = model_weights["b_U"].detach().clone()
     elif unembed_weight == "random_normal":
         t.nn.init.normal_(unembed_module.W_U.data, mean=0, std=1)
         t.nn.init.normal_(unembed_module.b_U.data, mean=0, std=1)
@@ -216,8 +219,10 @@ def initialize_embed_and_unembed(
         )
 
     if unembed_ln and unembed_ln_weights == "model_weights":
-        unembed_module.ln_final.weight.data = model.ln_final.w.data.detach().clone()
-        unembed_module.ln_final.bias.data = model.ln_final.b.data.detach().clone()
+        unembed_module.ln_final.weight.data = (
+            model_weights["ln_final.w"].detach().clone()
+        )
+        unembed_module.ln_final.bias.data = model_weights["ln_final.b"].detach().clone()
     elif unembed_ln and unembed_ln_weights == "random_normal":
         t.nn.init.normal_(unembed_module.ln_final.weight.data, mean=0, std=1)
         t.nn.init.normal_(unembed_module.ln_final.bias.data, mean=0, std=1)
@@ -238,7 +243,7 @@ def initialize_embed_and_unembed(
 
 
 def train_transform(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     train_loader: DataLoader[Tuple[Tensor, ...]],
     test_loader: DataLoader[Tuple[Tensor, ...]],
     transform: nn.Module,
@@ -257,7 +262,7 @@ def train_transform(
     Trains the transformation, returning the learned transformation and loss history.
 
     Args:
-        model: The transformer model used for training.
+        tokenizer: The tokenizer used for tokenization.
         train_loader: DataLoader for the training dataset.
         test_loader: DataLoader for the test dataset.
         transform: The transformation module to be optimized.
@@ -323,7 +328,7 @@ def train_transform(
                 # Calculate and log mark_translation score if azure_translations_path
                 if azure_translations_path:
                     mark_translation_score = mark_translation(
-                        model=model,
+                        tokenizer=tokenizer,
                         transformation=transform,
                         unembed_module=unembed_module,
                         test_loader=test_loader,

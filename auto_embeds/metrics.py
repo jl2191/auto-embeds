@@ -5,9 +5,9 @@ from typing import Dict, List, Optional, Tuple, Union
 import einops
 import torch as t
 import torch.nn as nn
-import transformer_lens as tl
 from torch import Tensor
 from torch.utils.data import DataLoader
+from transformers import PreTrainedTokenizerFast
 
 from auto_embeds.data import (
     get_most_similar_embeddings,
@@ -76,7 +76,7 @@ def mean_vec(train_en_resids: t.Tensor, train_fr_resids: t.Tensor) -> t.Tensor:
 
 
 def evaluate_accuracy(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     test_loader: DataLoader[Tuple[Tensor, ...]],
     transformation: nn.Module,
     unembed_module: nn.Module,
@@ -92,7 +92,7 @@ def evaluate_accuracy(
     It supports requiring exact matches or allowing for case-insensitive comparisons.
 
     Args:
-        model: Transformer model for evaluation.
+        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
         test_loader: DataLoader for test dataset.
         transformation: Transformation module to be evaluated.
         exact_match: If True, requires exact matches between predicted and actual
@@ -113,19 +113,19 @@ def evaluate_accuracy(
         for batch in test_loader:
             en_embeds, fr_embeds = batch
             en_logits = unembed_module(en_embeds)
-            en_strs: List[str] = model.to_str_tokens(en_logits.argmax(dim=-1))  # type: ignore
+            en_strs: List[str] = tokenizer.batch_decode(en_logits.argmax(dim=-1))
             fr_logits = unembed_module(fr_embeds)
-            fr_strs: List[str] = model.to_str_tokens(fr_logits.argmax(dim=-1))  # type: ignore
+            fr_strs: List[str] = tokenizer.batch_decode(fr_logits.argmax(dim=-1))
             with t.no_grad():
                 pred = transformation(en_embeds)
             pred_logits = unembed_module(pred)
-            pred_top_strs = model.to_str_tokens(pred_logits.argmax(dim=-1))
+            pred_top_strs = tokenizer.batch_decode(pred_logits.argmax(dim=-1))
             pred_top_strs = [
                 item if isinstance(item, str) else item[0] for item in pred_top_strs
             ]
             assert all(isinstance(item, str) for item in pred_top_strs)
             most_similar_embeds = get_most_similar_embeddings(
-                model,
+                tokenizer,
                 out=pred_logits,
                 top_k=4,
             )
@@ -159,7 +159,7 @@ def evaluate_accuracy(
 
 
 def mark_translation(
-    model: tl.HookedTransformer,
+    tokenizer: PreTrainedTokenizerFast,
     transformation: nn.Module,
     unembed_module: nn.Module,
     test_loader: DataLoader[Tuple[Tensor, ...]],
@@ -175,7 +175,7 @@ def mark_translation(
     `translations_dict` must be provided.
 
     Args:
-        model: The model whose tokenizer we are using.
+        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
         transformation: The transformation module to evaluate.
         unembed_module: The module used for unembedding.
         test_loader: DataLoader for the test dataset.
@@ -192,10 +192,6 @@ def mark_translation(
         ValueError: If neither `azure_translations_path` nor `translations_dict`
             is provided.
     """
-    # Ensure model.tokenizer is not None and is callable to satisfy linter
-    if model.tokenizer is None or not callable(model.tokenizer):
-        raise ValueError("model.tokenizer is not set or not callable")
-
     if azure_translations_path is None and translations_dict is None:
         raise ValueError(
             "Either 'azure_translations_path' or 'translations_dict' must be given."
@@ -225,19 +221,17 @@ def mark_translation(
         for batch in test_loader:
             en_embeds, fr_embeds = batch
             en_logits = unembed_module(en_embeds)
-            en_strs: List[str] = model.tokenizer.batch_decode(
+            en_strs: List[str] = tokenizer.batch_decode(
                 en_logits.squeeze().argmax(dim=-1)
             )
             fr_logits = unembed_module(fr_embeds)
-            fr_strs: List[str] = model.tokenizer.batch_decode(
+            fr_strs: List[str] = tokenizer.batch_decode(
                 fr_logits.squeeze().argmax(dim=-1)
             )
             with t.no_grad():
                 pred = transformation(en_embeds)
             pred_logits = unembed_module(pred)
-            pred_top_strs = model.tokenizer.batch_decode(
-                pred_logits.squeeze().argmax(dim=-1)
-            )
+            pred_top_strs = tokenizer.batch_decode(pred_logits.squeeze().argmax(dim=-1))
             pred_top_strs = [
                 item if isinstance(item, str) else item[0] for item in pred_top_strs
             ]
@@ -245,8 +239,8 @@ def mark_translation(
             # if statement for performance
             if print_top_preds:
                 most_similar_embeds = get_most_similar_embeddings(
-                    model,
-                    out=pred,
+                    tokenizer,
+                    out=pred_logits,
                     top_k=4,
                 )
             for i, pred_top_str in enumerate(pred_top_strs):
