@@ -33,6 +33,7 @@ nltk = "^3.8.1"
 inflect = "^7"
 dash = "^2.16.1"
 dash-bootstrap-components = "^1.6.0"
+loguru = "^0.7.2"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.3.3"
@@ -44,6 +45,7 @@ pyright = "^1.1.350"
 ipytest = "^0.13.3"
 importmagic = "^0.1.7"
 epc = "^0.0.5"
+icecream = "^2.1.3"
 
 
 [tool.poetry.group.debug.dependencies]

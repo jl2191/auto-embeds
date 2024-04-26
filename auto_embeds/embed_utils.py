@@ -134,25 +134,33 @@ def initialize_transform_and_optim(
 
 
 def initialize_embed_and_unembed(
-    model,
-    use_model_weights=True,
-    apply_embed_ln=True,
-    apply_ln_final=True,
-    device=default_device,
-):
+    model: tl.HookedTransformer,
+    embed_weight: str = "model_weights",
+    embed_ln: bool = True,
+    embed_ln_weights: str = "model_weights",
+    unembed_weight: str = "model_weights",
+    unembed_ln: bool = True,
+    unembed_ln_weights: str = "model_weights",
+    device: Union[str, t.device] = default_device,
+) -> Tuple[Embed, Unembed]:
     """
     Initializes instances of Embed and Unembed with optional layer normalization
-    and the ability to use weights from a provided model.
+    and the ability to use weights from a provided model or initialize randomly.
 
     Args:
         model: The model containing configuration and potentially weights for
             initialization.
-        use_model_weights: If True, initializes layer normalization weights from
-            the model. Defaults to True.
-        apply_embed_ln: If True, applies layer normalization in the EmbedModule.
-            Defaults to True.
-        apply_ln_final: If True, applies layer normalization in the Unembed module.
-            Defaults to True.
+        embed_weight: If "model_weights", uses weights from the model for EmbedModule. If
+            "random_normal" or "random_uniform", initializes weights randomly with
+            normal or uniform distribution respectively. Defaults to "model_weights".
+        embed_ln: If True, applies layer normalization in EmbedModule.
+        embed_ln_weights: If "model_weights", uses layer normalization weights from the model
+            for EmbedModule. If "default_weights", does not apply weights. Defaults to "model_weights".
+        unembed_weight: Similar to embed_weight but for UnembedModule.
+        unembed_ln: If True, applies layer normalization in UnembedModule.
+        unembed_ln_weights: Similar to embed_ln_weights but for UnembedModule.
+        device: The device on which to allocate tensors. If None, defaults to
+            default_device.
 
     Returns:
         A tuple containing instances of Embed and Unembed.
@@ -161,21 +169,70 @@ def initialize_embed_and_unembed(
     d_vocab = model.cfg.d_vocab
 
     # Initialize EmbedModule
-    embed_module = Embed(d_model, d_vocab, apply_ln=apply_embed_ln)
-    if use_model_weights:
+    embed_module = Embed(d_model, d_vocab, apply_ln=embed_ln, device=device)
+    if embed_weight == "model_weights":
         embed_module.W_E.data = model.embed.W_E.data.detach().clone()
-    if apply_embed_ln and use_model_weights:
+    elif embed_weight == "random_normal":
+        t.nn.init.normal_(embed_module.W_E.data, mean=0, std=1)
+    elif embed_weight == "random_uniform":
+        t.nn.init.uniform_(embed_module.W_E.data, -1, 1)
+    elif embed_weight == "default_weights":
+        pass
+    else:
+        raise ValueError(f"Unsupported embedding initialization method: {embed_weight}")
+
+    if embed_ln and embed_ln_weights == "model_weights":
         embed_module.embed_ln.weight.data = model.embed.ln.w.data.detach().clone()
         embed_module.embed_ln.bias.data = model.embed.ln.b.data.detach().clone()
+    elif embed_ln and embed_ln_weights == "random_normal":
+        t.nn.init.normal_(embed_module.embed_ln.weight.data, mean=0, std=1)
+        t.nn.init.normal_(embed_module.embed_ln.bias.data, mean=0, std=1)
+    elif embed_ln and embed_ln_weights == "random_uniform":
+        t.nn.init.uniform_(embed_module.embed_ln.weight.data, -1, 1)
+        t.nn.init.uniform_(embed_module.embed_ln.bias.data, -1, 1)
+    elif embed_ln and embed_ln_weights == "default_weights":
+        pass
+    elif not embed_ln:
+        pass
+    else:
+        raise ValueError(
+            f"Unsupported embedding layer normalization method: " f"{embed_ln_weights}"
+        )
 
     # Initialize Unembed
-    unembed_module = Unembed(d_model, d_vocab, apply_ln=apply_ln_final)
-    if use_model_weights:
+    unembed_module = Unembed(d_model, d_vocab, apply_ln=unembed_ln, device=device)
+    if unembed_weight == "model_weights":
         unembed_module.W_U.data = model.unembed.W_U.data.detach().clone()
         unembed_module.b_U.data = model.unembed.b_U.data.detach().clone()
-    if apply_ln_final and use_model_weights:
+    elif unembed_weight == "random_normal":
+        t.nn.init.normal_(unembed_module.W_U.data, mean=0, std=1)
+        t.nn.init.normal_(unembed_module.b_U.data, mean=0, std=1)
+    elif unembed_weight == "random_uniform":
+        t.nn.init.uniform_(unembed_module.W_U.data, -1, 1)
+        t.nn.init.uniform_(unembed_module.b_U.data, -1, 1)
+    else:
+        raise ValueError(
+            f"Unsupported unembedding initialization method: {unembed_weight}"
+        )
+
+    if unembed_ln and unembed_ln_weights == "model_weights":
         unembed_module.ln_final.weight.data = model.ln_final.w.data.detach().clone()
         unembed_module.ln_final.bias.data = model.ln_final.b.data.detach().clone()
+    elif unembed_ln and unembed_ln_weights == "random_normal":
+        t.nn.init.normal_(unembed_module.ln_final.weight.data, mean=0, std=1)
+        t.nn.init.normal_(unembed_module.ln_final.bias.data, mean=0, std=1)
+    elif unembed_ln and unembed_ln_weights == "random_uniform":
+        t.nn.init.uniform_(unembed_module.ln_final.weight.data, -1, 1)
+        t.nn.init.uniform_(unembed_module.ln_final.bias.data, -1, 1)
+    elif unembed_ln and unembed_ln_weights == "default_weights":
+        pass
+    elif not unembed_ln:
+        pass
+    else:
+        raise ValueError(
+            f"Unsupported unembedding layer normalization method: "
+            f"{unembed_ln_weights}"
+        )
 
     return embed_module, unembed_module
 

@@ -15,7 +15,6 @@ from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
 from word2word import Word2word
 
-from auto_embeds.utils.cache import auto_embeds_cache
 from auto_embeds.utils.misc import (
     default_device,
     repo_path_to_abs_path,
@@ -198,7 +197,6 @@ def generate_tokens(
     return t.tensor(en_toks, device=device), t.tensor(fr_toks, device=device)
 
 
-@auto_embeds_cache
 def filter_word_pairs(
     model: tl.HookedTransformer,
     word_pairs: List[List[str]],
@@ -251,8 +249,6 @@ def filter_word_pairs(
     # Ensure model.tokenizer is not None and is callable to satisfy linter
     if model.tokenizer is None or not callable(model.tokenizer):
         raise ValueError("model.tokenizer is not set or not callable")
-
-    print(f"Initial length: {len(word_pairs)}")
 
     if discard_if_same:
         word_pairs = [pair for pair in word_pairs if pair[0].lower() != pair[1].lower()]
@@ -509,9 +505,7 @@ def tokenize_word_pairs(
 
     tokenized = model.tokenizer(
         combined_texts, padding="longest", return_tensors="pt", add_special_tokens=False
-    ).to(
-        device
-    )  # type: ignore
+    ).to(device)  # type: ignore
     num_pairs = tokenized.input_ids.shape[0]
     assert num_pairs % 2 == 0
     word_each = num_pairs // 2
@@ -764,7 +758,6 @@ def get_most_similar_embeddings(
     top_k: int = 10,
     print_results: bool = False,
 ) -> Dict[int, Any]:
-
     results = {}
     # Adjust tensor dimensions if needed
     out = out.unsqueeze(0).unsqueeze(0) if out.ndim == 1 else out
