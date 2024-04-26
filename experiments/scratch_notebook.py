@@ -1,10 +1,10 @@
 # %%
-import argparse
 import datetime
 import itertools
 import json
 import os
 
+# Set environment variables
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 os.environ["AUTOEMBEDS_CACHING"] = "true"
@@ -13,6 +13,7 @@ import numpy as np
 import torch as t
 import transformer_lens as tl
 import wandb
+from icecream import ic
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from auto_embeds.data import filter_word_pairs, get_dataset_path
@@ -26,7 +27,6 @@ from auto_embeds.metrics import (
     evaluate_accuracy,
     mark_translation,
 )
-from auto_embeds.utils.cache import auto_embeds_cache
 from auto_embeds.utils.custom_tqdm import tqdm
 from auto_embeds.utils.misc import get_experiment_worker_config, is_notebook
 from auto_embeds.verify import (
@@ -36,8 +36,6 @@ from auto_embeds.verify import (
     test_cos_sim_difference,
     verify_transform,
 )
-
-# Set environment variables
 
 # Seed for reproducibility
 np.random.seed(1)
@@ -58,7 +56,7 @@ experiment_config = {
         ],
     },
     "models": [
-        "bloom-560m",
+        "bigscience/bloom-560m",
         # "bloom-3b",
         # "bloom-7b",
     ],
@@ -157,57 +155,6 @@ for value in experiment_config.values():
 
 print(f"Total experiment runs calculated: {total_runs}")
 
-# %%
-hf_model = AutoModelForCausalLM.from_pretrained("bigscience/bloom-560m")
-# %%
-tl_model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
-
-# %%
-hf_W_E = hf_model.transformer.word_embeddings.weight.to("cuda")
-hf_embed_ln_w = hf_model.transformer.word_embeddings_layernorm.weight.to("cuda")
-hf_embed_ln_b = hf_model.transformer.word_embeddings_layernorm.bias.to("cuda")
-hf_ln_final_w = hf_model.transformer.ln_f.weight.to("cuda")
-hf_ln_final_b = hf_model.transformer.ln_f.bias.to("cuda")
-hf_W_U = hf_model.lm_head.weight.to("cuda").T
-
-tl_W_E = tl_model.W_E
-tl_embed_ln_w = tl_model.embed.ln.w
-tl_embed_ln_b = tl_model.embed.ln.b
-tl_ln_final_w = tl_model.ln_final.w
-tl_ln_final_b = tl_model.ln_final.b
-tl_W_U = tl_model.W_U
-
-t.testing.assert_close(hf_W_E, tl_W_E)
-t.testing.assert_close(hf_embed_ln_w, tl_embed_ln_w)
-t.testing.assert_close(hf_embed_ln_b, tl_embed_ln_b)
-t.testing.assert_close(hf_ln_final_w, tl_ln_final_w)
-t.testing.assert_close(hf_ln_final_b, tl_ln_final_b)
-t.testing.assert_close(hf_W_U, tl_W_U)
-
-# %%
-tokenizer1 = tl_model.tokenizer("bloom-560m")
-tokenizer2 = AutoTokenizer.from_pretrained("bigscience/bloom-560m")
-
-file_path = get_dataset_path("wikdict_en_fr_extracted")
-with open(file_path, "r", encoding="utf-8") as file:
-    word_pairs = json.load(file)
-
-all_word_pairs = filter_word_pairs(
-    model,
-    word_pairs,
-    discard_if_same=True,
-    min_length=5,
-    capture_space=True,
-    capture_no_space=False,
-    print_number=True,
-    verbose_count=True,
-)
-
-# %%
-print(tokenizer1)
-# %%
-print(tokenizer2)
-# %%
 
 config_dict = get_experiment_worker_config(
     experiment_config=experiment_config,
@@ -225,9 +172,10 @@ config_values = [
 config_list = list(itertools.product(*config_values))
 
 # To prevent unnecessary reloading
-last_loaded_model = None
-last_loaded_word_pairs = None
+last_model_config = None
+last_dataset_config = None
 model = None
+model_weights = None
 
 for (
     model_name,
@@ -249,6 +197,7 @@ for (
     weight_decay,
     lr,
 ) in tqdm(config_list, total=len(config_list)):
+
     run_config = {
         "model_name": model_name,
         "processing": processing,
@@ -270,28 +219,34 @@ for (
         "lr": lr,
     }
 
+    # Tokenizer setup
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
     # Model setup
-    model_needs_loading = (
-        last_loaded_model is None
-        or last_loaded_model["model_name"] != model_name
-        or last_loaded_model["processing"] != processing
-    )
-    if model_needs_loading:
+    current_model_config = (model_name, processing)
+    if current_model_config != last_model_config:
         if processing:
             model = tl.HookedTransformer.from_pretrained(model_name)
         else:
             model = tl.HookedTransformer.from_pretrained_no_processing(model_name)
-        last_loaded_model = {
-            "model_name": model_name,
-            "processing": processing,
-            "model": model,
+        last_model_config = current_model_config
+
+        model_weights = {
+            "W_E": model.W_E.clone().detach(),
+            "embed.ln.w": model.embed.ln.w.clone().detach(),
+            "embed.ln.b": model.embed.ln.b.clone().detach(),
+            "ln_final.w": model.ln_final.w.clone().detach(),
+            "ln_final.b": model.ln_final.b.clone().detach(),
+            "W_U": model.W_U.clone().detach(),
+            "b_U": model.b_U.clone().detach(),
         }
 
-    assert model is not None, "The model has not been loaded successfully."
+        del model
 
     # Initialize embed and unembed modules
     embed_module, unembed_module = initialize_embed_and_unembed(
-        model=model,
+        tokenizer=tokenizer,
+        model_weights=model_weights,
         embed_weight=embed_weight,
         embed_ln=embed_ln,
         embed_ln_weights=embed_ln_weights,
@@ -300,8 +255,8 @@ for (
         unembed_ln_weights=unembed_ln_weights,
     )
 
-    d_model = model.cfg.d_model
-    n_toks = model.cfg.d_vocab_out
+    d_model = model_weights["W_E"].shape[1]
+    n_toks = model_weights["W_E"].shape[0]
 
     # Dataset filtering
     dataset_name = dataset_config["name"]
@@ -309,14 +264,11 @@ for (
     with open(file_path, "r", encoding="utf-8") as file:
         word_pairs = json.load(file)
 
-    word_pairs_needs_loading = (
-        last_loaded_word_pairs is None
-        or last_loaded_word_pairs["dataset_config"] != dataset_config
-    )
-    if word_pairs_needs_loading:
+    current_dataset_config = dataset_config
+    if current_dataset_config != last_dataset_config:
         all_word_pairs = filter_word_pairs(
-            model,
-            word_pairs,
+            tokenizer=tokenizer,
+            word_pairs=word_pairs,
             discard_if_same=True,
             min_length=dataset_config["min_length"],
             capture_space=dataset_config["capture_space"],
@@ -324,15 +276,11 @@ for (
             print_number=True,
             verbose_count=True,
         )
-        last_loaded_word_pairs = {
-            "dataset_config": dataset_config,
-            "filtered_word_pairs": all_word_pairs,
-        }
-        all_word_pairs = last_loaded_word_pairs["filtered_word_pairs"]
+        last_dataset_config = current_dataset_config
 
     # Prepare datasets
     verify_learning = prepare_verify_analysis(
-        model=model,
+        tokenizer=tokenizer,
         embed_module=embed_module,
         all_word_pairs=all_word_pairs,
         seed=seed,
@@ -347,9 +295,7 @@ for (
     )
 
     if "mark_accuracy_path" in dataset_config:
-        azure_translations_path = get_dataset_path(
-            dataset_config["mark_accuracy_path"]
-        )
+        azure_translations_path = get_dataset_path(dataset_config["mark_accuracy_path"])
     else:
         azure_translations_path = None
 
@@ -364,7 +310,7 @@ for (
     # Train transformation
     if optim is not None:
         transform, loss_history = train_transform(
-            model=model,
+            tokenizer=tokenizer,
             train_loader=train_loader,
             test_loader=test_loader,
             transform=transform,
@@ -378,9 +324,9 @@ for (
 
     # Evaluate and log results
     test_accuracy = evaluate_accuracy(
-        model,
-        test_loader,
-        transform,
+        tokenizer=tokenizer,
+        test_loader=test_loader,
+        transformation=transform,
         unembed_module=unembed_module,
         exact_match=False,
         print_results=False,
@@ -391,7 +337,7 @@ for (
         mark_translation_acc = None
     else:
         mark_translation_acc = mark_translation(
-            model=model,
+            tokenizer=tokenizer,
             transformation=transform,
             unembed_module=unembed_module,
             test_loader=test_loader,
@@ -400,7 +346,7 @@ for (
         )
 
     verify_results_dict = verify_transform(
-        model=model,
+        tokenizer=tokenizer,
         transformation=transform,
         test_loader=test_loader,
         unembed_module=unembed_module,
