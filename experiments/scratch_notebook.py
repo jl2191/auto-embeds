@@ -5,7 +5,7 @@ import json
 import os
 
 # Set environment variables
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 os.environ["AUTOEMBEDS_CACHING"] = "true"
 
@@ -71,32 +71,32 @@ experiment_config = {
             "capture_no_space": False,
             "mark_accuracy_path": "wikdict_en_fr_azure_validation",
         },
-        {
-            "name": "random_word_pairs",
-            "min_length": 2,
-            "capture_space": True,
-            "capture_no_space": False,
-        },
-        {
-            "name": "singular_plural_pairs",
-            "min_length": 2,
-            "capture_space": True,
-            "capture_no_space": False,
-        },
-        {
-            "name": "muse_en_fr_extracted",
-            "min_length": 5,
-            "capture_space": True,
-            "capture_no_space": False,
-            "mark_accuracy_path": "muse_en_fr_azure_validation",
-        },
-        {
-            "name": "cc_cedict_zh_en_extracted",
-            "min_length": 2,
-            "capture_space": False,
-            "capture_no_space": True,
-            "mark_accuracy_path": "cc_cedict_zh_en_azure_validation",
-        },
+        # {
+        #     "name": "random_word_pairs",
+        #     "min_length": 2,
+        #     "capture_space": True,
+        #     "capture_no_space": False,
+        # },
+        # {
+        #     "name": "singular_plural_pairs",
+        #     "min_length": 2,
+        #     "capture_space": True,
+        #     "capture_no_space": False,
+        # },
+        # {
+        #     "name": "muse_en_fr_extracted",
+        #     "min_length": 5,
+        #     "capture_space": True,
+        #     "capture_no_space": False,
+        #     "mark_accuracy_path": "muse_en_fr_azure_validation",
+        # },
+        # {
+        #     "name": "cc_cedict_zh_en_extracted",
+        #     "min_length": 2,
+        #     "capture_space": False,
+        #     "capture_no_space": True,
+        #     "mark_accuracy_path": "cc_cedict_zh_en_azure_validation",
+        # },
         # {
         #     "name": "muse_zh_en_extracted_train",
         #     "min_length": 2,
@@ -106,13 +106,13 @@ experiment_config = {
         # },
     ],
     "transformations": [
-        "identity",
-        "translation",
+        # "identity",
+        # "translation",
         "linear_map",
         # "biased_linear_map",
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
-        "rotation",
+        # "rotation",
         # "biased_rotation",
         # "uncentered_rotation",
         # "analytical_rotation",
@@ -136,10 +136,11 @@ experiment_config = {
     # "unembed_ln_weights": ["default_weights", "model_weights"],
     "embed_weight": ["model_weights"],
     "embed_ln": [True],
-    "embed_ln_weights": ["default_weights", "model_weights"],
+    # "embed_ln_weights": ["default_weights", "model_weights"],
+    "embed_ln_weights": ["model_weights"],
     "unembed_weight": ["model_weights"],
     "unembed_ln": [True],
-    "unembed_ln_weights": ["default_weights", "model_weights"],
+    "unembed_ln_weights": ["model_weights"],
     "n_epochs": [100],
     "weight_decay": [
         0,

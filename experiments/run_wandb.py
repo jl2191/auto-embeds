@@ -5,6 +5,7 @@ import itertools
 import json
 import os
 
+# Set environment variables
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 os.environ["AUTOEMBEDS_CACHING"] = "true"
@@ -13,6 +14,8 @@ import numpy as np
 import torch as t
 import transformer_lens as tl
 import wandb
+from icecream import ic
+from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizerFast
 
 from auto_embeds.data import filter_word_pairs, get_dataset_path
 from auto_embeds.embed_utils import (
@@ -25,7 +28,6 @@ from auto_embeds.metrics import (
     evaluate_accuracy,
     mark_translation,
 )
-from auto_embeds.utils.cache import auto_embeds_cache
 from auto_embeds.utils.custom_tqdm import tqdm
 from auto_embeds.utils.misc import get_experiment_worker_config, is_notebook
 from auto_embeds.verify import (
@@ -35,8 +37,6 @@ from auto_embeds.verify import (
     test_cos_sim_difference,
     verify_transform,
 )
-
-# Set environment variables
 
 # Seed for reproducibility
 np.random.seed(1)
@@ -50,14 +50,14 @@ experiment_config = {
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
             f"{datetime.datetime.now():%Y-%m-%d} analytical solutions",
-            "experiment 2",
-            "run group 1",
+            "experiment 1",
+            "run group 2",
             # "actual",
             # "test",
         ],
     },
     "models": [
-        "bloom-560m",
+        "bigscience/bloom-560m",
         # "bloom-3b",
         # "bloom-7b",
     ],
@@ -84,13 +84,13 @@ experiment_config = {
             "capture_space": True,
             "capture_no_space": False,
         },
-        {
-            "name": "muse_en_fr_extracted",
-            "min_length": 5,
-            "capture_space": True,
-            "capture_no_space": False,
-            "mark_accuracy_path": "muse_en_fr_azure_validation",
-        },
+        # {
+        #     "name": "muse_en_fr_extracted",
+        #     "min_length": 5,
+        #     "capture_space": True,
+        #     "capture_no_space": False,
+        #     "mark_accuracy_path": "muse_en_fr_azure_validation",
+        # },
         {
             "name": "cc_cedict_zh_en_extracted",
             "min_length": 2,
@@ -143,10 +143,10 @@ experiment_config = {
     # "unembed_ln_weights": ["default_weights", "model_weights"],
     "embed_weight": ["model_weights"],
     "embed_ln": [True, False],
-    "embed_ln_weights": ["default_weights"],
+    "embed_ln_weights": ["default_weights", "model_weights"],
     "unembed_weight": ["model_weights"],
     "unembed_ln": [True, False],
-    "unembed_ln_weights": ["default_weights"],
+    "unembed_ln_weights": ["default_weights", "model_weights"],
     "n_epochs": [100],
     "weight_decay": [
         0,
@@ -175,9 +175,10 @@ def run_experiment(config_dict):
     config_list = list(itertools.product(*config_values))
 
     # To prevent unnecessary reloading
-    last_loaded_model = None
-    last_loaded_word_pairs = None
+    last_model_config = None
+    last_dataset_config = None
     model = None
+    model_weights = None
 
     for (
         model_name,
@@ -199,6 +200,7 @@ def run_experiment(config_dict):
         weight_decay,
         lr,
     ) in tqdm(config_list, total=len(config_list)):
+
         run_config = {
             "model_name": model_name,
             "processing": processing,
@@ -228,28 +230,40 @@ def run_experiment(config_dict):
             tags=wandb_config["tags"],
         )
 
+        # Tokenizer setup
+        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(model_name)  # type: ignore
         # Model setup
-        model_needs_loading = (
-            last_loaded_model is None
-            or last_loaded_model["model_name"] != model_name
-            or last_loaded_model["processing"] != processing
-        )
-        if model_needs_loading:
+        current_model_config = (model_name, processing)
+        if current_model_config != last_model_config:
             if processing:
                 model = tl.HookedTransformer.from_pretrained(model_name)
             else:
                 model = tl.HookedTransformer.from_pretrained_no_processing(model_name)
-            last_loaded_model = {
-                "model_name": model_name,
-                "processing": processing,
-                "model": model,
+            last_model_config = current_model_config
+
+            model_weights = {
+                "W_E": model.W_E.clone().detach(),
+                "embed.ln.w": model.embed.ln.w.clone().detach(),
+                "embed.ln.b": model.embed.ln.b.clone().detach(),
+                "ln_final.w": model.ln_final.w.clone().detach(),
+                "ln_final.b": model.ln_final.b.clone().detach(),
+                "W_U": model.W_U.clone().detach(),
+                "b_U": model.b_U.clone().detach(),
             }
 
-        assert model is not None, "The model has not been loaded successfully."
+            del model
+
+        # Ensure model_weights is initialized
+        if model_weights is None:
+            raise ValueError("Model weights have not been initialized.")
+
+        d_model = model_weights["W_E"].shape[1]
+        n_toks = model_weights["W_E"].shape[0]
 
         # Initialize embed and unembed modules
         embed_module, unembed_module = initialize_embed_and_unembed(
-            model=model,
+            tokenizer=tokenizer,
+            model_weights=model_weights,
             embed_weight=embed_weight,
             embed_ln=embed_ln,
             embed_ln_weights=embed_ln_weights,
@@ -258,8 +272,8 @@ def run_experiment(config_dict):
             unembed_ln_weights=unembed_ln_weights,
         )
 
-        d_model = model.cfg.d_model
-        n_toks = model.cfg.d_vocab_out
+        d_model = model_weights["W_E"].shape[1]
+        n_toks = model_weights["W_E"].shape[0]
 
         # Dataset filtering
         dataset_name = dataset_config["name"]
@@ -267,14 +281,11 @@ def run_experiment(config_dict):
         with open(file_path, "r", encoding="utf-8") as file:
             word_pairs = json.load(file)
 
-        word_pairs_needs_loading = (
-            last_loaded_word_pairs is None
-            or last_loaded_word_pairs["dataset_config"] != dataset_config
-        )
-        if word_pairs_needs_loading:
+        current_dataset_config = dataset_config
+        if current_dataset_config != last_dataset_config:
             all_word_pairs = filter_word_pairs(
-                model,
-                word_pairs,
+                tokenizer=tokenizer,
+                word_pairs=word_pairs,
                 discard_if_same=True,
                 min_length=dataset_config["min_length"],
                 capture_space=dataset_config["capture_space"],
@@ -282,15 +293,11 @@ def run_experiment(config_dict):
                 print_number=True,
                 verbose_count=True,
             )
-            last_loaded_word_pairs = {
-                "dataset_config": dataset_config,
-                "filtered_word_pairs": all_word_pairs,
-            }
-            all_word_pairs = last_loaded_word_pairs["filtered_word_pairs"]
+            last_dataset_config = current_dataset_config
 
         # Prepare datasets
         verify_learning = prepare_verify_analysis(
-            model=model,
+            tokenizer=tokenizer,
             embed_module=embed_module,
             all_word_pairs=all_word_pairs,
             seed=seed,
@@ -319,10 +326,12 @@ def run_experiment(config_dict):
         )
         loss_module = initialize_loss("cosine_similarity")
 
+        print(f"Allocated GPU memory: {t.cuda.memory_allocated() / 1024**3:.2f} GB")
+
         # Train transformation
         if optim is not None:
             transform, loss_history = train_transform(
-                model=model,
+                tokenizer=tokenizer,
                 train_loader=train_loader,
                 test_loader=test_loader,
                 transform=transform,
@@ -337,9 +346,9 @@ def run_experiment(config_dict):
 
         # Evaluate and log results
         test_accuracy = evaluate_accuracy(
-            model,
-            test_loader,
-            transform,
+            tokenizer=tokenizer,
+            test_loader=test_loader,
+            transformation=transform,
             unembed_module=unembed_module,
             exact_match=False,
             print_results=False,
@@ -350,7 +359,7 @@ def run_experiment(config_dict):
             mark_translation_acc = None
         else:
             mark_translation_acc = mark_translation(
-                model=model,
+                tokenizer=tokenizer,
                 transformation=transform,
                 unembed_module=unembed_module,
                 test_loader=test_loader,
@@ -359,7 +368,7 @@ def run_experiment(config_dict):
             )
 
         verify_results_dict = verify_transform(
-            model=model,
+            tokenizer=tokenizer,
             transformation=transform,
             test_loader=test_loader,
             unembed_module=unembed_module,
@@ -370,6 +379,8 @@ def run_experiment(config_dict):
         # cos_sims_trend_plot.show(config={"responsive": True, "autosize": True})
 
         test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
+
+        print(f"Allocated GPU memory: {t.cuda.memory_allocated() / 1024**3:.2f} GB")
 
         wandb.log(
             {
@@ -391,7 +402,7 @@ def setup_arg_parser():
     parser.add_argument(
         "--worker_id",
         type=int,
-        choices=[1, 2],
+        choices=[1, 2, 3, 4],
         help="Optional: Worker ID to use for running the experiment.",
     )
     return parser
@@ -421,7 +432,7 @@ if __name__ == "__main__":
             config_to_use = get_experiment_worker_config(
                 experiment_config=experiment_config,
                 split_parameter="datasets",
-                n_splits=2,
+                n_splits=3,
                 worker_id=args.worker_id,
             )
             print(f"Running experiment for worker ID = {args.worker_id}")

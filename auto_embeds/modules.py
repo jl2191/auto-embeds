@@ -457,8 +457,7 @@ class Embed(nn.Module):
         self.W_E: Float[t.Tensor, "d_vocab d_model"] = nn.Parameter(
             t.empty(d_vocab, d_model, device=device)
         )
-        if apply_ln:
-            self.embed_ln = nn.LayerNorm(d_model, device=device)
+        self.embed_ln = nn.LayerNorm(d_model, device=device) if apply_ln else None
 
     def forward(
         self, tokens: Float[Tensor, "batch pos"]
