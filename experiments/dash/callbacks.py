@@ -154,4 +154,4 @@ def update_run_count(text_filter):
         exploded_df_fig_1.query(text_filter) if text_filter else exploded_df_fig_1
     )
     count = len(filtered_df)
-    return f"{count} Runs Displayed"
+    return f"Showing {count} Runs"
