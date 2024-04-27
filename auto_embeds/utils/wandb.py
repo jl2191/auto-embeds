@@ -84,19 +84,19 @@ def fetch_wandb_runs(
 
     df = filtered_df
 
-    # # Additional filtering for 'cos_sims_trend_plot'
-    # def has_plot(x):
-    #     return "cos_sims_trend_plot" in x and len(x["cos_sims_trend_plot"]) > 0
+    # Additional filtering for 'cos_sims_trend_plot'
+    def has_plot(x):
+        return "cos_sims_trend_plot" in x and len(x["cos_sims_trend_plot"]) > 0
 
-    # filtered_df = df.query("summary.map(@has_plot)")
-    # num_filtered_out = len(df) - len(filtered_df)
-    # if num_filtered_out > 0:
-    #     print(
-    #         f"Warning: {num_filtered_out} run(s) filtered out due to missing "
-    #         "'cos_sims_trend_plot' in summary. These runs may still be processing."
-    #     )
+    filtered_df = df.query("summary.map(@has_plot)")
+    num_filtered_out = len(df) - len(filtered_df)
+    if num_filtered_out > 0:
+        print(
+            f"Warning: {num_filtered_out} run(s) filtered out due to missing "
+            "'cos_sims_trend_plot' in summary. These runs may still be processing."
+        )
 
-    # df = filtered_df
+    df = filtered_df
 
     return df
 

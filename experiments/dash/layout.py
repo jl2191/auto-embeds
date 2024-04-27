@@ -76,33 +76,37 @@ layout = dbc.Container(
                 width=12,
             )
         ),
+        # Filter and Badge for displaying the number of runs
         dbc.Row(
             dbc.Col(
-                [
-                    html.Div(
-                        [
-                            html.Label(
-                                "Filter Query:",
-                                htmlFor="text-filter",
-                                className="text-center",
-                                style={"marginBottom": "10px"},
-                            ),
-                            dcc.Input(
-                                id="text-filter",
-                                type="text",
-                                debounce=True,
-                                style={"height": "40px", "width": "100%"},
-                            ),
-                        ],
-                        style={"width": "50%", "margin": "0 auto"},
-                    ),
-                    dbc.Tooltip(
-                        "Enter a pandas dataframe query string to filter the results. "
-                        "Example \"transformation in ['Rotation', 'Linear Map'] and "
-                        'seed = 10" or "unembed_apply_ln == True".',
-                        target="text-filter",
-                    ),
-                ],
+                html.Div(
+                    [
+                        html.Label(
+                            "Filter Query:",
+                            htmlFor="text-filter",
+                            className="text-center",
+                            style={"marginBottom": "10px"},
+                        ),
+                        dbc.InputGroup(
+                            [
+                                dcc.Input(
+                                    id="text-filter",
+                                    type="text",
+                                    debounce=True,
+                                    style={"flex": "1"},
+                                ),
+                                dbc.Badge(
+                                    "0 Runs",  # Default text to ensure visibility
+                                    id="current-runs-badge",
+                                    color="info",
+                                    className="ml-1",
+                                ),
+                            ],
+                            style={"width": "100%"},
+                        ),
+                    ],
+                    style={"width": "50%", "margin": "0 auto"},
+                ),
                 width=12,
                 style={"marginBottom": "20px"},
             )

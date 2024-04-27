@@ -175,7 +175,7 @@ def generate_cos_sims_trend_figure(data):
 
 original_df = fetch_wandb_runs(
     project_name="jl2191/language-transformations",
-    tags=["actual", "2024-04-25 analytical solutions 5", "run group 1"],
+    tags=["actual", "2024-04-27 analytical solutions", "experiment 3", "run group 1"],
     get_artifacts=True,
 )
 
@@ -195,25 +195,33 @@ runs_df = process_wandb_runs_df(
         },
     },
 )
-# print(runs_df.iloc[:, 16:])
 
-exploded_df_fig_1 = runs_df.explode(column=["epoch", "test_loss", "train_loss"]).melt(
-    id_vars=[
-        "name",
-        "dataset",
-        "seed",
-        "transformation",
-        "embed_weight",
-        "embed_ln",
-        "embed_ln_weights",
-        "unembed_ln",
-        "unembed_ln_weights",
-        "unembed_weight",
-        "epoch",
-    ],
-    value_vars=["train_loss", "test_loss"],
-    var_name="loss_type",
-    value_name="loss",
+exploded_df_fig_1 = (
+    runs_df.drop([col for col in runs_df.columns if "mark_translation" in col], axis=1)
+    .assign(
+        epoch=lambda df: df["epoch"].apply(lambda x: x[:10]),
+        test_loss=lambda df: df["test_loss"].apply(lambda x: x[:10]),
+        train_loss=lambda df: df["train_loss"].apply(lambda x: x[:10]),
+    )
+    .explode(column=["epoch", "test_loss", "train_loss"])
+    .melt(
+        id_vars=[
+            "name",
+            "dataset",
+            "seed",
+            "transformation",
+            "embed_weight",
+            "embed_ln",
+            "embed_ln_weights",
+            "unembed_ln",
+            "unembed_ln_weights",
+            "unembed_weight",
+            "epoch",
+        ],
+        value_vars=["train_loss", "test_loss"],
+        var_name="loss_type",
+        value_name="loss",
+    )
 )
 figure_1_train_test_loss = generate_train_loss_figure("dataset", exploded_df_fig_1)
 figure_1_train_test_loss_refreshed = generate_train_loss_figure(
