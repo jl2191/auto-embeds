@@ -1,12 +1,12 @@
+# %%
 import json
 
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
-from auto_embeds.utils.wandb import fetch_wandb_runs
 
-from auto_embeds.utils.wandb import process_wandb_runs_df
+from auto_embeds.utils.wandb import fetch_wandb_runs, process_wandb_runs_df
 
 
 def generate_train_loss_figure(color_var, df, highlighted_name=None):
@@ -21,8 +21,8 @@ def generate_train_loss_figure(color_var, df, highlighted_name=None):
         shared_xaxes=True,
         shared_yaxes=True,
     )
-    train_df = df.query("`loss_type` == 'train_loss'")
-    test_df = df.query("`loss_type` == 'test_loss'")
+    train_df = df.query("loss_type == 'train_loss'")
+    test_df = df.query("loss_type == 'test_loss'")
     unique_vals = df[color_var].unique()
     colors = px.colors.qualitative.Plotly
 
@@ -65,8 +65,12 @@ def generate_train_loss_figure(color_var, df, highlighted_name=None):
                                 f'Dataset: {row["dataset"]}',
                                 f'Seed: {row["seed"]}',
                                 f'Transformation: {row["transformation"]}',
-                                f'Embed Apply LN: {row["embed_apply_ln"]}',
-                                f'Unembed Apply LN: {row["unembed_apply_ln"]}',
+                                f'Embed Weight: {row["embed_weight"]}',
+                                f'Embed LN: {row["embed_ln"]}',
+                                f'Embed LN Weights: {row["embed_ln_weights"]}',
+                                f'Unembed Weight: {row["unembed_weight"]}',
+                                f'Unembed LN: {row["unembed_ln"]}',
+                                f'Unembed LN Weights: {row["unembed_ln_weights"]}',
                                 f'Epoch: {row["epoch"]}',
                                 f'Loss: {row["loss"]}',
                             ]
@@ -171,9 +175,10 @@ def generate_cos_sims_trend_figure(data):
 
 original_df = fetch_wandb_runs(
     project_name="jl2191/language-transformations",
-    tags=["actual", "2024-04-17 random and singular plural", "run group 2"],
+    tags=["actual", "2024-04-25 analytical solutions 5", "run group 1"],
     get_artifacts=True,
 )
+
 runs_df = process_wandb_runs_df(
     original_df,
     custom_labels={
@@ -190,14 +195,20 @@ runs_df = process_wandb_runs_df(
         },
     },
 )
+# print(runs_df.iloc[:, 16:])
+
 exploded_df_fig_1 = runs_df.explode(column=["epoch", "test_loss", "train_loss"]).melt(
     id_vars=[
         "name",
         "dataset",
         "seed",
         "transformation",
-        "embed_apply_ln",
-        "unembed_apply_ln",
+        "embed_weight",
+        "embed_ln",
+        "embed_ln_weights",
+        "unembed_ln",
+        "unembed_ln_weights",
+        "unembed_weight",
         "epoch",
     ],
     value_vars=["train_loss", "test_loss"],

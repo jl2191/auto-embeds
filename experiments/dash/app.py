@@ -1,3 +1,4 @@
+# %%
 from uuid import uuid4
 
 import dash_bootstrap_components as dbc
@@ -11,9 +12,7 @@ from experiments.dash.layout import layout
 launch_uid = uuid4()
 
 cache = diskcache.Cache("./cache")
-background_callback_manager = DiskcacheManager(
-    cache, cache_by=[lambda: launch_uid], expire=60
-)
+background_callback_manager = DiskcacheManager(cache, cache_by=[lambda: launch_uid])
 
 app = Dash(
     __name__,

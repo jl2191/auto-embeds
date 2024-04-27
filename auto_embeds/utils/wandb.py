@@ -3,7 +3,10 @@ import pandas as pd
 import wandb
 from tqdm import tqdm
 
+from auto_embeds.utils.cache import auto_embeds_cache
 
+
+@auto_embeds_cache
 def fetch_wandb_runs(
     project_name: str,
     tags: list,
@@ -79,7 +82,23 @@ def fetch_wandb_runs(
             "were removed. This is likely because they are still in progress."
         )
 
-    return filtered_df
+    df = filtered_df
+
+    # # Additional filtering for 'cos_sims_trend_plot'
+    # def has_plot(x):
+    #     return "cos_sims_trend_plot" in x and len(x["cos_sims_trend_plot"]) > 0
+
+    # filtered_df = df.query("summary.map(@has_plot)")
+    # num_filtered_out = len(df) - len(filtered_df)
+    # if num_filtered_out > 0:
+    #     print(
+    #         f"Warning: {num_filtered_out} run(s) filtered out due to missing "
+    #         "'cos_sims_trend_plot' in summary. These runs may still be processing."
+    #     )
+
+    # df = filtered_df
+
+    return df
 
 
 def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.DataFrame:
@@ -105,6 +124,13 @@ def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.Da
         except Exception:
             return fallback_value
 
+    def extract_from_history(data, attribute):
+        result = []
+        for step in data:
+            if attribute in step:
+                result.append(step[attribute])
+        return result
+
     df = (
         # processing these fine gentlemen
         df.assign(
@@ -118,14 +144,23 @@ def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.Da
             transformation=lambda df: attempt_to_process(
                 df, lambda x: x["config"].apply(lambda x: x["transformation"])
             ),
-            embed_apply_ln=lambda df: attempt_to_process(
-                df, lambda x: x["config"].apply(lambda x: x["embed_apply_ln"])
+            embed_weight=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["embed_weight"])
             ),
-            transform_apply_ln=lambda df: attempt_to_process(
-                df, lambda x: x["config"].apply(lambda x: x["transform_apply_ln"])
+            embed_ln=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["embed_ln"])
             ),
-            unembed_apply_ln=lambda df: attempt_to_process(
-                df, lambda x: x["config"].apply(lambda x: x["unembed_apply_ln"])
+            embed_ln_weights=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["embed_ln_weights"])
+            ),
+            unembed_weight=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["unembed_weight"])
+            ),
+            unembed_ln=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["unembed_ln"])
+            ),
+            unembed_ln_weights=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["unembed_ln_weights"])
             ),
             cos_sims_trend_plot=lambda df: attempt_to_process(
                 df, lambda x: x["summary"].apply(lambda x: x["cos_sims_trend_plot"])
@@ -133,23 +168,14 @@ def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.Da
         )
         # process train_loss and test_loss
         .assign(
-            train_loss=lambda df: attempt_to_process(
-                df,
-                lambda x: x["history"].apply(
-                    lambda history: [step["train_loss"] for step in history]
-                ),
+            train_loss=lambda df: df["history"].apply(
+                lambda x: extract_from_history(x, "train_loss")
             ),
-            test_loss=lambda df: attempt_to_process(
-                df,
-                lambda x: x["history"].apply(
-                    lambda history: [step["test_loss"] for step in history]
-                ),
+            test_loss=lambda df: df["history"].apply(
+                lambda x: extract_from_history(x, "test_loss")
             ),
-            epoch=lambda df: attempt_to_process(
-                df,
-                lambda x: x["history"].apply(
-                    lambda history: [step["epoch"] for step in history]
-                ),
+            epoch=lambda df: df["history"].apply(
+                lambda x: extract_from_history(x, "epoch")
             ),
         )
         .assign(
@@ -183,9 +209,8 @@ def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.Da
         # turn these booleans into strings
         .astype(
             {
-                "embed_apply_ln": str,
-                "transform_apply_ln": str,
-                "unembed_apply_ln": str,
+                "embed_ln": str,
+                "unembed_ln": str,
             }
         )
     )

@@ -8,8 +8,11 @@ from typing import Any, Dict, Iterator, List, Optional, Set
 
 import torch as t
 from einops import einsum
+from icecream import install
 from IPython.display import Image, display
 from torch.utils.hooks import RemovableHandle
+
+install()
 
 
 def get_default_device():
