@@ -38,11 +38,17 @@ cosine_similarity_matrix = t.zeros((len(matrices), len(matrices)))
 euclidean_distance_matrix = t.zeros((len(matrices), len(matrices)))
 for i, mat1 in enumerate(matrix_names):
     for j, mat2 in enumerate(matrix_names):
-        cosine_similarity_matrix[i, j] = t.nn.functional.cosine_similarity(
-            matrices[mat1], matrices[mat2], dim=-1
-        ).mean()
-        # Calculate Euclidean distance
-        euclidean_distance_matrix[i, j] = t.norm(matrices[mat1] - matrices[mat2], p=2)
+        if i <= j:
+            cosine_similarity_matrix[i, j] = t.tensor(float("nan"))
+            euclidean_distance_matrix[i, j] = t.tensor(float("nan"))
+        else:
+            cosine_similarity_matrix[i, j] = t.nn.functional.cosine_similarity(
+                matrices[mat1], matrices[mat2], dim=-1
+            ).mean()
+            # Calculate Euclidean distance
+            euclidean_distance_matrix[i, j] = t.norm(
+                matrices[mat1] - matrices[mat2], p=2
+            )
 
 # Move matrix to CPU for plotting
 cosine_similarity_matrix = cosine_similarity_matrix.cpu()

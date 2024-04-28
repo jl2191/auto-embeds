@@ -43,9 +43,7 @@ def calculate_rotation_translation(
     return W, b
 
 
-def initialize_manual_transform(
-    transform_name, train_loader, apply_ln=False, d_model=None
-):
+def initialize_manual_transform(transform_name, train_loader):
     """Initializes a ManualTransformModule.
 
     Initializes a ManualTransformModule with transformations derived analytically from
@@ -56,8 +54,6 @@ def initialize_manual_transform(
             include 'analytical_rotation', 'analytical_translation', etc.
         train_loader: DataLoader containing the training data used to
             calculate the transformation weights.
-        apply_ln: If True, applies layer normalization after the transformations.
-        d_model: Model embedding dimensionality. Required if apply_ln is True.
 
     Returns:
         tuple: A tuple containing the ManualTransformModule and a metrics dictionary.
@@ -102,10 +98,5 @@ def initialize_manual_transform(
         metrics["expected_combined_magnitude"] = 0.0  # Placeholder metric calculation
 
     transform_module = ManualTransformModule(transformations)
-
-    if apply_ln:
-        if d_model is None:
-            raise ValueError("d_model must be specified if apply_ln is True.")
-        transform_module = nn.Sequential(transform_module, nn.LayerNorm(d_model))
 
     return transform_module, metrics

@@ -14,6 +14,7 @@ from rich.table import Table
 from scipy import stats
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
+from transformers import PreTrainedTokenizerFast
 
 from auto_embeds.data import (
     ExtendedWordData,
@@ -24,8 +25,6 @@ from auto_embeds.data import (
 )
 from auto_embeds.utils.misc import calculate_gradient_color, default_device
 
-from transformers import PreTrainedTokenizerFast
-
 
 def verify_transform(
     tokenizer: PreTrainedTokenizerFast,
@@ -33,7 +32,7 @@ def verify_transform(
     test_loader: DataLoader[Tuple[Tensor, ...]],
     unembed_module: nn.Module,
 ) -> Dict[str, Any]:
-    """Evaluates the transformation's effectiveness using a tokenizer.
+    """Verify the validity of our learned transformation.
 
     Evaluates the transformation's effectiveness in translating source language tokens
     to target language tokens by examining the relationship between accuracy and the
@@ -193,6 +192,7 @@ def verify_transform_table_from_dict(verify_results: Dict[str, Any]) -> Table:
 def calc_tgt_is_closest_embed(
     tokenizer: PreTrainedTokenizerFast,
     all_word_pairs: List[List[str]],
+    embed_module: nn.Module,
     device: Union[str, t.device] = default_device,
 ) -> Dict[str, Union[str, List[str]]]:
     """Calculates the percentage of target tokens in top closest.
@@ -203,6 +203,7 @@ def calc_tgt_is_closest_embed(
     Args:
         tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
         all_word_pairs: A list of tuples containing source and target word pairs.
+        embed_module: The embedding module used to get embeddings of tokens.
         device: The device on which to allocate tensors. If None, defaults to
             default_device
 
@@ -220,11 +221,11 @@ def calc_tgt_is_closest_embed(
     src_toks, tgt_toks, _, _ = tokenize_word_pairs(tokenizer, all_word_pairs)
 
     all_toks = t.cat([src_toks, tgt_toks], dim=0)
-    all_embeds = model.embed.W_E[all_toks].detach().clone()
+    all_embeds = embed_module(all_toks)
 
     for i, (src_tok, correct_tgt_tok) in enumerate(zip(src_toks, tgt_toks)):
         # Embed the source token
-        src_embed = model.embed.W_E[src_tok].detach().clone().squeeze(0)
+        src_embed = embed_module(src_tok.unsqueeze(0)).squeeze(0)
         # shape [d_model]
 
         # Exclude the current source token from other_toks and other_embeds to avoid
