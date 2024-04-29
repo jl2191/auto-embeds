@@ -405,15 +405,14 @@ class Embed(nn.Module):
         self,
         d_model: int,
         d_vocab: int,
-        apply_ln: bool = True,
+        apply_ln: bool = False,
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
         self.W_E: Float[t.Tensor, "d_vocab d_model"] = nn.Parameter(
             t.empty(d_vocab, d_model, device=device)
         )
-        if apply_ln:
-            self.embed_ln = nn.LayerNorm(d_model, device=device)
+        self.embed_ln = nn.LayerNorm(d_model, device=device) if apply_ln else None
 
     def forward(
         self, tokens: Float[Tensor, "batch pos"]
@@ -428,7 +427,7 @@ class Embed(nn.Module):
         Returns:
             Tensor: The embedded (and optionally layer-normalized) tokens.
         """
-        if self.embed_ln:
+        if self.embed_ln is not None:
             return self.embed_ln(self.W_E[tokens, :])
         return self.W_E[tokens, :]
 
@@ -462,11 +461,9 @@ class Unembed(nn.Module):
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
-        self.apply_ln = apply_ln
         self.W_U = nn.Parameter(t.empty(d_model, d_vocab, device=device))
         self.b_U = nn.Parameter(t.zeros(d_vocab, device=device))
-        if self.apply_ln:
-            self.ln_final = nn.LayerNorm(d_model, device=device)
+        self.ln_final = nn.LayerNorm(d_model, device=device) if apply_ln else None
 
     def forward(
         self, x: Float[t.Tensor, "batch pos d_model"]
@@ -481,7 +478,7 @@ class Unembed(nn.Module):
         Returns:
             Tensor: The unembedded tensor, transformed to the vocabulary space.
         """
-        if self.apply_ln:
+        if self.ln_final is not None:
             x = self.ln_final(x)
         return (
             einsum(

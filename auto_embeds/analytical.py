@@ -89,13 +89,13 @@ def initialize_manual_transform(transform_name, train_loader):
             0.0  # Placeholder metric calculation
         )
 
-    elif transform_name == "rotation_translation":
+    elif transform_name == "rotation_then_translation":
         rotation_matrix, translation_vector = calculate_rotation_translation(
             train_src_embeds, train_tgt_embeds
         )
         transformations.append(("multiply", rotation_matrix))
         transformations.append(("add", translation_vector))
-        metrics["expected_combined_magnitude"] = 0.0  # Placeholder metric calculation
+        metrics["expected_combined_magnitude"] = 0.0
 
     transform_module = ManualTransformModule(transformations)
 

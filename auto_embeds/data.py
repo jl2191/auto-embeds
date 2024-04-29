@@ -205,8 +205,7 @@ def filter_word_pairs(
     discard_if_same: bool = False,
     min_length: int = 1,
     capture_diff_case: bool = False,
-    capture_space: bool = True,
-    capture_no_space: bool = False,
+    space_configurations: List[Dict[str, str]] = [{"en": "space", "fr": "space"}],
     print_pairs: bool = False,
     print_number: bool = False,
     verbose_count: bool = False,
@@ -227,8 +226,9 @@ def filter_word_pairs(
         discard_if_same: Exclude word pairs that are identical.
         min_length: Sets the minimum text length eligible for tokenization.
         capture_diff_case: Includes text variations with different capitalizations.
-        capture_space: Prepends a space to the text before tokenization.
-        capture_no_space: Tokenizes the text without adding a leading space.
+        space_configurations: A list of dictionaries specifying space handling for
+            English and French words. Each dict should have 'en' and 'fr' keys with
+            values 'space' or 'no_space'.
         print_pairs: Enables printing of each word pair processed.
         print_number: Outputs the total count of word pairs processed.
         verbose_count: Outputs the count of word pairs at each filtering step.
@@ -272,16 +272,17 @@ def filter_word_pairs(
 
     pairs_to_filter = []
 
-    if capture_no_space:
-        pairs_to_filter.extend(word_pairs)
+    for config in space_configurations:
+        modified_pairs = [
+            [
+                f"{pair[0] if config['en'] == 'no_space' else ' ' + pair[0]}",
+                f"{pair[1] if config['fr'] == 'no_space' else ' ' + pair[1]}",
+            ]
+            for pair in word_pairs
+        ]
+        pairs_to_filter.extend(modified_pairs)
         if verbose_count:
-            print(f"After capture/no_space: {len(pairs_to_filter)}")
-
-    if capture_space:
-        word_pairs_w_space = [[f" {pair[0]}", f" {pair[1]}"] for pair in word_pairs]
-        pairs_to_filter.extend(word_pairs_w_space)
-        if verbose_count:
-            print(f"After capture_space: {len(pairs_to_filter)}")
+            print(f"After adding {config} space config: {len(pairs_to_filter)}")
 
     english_words, french_words = [
         list(words) for words in zip(*pairs_to_filter, strict=True)
