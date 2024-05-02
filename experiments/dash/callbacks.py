@@ -101,6 +101,14 @@ def update_cos_sims_trend_plot(hoverData, clicked_trace_data, hovered_trace_data
         return generate_cos_sims_trend_figure(default_data)
 
 
+def update_run_count(text_filter):
+    filtered_df = (
+        exploded_df_fig_1.query(text_filter) if text_filter else exploded_df_fig_1
+    )
+    count = filtered_df["name"].nunique()
+    return f"Showing {count} Runs"
+
+
 def register_callbacks(app):
     app.callback(
         [
@@ -144,14 +152,7 @@ def register_callbacks(app):
         ],
         prevent_initial_call=True,
     )(update_cos_sims_trend_plot)
+
     app.callback(
-        Output("current-runs-badge", "children"), [Input("text-filter", "value")]
+        Output("current-runs-badge", "children"), Input("text-filter", "value")
     )(update_run_count)
-
-
-def update_run_count(text_filter):
-    filtered_df = (
-        exploded_df_fig_1.query(text_filter) if text_filter else exploded_df_fig_1
-    )
-    count = len(filtered_df)
-    return f"Showing {count} Runs"

@@ -4,6 +4,9 @@ from dash import dcc, html
 from experiments.dash.data_and_figures import (
     figure_1_train_test_loss,
     figure_2_cos_sims_trend,
+    figure_3_analytical_solutions_mark_translation_acc,
+    figure_4_analytical_solutions_test_accuracy,
+    figure_5_analytical_solutions_parcat_test_accuracy,
 )
 
 
@@ -46,10 +49,10 @@ def create_group_by_dropdown():
         "dataset",
         "seed",
         "transformation",
-        "embed_weights",
+        "embed_weight",
         "embed_ln",
         "embed_ln_weights",
-        "unembed_weights",
+        "unembed_weight",
         "unembed_ln",
         "unembed_ln_weights",
     ]
@@ -159,6 +162,78 @@ def create_hidden_divs():
     )
 
 
+def create_figure_3():
+    return dbc.Row(
+        [
+            dbc.Col(
+                html.H2("Figure 3: Mark Translation Accuracy by Selected Variable"),
+                width=12,
+            ),
+            dbc.Col(
+                html.Div(
+                    id="figure-3-analytical-solutions-mark-translation-accuracy-container",
+                    children=[
+                        dcc.Graph(
+                            figure=figure_3_analytical_solutions_mark_translation_acc,
+                            id="figure-3-analytical-solutions-mark-translation-accuracy",
+                            clear_on_unhover=True,
+                        )
+                    ],
+                ),
+                width=12,
+            ),
+        ]
+    )
+
+
+def create_figure_4():
+    return dbc.Row(
+        [
+            dbc.Col(
+                html.H2("Figure 4: Test Accuracy by Selected Variable"),
+                width=12,
+            ),
+            dbc.Col(
+                html.Div(
+                    id="figure-4-analytical-solutions-test-accuracy-container",
+                    children=[
+                        dcc.Graph(
+                            figure=figure_4_analytical_solutions_test_accuracy,
+                            id="figure-4-analytical-solutions-test-accuracy",
+                            clear_on_unhover=True,
+                        )
+                    ],
+                ),
+                width=12,
+            ),
+        ]
+    )
+
+
+def create_figure_5():
+    return dbc.Row(
+        [
+            dbc.Col(
+                html.H2("Figure 5: Parcat Test Accuracy by Selected Variable"),
+                width=12,
+            ),
+            dbc.Col(
+                html.Div(
+                    id="figure-5-analytical-solutions-parcat-test-accuracy-container",
+                    children=[
+                        dcc.Graph(
+                            figure=figure_5_analytical_solutions_parcat_test_accuracy,
+                            id="figure-5-analytical-solutions-parcat-test-accuracy",
+                            clear_on_unhover=True,
+                        )
+                    ],
+                ),
+                width=12,
+            ),
+        ]
+    )
+
+
 layout = dbc.Container(
     [
         create_title(),
@@ -167,6 +242,9 @@ layout = dbc.Container(
         create_filter_query(),
         create_figure_2(),
         create_hidden_divs(),
+        create_figure_3(),
+        create_figure_4(),
+        create_figure_5(),
     ],
     fluid=True,
     className="py-3",

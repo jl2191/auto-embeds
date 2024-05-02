@@ -206,6 +206,15 @@ def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.Da
                 )
             ),
         )
+        # %% summary stats
+        .assign(
+            mark_translation_acc=lambda df: attempt_to_process(
+                df, lambda x: x["summary"].apply(lambda x: x["mark_translation_acc"])
+            ),
+            test_accuracy=lambda df: attempt_to_process(
+                df, lambda x: x["summary"].apply(lambda x: x["test_accuracy"])
+            ),
+        )
         # turn these booleans into strings
         .astype(
             {

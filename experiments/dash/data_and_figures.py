@@ -173,9 +173,80 @@ def generate_cos_sims_trend_figure(data):
     return fig
 
 
+def generate_bar_chart_figure(df, color_var, x_var, y_var, title):
+    fig = px.bar(df, x=x_var, y=y_var, color=color_var, title=title)
+    return fig
+
+
+def generate_parallel_categories_plot(
+    df,
+    dimensions,
+    color,
+    title,
+    annotation_text,
+    groupby_conditions=None,
+    query=None,
+    labels=None,
+):
+    """
+    Creates and displays a parallel categories plot based on the provided parameters,
+    with options to filter the DataFrame using a query string and to group the DataFrame
+    by specified conditions. Rows where the color column is NA are filtered out.
+
+    Args:
+        df (pd.DataFrame): The DataFrame to plot.
+        dimensions (list): The dimensions to use in the plot.
+        color (str): The column name to color the lines by.
+        title (str): The title of the plot.
+        annotation_text (str): Text for the annotation to add to the plot.
+        groupby_conditions (list, optional): Conditions to group the DataFrame by.
+        query (str, optional): A query string to filter the DataFrame before plotting.
+        labels (dict, optional): A mapping of column names to display labels.
+            Defaults to a predefined dictionary.
+    """
+
+    # Apply query if provided
+    if query:
+        df = df.query(query)
+
+    # Filter out rows where the color column is NA and log the action
+    filtered_df = df.dropna(subset=[color])
+    num_filtered = len(df) - len(filtered_df)
+    if num_filtered > 0:
+        print(f"Filtered out {num_filtered} rows with NA in '{color}' column.")
+
+    df = filtered_df
+
+    # Use the DataFrame directly for plotting, applying groupby conditions if provided
+    if groupby_conditions:
+        df = df.groupby(groupby_conditions)[color].mean().reset_index()
+
+    fig = (
+        px.parallel_categories(
+            df,
+            dimensions=dimensions,
+            color=color,
+            labels=labels,
+            title=title,
+        )
+        .update_traces(arrangement="freeform")
+        .add_annotation(
+            text=annotation_text,
+            align="left",
+            xref="paper",
+            yref="paper",
+            showarrow=False,
+            x=0,
+            y=-0.25,
+            font=dict(size=13),
+        )
+    )
+    return fig
+
+
 original_df = fetch_wandb_runs(
     project_name="jl2191/language-transformations",
-    tags=["actual", "2024-04-27 analytical solutions", "experiment 3", "run group 1"],
+    tags=["actual", "2024-04-29 analytical and ln", "experiment 3"],
     get_artifacts=True,
 )
 
@@ -186,6 +257,9 @@ runs_df = process_wandb_runs_df(
             "rotation": "Rotation",
             "linear_map": "Linear Map",
             "translation": "Translation",
+            "analytical_rotation": "Analytical Rotation",
+            "analytical_translation": "Analytical Translation",
+            "uncentered_rotation": "Uncentered Rotation",
         },
         "dataset": {
             "wikdict_en_fr_extracted": "wikdict_en_fr",
@@ -235,3 +309,36 @@ figure_2_cos_sims_trend = generate_cos_sims_trend_figure(
     json.dumps(figure_2_default_data)
 )
 filtered_df_fig_1 = exploded_df_fig_1
+
+figure_3_analytical_solutions_mark_translation_acc = generate_bar_chart_figure(
+    runs_df,
+    color_var="transformation",
+    x_var="transformation",
+    y_var="mark_translation_acc",
+    title="Mark Translation Accuracy by Selected Variable",
+)
+
+figure_4_analytical_solutions_test_accuracy = generate_bar_chart_figure(
+    runs_df,
+    color_var="transformation",
+    x_var="transformation",
+    y_var="test_accuracy",
+    title="Test Accuracy by Selected Variable",
+)
+
+figure_5_analytical_solutions_parcat_test_accuracy = generate_parallel_categories_plot(
+    runs_df,
+    dimensions=[
+        "transformation",
+        "seed",
+        "embed_weight",
+        "embed_ln",
+        "embed_ln_weights",
+        "unembed_weight",
+        "unembed_ln",
+        "unembed_ln_weights",
+    ],
+    color="test_accuracy",
+    title="Parallel Categories Plot for Test Accuracy",
+    annotation_text="Parallel Categories Plot for Test Accuracy",
+)
