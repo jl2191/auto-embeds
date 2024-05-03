@@ -17,6 +17,7 @@ import wandb
 from icecream import ic
 from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizerFast
 
+from auto_embeds.analytical import initialize_manual_transform
 from auto_embeds.data import filter_word_pairs, get_dataset_path
 from auto_embeds.embed_utils import (
     initialize_embed_and_unembed,
@@ -49,9 +50,9 @@ experiment_config = {
         "notes": "blank",
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
-            f"{datetime.datetime.now():%Y-%m-%d} analytical solutions",
+            f"{datetime.datetime.now():%Y-%m-%d} analytical and ln",
             "experiment 1",
-            "run group 2",
+            "run group 1",
             # "actual",
             # "test",
         ],
@@ -65,49 +66,43 @@ experiment_config = {
         False,
     ],
     "datasets": [
-        {
-            "name": "wikdict_en_fr_extracted",
-            "min_length": 5,
-            "capture_space": True,
-            "capture_no_space": False,
-            "mark_accuracy_path": "wikdict_en_fr_azure_validation",
-        },
-        {
-            "name": "random_word_pairs",
-            "min_length": 2,
-            "capture_space": True,
-            "capture_no_space": False,
-        },
+        # {
+        #     "name": "wikdict_en_fr_extracted",
+        #     "min_length": 5,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
+        #     "mark_accuracy_path": "wikdict_en_fr_azure_validation",
+        # },
+        # {
+        #     "name": "random_word_pairs",
+        #     "min_length": 2,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
+        # },
         {
             "name": "singular_plural_pairs",
             "min_length": 2,
-            "capture_space": True,
-            "capture_no_space": False,
+            "space_configurations": [{"en": "space", "fr": "space"}],
         },
         # {
         #     "name": "muse_en_fr_extracted",
         #     "min_length": 5,
-        #     "capture_space": True,
-        #     "capture_no_space": False,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
         #     "mark_accuracy_path": "muse_en_fr_azure_validation",
         # },
         {
             "name": "cc_cedict_zh_en_extracted",
             "min_length": 2,
-            "capture_space": False,
-            "capture_no_space": True,
+            "space_configurations": [{"en": "no_space", "fr": "space"}],
             "mark_accuracy_path": "cc_cedict_zh_en_azure_validation",
         },
         # {
         #     "name": "muse_zh_en_extracted_train",
         #     "min_length": 2,
-        #     "capture_space": False,
-        #     "capture_no_space": True,
+        #     "space_configurations": [{"en": "no_space", "fr": "space"}],
         #     "mark_accuracy_path": "muse_zh_en_azure_validation",
         # },
     ],
     "transformations": [
-        "identity",
+        # "identity",
         "translation",
         "linear_map",
         # "biased_linear_map",
@@ -125,28 +120,16 @@ experiment_config = {
     "top_k_selection_methods": [
         # "src_and_src",
         # "tgt_and_tgt",
-        "top_src",
-        # "top_tgt",
+        # "top_src",
+        "top_tgt",
     ],
-    "seeds": [1],
-    # "embed_weight": ["model_weights"],
-    # "embed_ln": [True, False],
-    # "embed_ln_weights": ["default_weights", "model_weights"],
-    # "unembed_weight": ["model_weights"],
-    # "unembed_ln": [True, False],
-    # "unembed_ln_weights": ["default_weights", "model_weights"],
-    # "embed_weight": ["model_weights"],
-    # "embed_ln": [True],
-    # "embed_ln_weights": ["default_weights", "model_weights"],
-    # "unembed_weight": ["model_weights"],
-    # "unembed_ln": [True],
-    # "unembed_ln_weights": ["default_weights", "model_weights"],
+    "seeds": [1, 2],
     "embed_weight": ["model_weights"],
-    "embed_ln": [True, False],
+    "embed_ln": [True],
     "embed_ln_weights": ["default_weights", "model_weights"],
     "unembed_weight": ["model_weights"],
-    "unembed_ln": [True, False],
-    "unembed_ln_weights": ["default_weights", "model_weights"],
+    "unembed_ln": [True],
+    "unembed_ln_weights": ["model_weights"],
     "n_epochs": [100],
     "weight_decay": [
         0,
@@ -231,7 +214,10 @@ def run_experiment(config_dict):
         )
 
         # Tokenizer setup
-        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(model_name)  # type: ignore
+        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(
+            model_name
+        )  # type: ignore
+
         # Model setup
         current_model_config = (model_name, processing)
         if current_model_config != last_model_config:
@@ -288,8 +274,7 @@ def run_experiment(config_dict):
                 word_pairs=word_pairs,
                 discard_if_same=True,
                 min_length=dataset_config["min_length"],
-                capture_space=dataset_config["capture_space"],
-                capture_no_space=dataset_config["capture_no_space"],
+                space_configurations=dataset_config["space_configurations"],
                 print_number=True,
                 verbose_count=True,
             )
@@ -319,16 +304,21 @@ def run_experiment(config_dict):
             azure_translations_path = None
 
         # Initialize transformation and optimizer
-        transform, optim = initialize_transform_and_optim(
-            d_model,
-            transformation=transformation,
-            optim_kwargs={"lr": lr, "weight_decay": weight_decay},
-        )
+        if "analytical" in transformation:
+            transform, expected_metrics = initialize_manual_transform(
+                transform_name=transformation,
+                train_loader=train_loader,
+            )
+            optim = None
+        else:
+            transform, optim = initialize_transform_and_optim(
+                d_model,
+                transformation=transformation,
+                optim_kwargs={"lr": lr, "weight_decay": weight_decay},
+            )
+
         loss_module = initialize_loss("cosine_similarity")
 
-        print(f"Allocated GPU memory: {t.cuda.memory_allocated() / 1024**3:.2f} GB")
-
-        # Train transformation
         if optim is not None:
             transform, loss_history = train_transform(
                 tokenizer=tokenizer,
@@ -379,8 +369,6 @@ def run_experiment(config_dict):
         # cos_sims_trend_plot.show(config={"responsive": True, "autosize": True})
 
         test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
-
-        print(f"Allocated GPU memory: {t.cuda.memory_allocated() / 1024**3:.2f} GB")
 
         wandb.log(
             {

@@ -153,7 +153,7 @@ def evaluate_accuracy(
             total_count += len(en_embeds)
 
         accuracy = correct_count / total_count
-        if print_acc:  # New condition to print accuracy
+        if print_acc:
             print(f"Correct Percentage: {accuracy * 100:.2f}%")
     return accuracy
 

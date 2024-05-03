@@ -10,10 +10,12 @@ import torch as t
 import torch.nn as nn
 import transformer_lens as tl
 from plotly.graph_objects import Figure
+from rich import box
 from rich.table import Table
 from scipy import stats
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
+from transformers import PreTrainedTokenizerFast
 
 from auto_embeds.data import (
     ExtendedWordData,
@@ -24,8 +26,6 @@ from auto_embeds.data import (
 )
 from auto_embeds.utils.misc import calculate_gradient_color, default_device
 
-from transformers import PreTrainedTokenizerFast
-
 
 def verify_transform(
     tokenizer: PreTrainedTokenizerFast,
@@ -33,7 +33,7 @@ def verify_transform(
     test_loader: DataLoader[Tuple[Tensor, ...]],
     unembed_module: nn.Module,
 ) -> Dict[str, Any]:
-    """Evaluates the transformation's effectiveness using a tokenizer.
+    """Verify the validity of our learned transformation.
 
     Evaluates the transformation's effectiveness in translating source language tokens
     to target language tokens by examining the relationship between accuracy and the
@@ -193,6 +193,7 @@ def verify_transform_table_from_dict(verify_results: Dict[str, Any]) -> Table:
 def calc_tgt_is_closest_embed(
     tokenizer: PreTrainedTokenizerFast,
     all_word_pairs: List[List[str]],
+    embed_module: nn.Module,
     device: Union[str, t.device] = default_device,
 ) -> Dict[str, Union[str, List[str]]]:
     """Calculates the percentage of target tokens in top closest.
@@ -203,6 +204,7 @@ def calc_tgt_is_closest_embed(
     Args:
         tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
         all_word_pairs: A list of tuples containing source and target word pairs.
+        embed_module: The embedding module used to get embeddings of tokens.
         device: The device on which to allocate tensors. If None, defaults to
             default_device
 
@@ -220,11 +222,11 @@ def calc_tgt_is_closest_embed(
     src_toks, tgt_toks, _, _ = tokenize_word_pairs(tokenizer, all_word_pairs)
 
     all_toks = t.cat([src_toks, tgt_toks], dim=0)
-    all_embeds = model.embed.W_E[all_toks].detach().clone()
+    all_embeds = embed_module(all_toks)
 
     for i, (src_tok, correct_tgt_tok) in enumerate(zip(src_toks, tgt_toks)):
         # Embed the source token
-        src_embed = model.embed.W_E[src_tok].detach().clone().squeeze(0)
+        src_embed = embed_module(src_tok.unsqueeze(0)).squeeze(0)
         # shape [d_model]
 
         # Exclude the current source token from other_toks and other_embeds to avoid
@@ -350,7 +352,7 @@ def generate_top_word_pairs_table(
     table = Table(
         show_header=True,
         title=f"Closest tokens to [plum3 on grey23]"
-        "{word_category_data.selected.words[0]}"
+        f"{word_category_data.selected.words[0]}"
         f"[/plum3 on grey23] sorted by {title_sort_by}",
     )
     table.add_column("Rank")
@@ -749,6 +751,29 @@ def prepare_verify_datasets(
         ]
         test_indices = t.tensor(indices)
         test_indices = t.unique_consecutive(test_indices)[:top_k]
+        # TODO: finish off top_src_and_tgt
+    # elif top_k_selection_method == "top_src_and_tgt":
+    #     cos_sims_src = t.cosine_similarity(src_embed, src_embeds, dim=-1)
+    #     cos_sims_tgt = t.cosine_similarity(tgt_embed, tgt_embeds, dim=-1)
+    #     combined_cos_sims = t.cat((cos_sims_src, cos_sims_tgt))
+    #     _, combined_indices = t.topk(combined_cos_sims, k=2 * top_k, largest=True)
+
+    #     selected_indices = []
+    #     src_indices_used = set()
+    #     tgt_indices_used = set()
+    #     src_offset = src_embeds.shape[0]
+
+    #     for index in combined_indices:
+    #         if len(selected_indices) >= top_k:
+    #             break
+    #         if index < src_offset and index.item() not in src_indices_used:
+    #             selected_indices.append(index)
+    #             src_indices_used.add(index.item())
+    #         elif index >= src_offset and (index - src_offset).item() not in tgt_indices_used:
+    #             selected_indices.append(index - src_offset)
+    #             tgt_indices_used.add((index - src_offset).item())
+
+    #     test_indices = t.tensor(selected_indices, dtype=t.long)
     else:
         raise ValueError(
             "Invalid top_k_selection_method value. Accepted values are 'src_and_src', \
@@ -796,3 +821,58 @@ def prepare_verify_datasets(
     )
 
     return train_loader, test_loader
+
+
+@t.no_grad()
+def get_closest_embeds(word, embed_module, unembed_module, tokenizer, top_k):
+    d_vocab = embed_module.W_E.shape[0]
+    word_token = tokenizer.encode(word, return_tensors="pt").squeeze()
+    if word_token.numel() != 1:
+        raise ValueError(
+            f"{word} tokenizes to more than 1 token! ({word_token.numel()})"
+        )
+    vocab_tensor = t.arange(0, d_vocab).squeeze()
+    vocab_tensor = vocab_tensor[vocab_tensor != word_token]
+    assert len(vocab_tensor) == d_vocab - 1
+    vocab_embeds = embed_module(vocab_tensor)  # [d_vocab, d_model]
+
+    # Calculate cosine similarities between the word embedding and all other embeddings
+    word_embed = embed_module(word_token.unsqueeze(0))
+    cos_sims = t.nn.functional.cosine_similarity(word_embed, vocab_embeds)
+
+    # Get the top_k indices and values
+    top_k_values, top_k_indices = t.topk(cos_sims, top_k, largest=True)
+    word_styled = f"[plum3 on grey30]{word}[/plum3 on grey30]"
+    word_token_id = word_token.item()
+    word_token_id_styled = f"[turquoise2]{word_token_id}[/turquoise2]"
+
+    # Prepare the table
+    table = Table(
+        show_header=True,
+        title=f"Top K Closest Embeddings to Token ID {word_token_id_styled} "
+        f"({word_styled})",
+    )
+    table.add_column("Rank", style="dim")
+    table.add_column("Token", style="bold cyan", width=20)
+    table.add_column("Cosine Similarity")
+
+    # Fetch the tokens and their cosine similarity values
+    for idx, (token_idx, cos_sim) in enumerate(
+        zip(top_k_indices, top_k_values), start=1
+    ):
+        token_str = tokenizer.decode(token_idx.item())
+        token_str_styled = f"[plum3 on grey30]{token_str}[/plum3 on grey30]"
+        token_id = token_idx.item()
+        token_id_styled = f"[turquoise2]{token_id}[/turquoise2]"
+        cos_sim_color = calculate_gradient_color(
+            cos_sim.item(), top_k_values.min().item(), top_k_values.max().item()
+        )
+        cos_sim_styled = f"[{cos_sim_color}]{cos_sim.item():.4f}[/{cos_sim_color}]"
+        table.add_row(
+            str(idx),
+            token_str_styled,
+            token_id_styled,
+            cos_sim_styled,
+        )
+
+    return table

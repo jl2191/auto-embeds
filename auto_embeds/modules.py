@@ -20,7 +20,6 @@ class IdentityTransform(nn.Module):
     Args:
         d_model (int): The dimensionality of the model embeddings. This argument is
         kept for interface consistency but is not used.
-        apply_ln (bool): If True, applies layer normalization to the output.
         device (Optional[Union[str, t.device]]): The device on which the module
         should be initialized. Not used.
 
@@ -31,40 +30,34 @@ class IdentityTransform(nn.Module):
     def __init__(
         self,
         d_model: int,
-        apply_ln: bool = False,
         device: Optional[Union[str, t.device]] = None,
     ):
         """
         Initializes the IdentityTransform module. The `device` argument is accepted for
         consistency with other modules but is not used since there are no parameters
-        to initialize. The `apply_ln` argument controls whether layer normalization
-        is applied in the forward pass.
+        to initialize.
 
         Args:
             d_model (int): The dimensionality of the model embeddings. Not used.
-            apply_ln (bool): If True, applies layer normalization to the output.
             device (Optional[Union[str, t.device]]): The device on which the module
             should be initialized. Not used.
         """
         super().__init__()
         self.d_model = d_model
-        self.apply_ln = apply_ln
 
     def forward(
         self, x: Float[Tensor, "batch d_model"]
     ) -> Float[Tensor, "batch d_model"]:
         """
         Applies the identity transformation to the input tensor, which means the input
-        is returned as is. If `apply_ln` is True, layer normalization is applied.
+        is returned as is.
 
         Args:
             x (Tensor): The input tensor.
 
         Returns:
-            Tensor: The unchanged input tensor, possibly layer-normalized.
+            Tensor: The unchanged input tensor.
         """
-        if self.apply_ln:
-            x = t.nn.functional.layer_norm(x, [self.d_model])
         return x
 
 
@@ -77,7 +70,6 @@ class LinearTransform(nn.Module):
     Args:
         d_model (int): The dimensionality of the model embeddings.
         bias (bool): Whether the linear transformation includes a bias term.
-        apply_ln (bool): If True, applies layer normalization to the output.
         device (Optional[Union[str, t.device]]): The device on which the module
         should be initialized.
 
@@ -89,42 +81,35 @@ class LinearTransform(nn.Module):
         self,
         d_model: int,
         bias: bool = True,
-        apply_ln: bool = False,
         device: Optional[Union[str, t.device]] = default_device,
     ):
         """
         Initializes the LinearTransform module with a specified dimensionality and
-        bias option. The module is initialized on the specified device. The `apply_ln`
-        argument controls whether layer normalization is applied in the forward pass.
+        bias option. The module is initialized on the specified device.
 
         Args:
             d_model (int): The dimensionality of the model embeddings.
             bias (bool): Whether to include a bias term in the transformation.
-            apply_ln (bool): If True, applies layer normalization to the output.
             device (Optional[Union[str, t.device]]): The device on which the module
             should be initialized.
         """
         super().__init__()
         self.linear = t.nn.Linear(d_model, d_model, bias=bias).to(device)
         self.d_model = d_model
-        self.apply_ln = apply_ln
 
     def forward(
         self, x: Float[Tensor, "batch d_model"]
     ) -> Float[Tensor, "batch d_model"]:
         """
-        Applies the linear transformation to the input tensor. If `apply_ln` is True,
-        layer normalization is applied to the output.
+        Applies the linear transformation to the input tensor.
 
         Args:
             x (Tensor): The input tensor.
 
         Returns:
-            Tensor: The transformed tensor, possibly layer-normalized.
+            Tensor: The transformed tensor.
         """
         x = self.linear(x)
-        if self.apply_ln:
-            x = t.nn.functional.layer_norm(x, [self.d_model])
         return x
 
 
@@ -134,7 +119,6 @@ class TranslationTransform(nn.Module):
 
     Args:
         d_model (int): The dimensionality of the model embeddings.
-        apply_ln (bool): If True, applies layer normalization to the output.
         device (Optional[Union[str, t.device]]): The device on which the module
         should be initialized.
 
@@ -145,30 +129,25 @@ class TranslationTransform(nn.Module):
     def __init__(
         self,
         d_model: int,
-        apply_ln: bool = False,
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
         self.translation = t.nn.Parameter(t.zeros(d_model, device=device))
         self.d_model = d_model
-        self.apply_ln = apply_ln
 
     def forward(
         self, x: Float[Tensor, "batch d_model"]
     ) -> Float[Tensor, "batch d_model"]:
         """
-        Applies the translation transformation to the input tensor. If `apply_ln` is True,
-        layer normalization is applied to the output.
+        Applies the translation transformation to the input tensor.
 
         Args:
             x (Tensor): The input tensor.
 
         Returns:
-            Tensor: The transformed tensor, possibly layer-normalized.
+            Tensor: The transformed tensor.
         """
         x = x + self.translation
-        if self.apply_ln:
-            x = t.nn.functional.layer_norm(x, [self.d_model])
         return x
 
 
@@ -180,7 +159,6 @@ class UncenteredLinearMapTransform(nn.Module):
     Args:
         d_model (int): The dimensionality of the model embeddings.
         bias (bool): Whether to include a bias term.
-        apply_ln (bool): If True, applies layer normalization to the output.
         device (Optional[Union[str, t.device]]): The device on which the module should
         be initialised on.
 
@@ -193,7 +171,6 @@ class UncenteredLinearMapTransform(nn.Module):
         self,
         d_model: int,
         bias: bool = False,
-        apply_ln: bool = False,
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
@@ -203,24 +180,20 @@ class UncenteredLinearMapTransform(nn.Module):
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
         nn.init.uniform_(self.center, -bound, bound)
         self.d_model = d_model
-        self.apply_ln = apply_ln
 
     def forward(
         self, x: Float[Tensor, "batch d_model"]
     ) -> Float[Tensor, "batch d_model"]:
         """
-        Applies the uncentered linear map transformation to the input tensor. If `apply_ln` is True,
-        layer normalization is applied to the output.
+        Applies the uncentered linear map transformation to the input tensor.
 
         Args:
             x (Tensor): The input tensor.
 
         Returns:
-            Tensor: The transformed tensor, possibly layer-normalized.
+            Tensor: The transformed tensor.
         """
         x = self.linear_map(x + self.center) - self.center
-        if self.apply_ln:
-            x = t.nn.functional.layer_norm(x, [self.d_model])
         return x
 
 
@@ -230,7 +203,6 @@ class RotationTransform(nn.Module):
 
     Args:
         d_model (int): The dimensionality of the model embeddings.
-        apply_ln (bool): If True, applies layer normalization to the output.
         device (Optional[Union[str, t.device]]): The device on which module should be
         initialised on.
 
@@ -241,7 +213,6 @@ class RotationTransform(nn.Module):
     def __init__(
         self,
         d_model: int,
-        apply_ln: bool = False,
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
@@ -259,24 +230,20 @@ class RotationTransform(nn.Module):
                 self.rotation_pre, orthogonal_map="cayley"
             )
         self.d_model = d_model
-        self.apply_ln = apply_ln
 
     def forward(
         self, x: Union[Float[Tensor, "... d_model"], Float[Tensor, "... d_model"]]
     ) -> Union[Float[Tensor, "... d_model"], Float[Tensor, "... d_model"]]:
         """
-        Applies the rotation transformation to the input tensor. If `apply_ln` is True,
-        layer normalization is applied to the output.
+        Applies the rotation transformation to the input tensor.
 
         Args:
             x (Tensor): The input tensor.
 
         Returns:
-            Tensor: The transformed tensor, possibly layer-normalized.
+            Tensor: The transformed tensor.
         """
         x = self.rotation(x)
-        if self.apply_ln:
-            x = t.nn.functional.layer_norm(x, [self.d_model])
         return x
 
 
@@ -286,7 +253,6 @@ class BiasedRotationTransform(nn.Module):
 
     Args:
         d_model (int): The dimensionality of the model embeddings.
-        apply_ln (bool): If True, applies layer normalization to the output.
         device (Optional[Union[str, t.device]]): The device on which the module should
         be initialised on.
 
@@ -298,7 +264,6 @@ class BiasedRotationTransform(nn.Module):
     def __init__(
         self,
         d_model: int,
-        apply_ln: bool = False,
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
@@ -312,24 +277,20 @@ class BiasedRotationTransform(nn.Module):
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
         nn.init.uniform_(self.bias, -bound, bound)
         self.d_model = d_model
-        self.apply_ln = apply_ln
 
     def forward(
-        self, x: Float[Tensor, "batch d_model"]
+        this, x: Float[Tensor, "batch d_model"]
     ) -> Float[Tensor, "batch d_model"]:
         """
-        Applies the offset rotation transformation to the input tensor. If `apply_ln` is True,
-        layer normalization is applied to the output.
+        Applies the offset rotation transformation to the input tensor.
 
         Args:
             x (Tensor): The input tensor.
 
         Returns:
-            Tensor: The transformed tensor, possibly layer-normalized.
+            Tensor: The transformed tensor.
         """
         x = self.rotation(x) + self.bias
-        if self.apply_ln:
-            x = t.nn.functional.layer_norm(x, [self.d_model])
         return x
 
 
@@ -342,7 +303,6 @@ class UncenteredRotationTransform(nn.Module):
 
     Args:
         d_model (int): The dimensionality of the model embeddings.
-        apply_ln (bool): If True, applies layer normalization to the output.
         device (Optional[Union[str, t.device]]): The device on which module should be
         initialised on.
 
@@ -354,7 +314,6 @@ class UncenteredRotationTransform(nn.Module):
     def __init__(
         self,
         d_model: int,
-        apply_ln: bool = False,
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
@@ -368,24 +327,20 @@ class UncenteredRotationTransform(nn.Module):
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
         nn.init.uniform_(self.center, -bound, bound)
         self.d_model = d_model
-        self.apply_ln = apply_ln
 
     def forward(
         self, x: Float[Tensor, "batch d_model"]
     ) -> Float[Tensor, "batch d_model"]:
         """
-        Applies the uncentered rotation transformation to the input tensor. If `apply_ln` is True,
-        layer normalization is applied to the output.
+        Applies the uncentered rotation transformation to the input tensor.
 
         Args:
             x (Tensor): The input tensor.
 
         Returns:
-            Tensor: The transformed tensor, possibly layer-normalized.
+            Tensor: The transformed tensor.
         """
         x = self.rotation(x + self.center) - self.center
-        if self.apply_ln:
-            x = t.nn.functional.layer_norm(x, [self.d_model])
         return x
 
 
@@ -450,7 +405,7 @@ class Embed(nn.Module):
         self,
         d_model: int,
         d_vocab: int,
-        apply_ln: bool = True,
+        apply_ln: bool = False,
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
@@ -472,7 +427,7 @@ class Embed(nn.Module):
         Returns:
             Tensor: The embedded (and optionally layer-normalized) tokens.
         """
-        if self.embed_ln:
+        if self.embed_ln is not None:
             return self.embed_ln(self.W_E[tokens, :])
         return self.W_E[tokens, :]
 
@@ -506,11 +461,9 @@ class Unembed(nn.Module):
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
-        self.apply_ln = apply_ln
         self.W_U = nn.Parameter(t.empty(d_model, d_vocab, device=device))
         self.b_U = nn.Parameter(t.zeros(d_vocab, device=device))
-        if self.apply_ln:
-            self.ln_final = nn.LayerNorm(d_model, device=device)
+        self.ln_final = nn.LayerNorm(d_model, device=device) if apply_ln else None
 
     def forward(
         self, x: Float[t.Tensor, "batch pos d_model"]
@@ -525,7 +478,7 @@ class Unembed(nn.Module):
         Returns:
             Tensor: The unembedded tensor, transformed to the vocabulary space.
         """
-        if self.apply_ln:
+        if self.ln_final is not None:
             x = self.ln_final(x)
         return (
             einsum(
