@@ -14,15 +14,20 @@ from auto_embeds.analytical import initialize_manual_transform
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 os.environ["AUTOEMBEDS_CACHING"] = "true"
 
+try:
+    get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore
+    get_ipython().run_line_magic("autoreload", "2")  # type: ignore
+except Exception:
+    pass
+
 import numpy as np
 import torch as t
 import transformer_lens as tl
-import wandb
-from icecream import ic
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 
 from auto_embeds.data import filter_word_pairs, get_dataset_path
 from auto_embeds.embed_utils import (
+    calculate_test_loss,
     initialize_embed_and_unembed,
     initialize_loss,
     initialize_transform_and_optim,
@@ -33,7 +38,7 @@ from auto_embeds.metrics import (
     mark_translation,
 )
 from auto_embeds.utils.custom_tqdm import tqdm
-from auto_embeds.utils.misc import get_experiment_worker_config, is_notebook
+from auto_embeds.utils.misc import get_experiment_worker_config
 from auto_embeds.verify import (
     calc_tgt_is_closest_embed,
     plot_cosine_similarity_trend,
@@ -73,56 +78,50 @@ experiment_config = {
         # {
         #     "name": "wikdict_en_fr_extracted",
         #     "min_length": 5,
-        #     "capture_space": True,
-        #     "capture_no_space": False,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
         #     "mark_accuracy_path": "wikdict_en_fr_azure_validation",
         # },
         # {
         #     "name": "random_word_pairs",
         #     "min_length": 2,
-        #     "capture_space": True,
-        #     "capture_no_space": False,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
         # },
         # {
         #     "name": "singular_plural_pairs",
         #     "min_length": 2,
-        #     "capture_space": True,
-        #     "capture_no_space": False,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
         # },
         # {
         #     "name": "muse_en_fr_extracted",
         #     "min_length": 5,
-        #     "capture_space": True,
-        #     "capture_no_space": False,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
         #     "mark_accuracy_path": "muse_en_fr_azure_validation",
         # },
         {
             "name": "cc_cedict_zh_en_extracted",
             "min_length": 2,
-            "capture_space": False,
-            "capture_no_space": True,
+            "space_configurations": [{"en": "no_space", "fr": "space"}],
             "mark_accuracy_path": "cc_cedict_zh_en_azure_validation",
         },
         # {
         #     "name": "muse_zh_en_extracted_train",
         #     "min_length": 2,
-        #     "capture_space": False,
-        #     "capture_no_space": True,
+        #     "space_configurations": [{"en": "no_space", "fr": "space"}],
         #     "mark_accuracy_path": "muse_zh_en_azure_validation",
         # },
     ],
     "transformations": [
         # "identity",
-        "translation",
-        "linear_map",
+        # "translation",
+        # "linear_map",
         # "biased_linear_map",
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
-        "rotation",
+        # "rotation",
         # "biased_rotation",
         # "uncentered_rotation",
-        "analytical_rotation",
         "analytical_translation",
+        "analytical_rotation",
     ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
@@ -134,6 +133,8 @@ experiment_config = {
         # "top_tgt",
     ],
     "seeds": [2],
+    # "loss_functions": ["cosine_similarity", "mse"],
+    "loss_functions": ["cosine_similarity"],
     # "embed_weight": ["model_weights"],
     # "embed_ln": [True, False],
     # "embed_ln_weights": ["default_weights", "model_weights"],
@@ -147,7 +148,7 @@ experiment_config = {
     "unembed_weight": ["model_weights"],
     "unembed_ln": [True],
     "unembed_ln_weights": ["model_weights"],
-    "n_epochs": [150],
+    "n_epochs": [100],
     "weight_decay": [
         0,
         # 2e-5,
@@ -187,12 +188,12 @@ model_weights = None
 results = {
     "transformation": [],
     "matrix": [],
-    "test_cos_sims": [],
+    # "test_cos_sims": [],
     "mark_translation_accuracy": [],
-    "cos_sim_trend_plot": [],
+    # "cos_sim_trend_plot": [],
+    "cosine_similarity_loss": [],
 }
 
-# %%
 for (
     model_name,
     processing,
@@ -203,6 +204,7 @@ for (
     top_k,
     top_k_selection_method,
     seed,
+    loss_function,
     embed_weight,
     embed_ln,
     embed_ln_weights,
@@ -224,6 +226,7 @@ for (
         "top_k": top_k,
         "top_k_selection_method": top_k_selection_method,
         "seed": seed,
+        "loss_function": loss_function,
         "embed_weight": embed_weight,
         "embed_ln": embed_ln,
         "embed_ln_weights": embed_ln_weights,
@@ -289,8 +292,7 @@ for (
             word_pairs=word_pairs,
             discard_if_same=True,
             min_length=dataset_config["min_length"],
-            capture_space=dataset_config["capture_space"],
-            capture_no_space=dataset_config["capture_no_space"],
+            space_configurations=dataset_config["space_configurations"],
             print_number=True,
             verbose_count=True,
         )
@@ -312,6 +314,10 @@ for (
         top_k_selection_method=top_k_selection_method,
     )
 
+    for thing in test_loader:
+        for second in thing:
+            print(second)
+
     if "mark_accuracy_path" in dataset_config:
         azure_translations_path = get_dataset_path(dataset_config["mark_accuracy_path"])
     else:
@@ -331,7 +337,7 @@ for (
             optim_kwargs={"lr": lr, "weight_decay": weight_decay},
         )
 
-    loss_module = initialize_loss("cosine_similarity")
+    loss_module = initialize_loss(loss_function)
 
     # Train transformation
     if optim is not None:
@@ -396,13 +402,25 @@ for (
 
     test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
 
-    results["test_cos_sims"].append(verify_results_dict["cos_sims"].cpu())
+    # results["test_cos_sims"].append(verify_results_dict["cos_sims"].cpu())
     results["mark_translation_accuracy"].append(mark_translation_acc)
-    results["cos_sim_trend_plot"].append(cos_sims_trend_plot)
+    # results["cos_sim_trend_plot"].append(cos_sims_trend_plot)
+    results["cosine_similarity_loss"].append(
+        calculate_test_loss(test_loader, transform, loss_module)
+    )
 
-# %%
+
 results_df = pd.DataFrame(results)
 
+# %%
+results["test_cos_sims"][2]
+# %%
+results["test_cos_sims"][3]
+
+# %%
+results["cosine_similarity_loss"]
+# %%
+results["cosine_similarity_loss"]
 # %%
 results_df
 
@@ -590,7 +608,6 @@ tgt_is_closest_embed = calc_tgt_is_closest_embed(
 verify_results_dict
 
 # %%
-import plotly.graph_objects as go
 import torch
 
 

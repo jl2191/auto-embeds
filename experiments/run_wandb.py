@@ -14,12 +14,12 @@ import numpy as np
 import torch as t
 import transformer_lens as tl
 import wandb
-from icecream import ic
-from transformers import AutoModelForCausalLM, AutoTokenizer, PreTrainedTokenizerFast
+from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
 from auto_embeds.analytical import initialize_manual_transform
 from auto_embeds.data import filter_word_pairs, get_dataset_path
 from auto_embeds.embed_utils import (
+    calculate_test_loss,
     initialize_embed_and_unembed,
     initialize_loss,
     initialize_transform_and_optim,
@@ -51,7 +51,7 @@ experiment_config = {
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
             f"{datetime.datetime.now():%Y-%m-%d} analytical and ln",
-            "experiment 1",
+            "experiment 7",
             "run group 1",
             # "actual",
             # "test",
@@ -77,11 +77,11 @@ experiment_config = {
         #     "min_length": 2,
         #     "space_configurations": [{"en": "space", "fr": "space"}],
         # },
-        {
-            "name": "singular_plural_pairs",
-            "min_length": 2,
-            "space_configurations": [{"en": "space", "fr": "space"}],
-        },
+        # {
+        #     "name": "singular_plural_pairs",
+        #     "min_length": 2,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
+        # },
         # {
         #     "name": "muse_en_fr_extracted",
         #     "min_length": 5,
@@ -103,15 +103,15 @@ experiment_config = {
     ],
     "transformations": [
         # "identity",
-        "translation",
-        "linear_map",
+        # "translation",
+        # "linear_map",
         # "biased_linear_map",
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
         "rotation",
         # "biased_rotation",
         # "uncentered_rotation",
-        # "analytical_rotation",
+        "analytical_rotation",
         # "analytical_translation",
     ],
     "train_batch_sizes": [128],
@@ -123,12 +123,15 @@ experiment_config = {
         # "top_src",
         "top_tgt",
     ],
-    "seeds": [1, 2],
+    "seeds": [1],
+    "loss_functions": ["cosine_similarity"],
     "embed_weight": ["model_weights"],
-    "embed_ln": [True],
-    "embed_ln_weights": ["default_weights", "model_weights"],
+    # "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    "embed_ln_weights": [
+        "model_weights",
+    ],
     "unembed_weight": ["model_weights"],
-    "unembed_ln": [True],
+    # "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
     "unembed_ln_weights": ["model_weights"],
     "n_epochs": [100],
     "weight_decay": [
@@ -173,16 +176,18 @@ def run_experiment(config_dict):
         top_k,
         top_k_selection_method,
         seed,
+        loss_function,
         embed_weight,
-        embed_ln,
         embed_ln_weights,
         unembed_weight,
-        unembed_ln,
         unembed_ln_weights,
         n_epoch,
         weight_decay,
         lr,
     ) in tqdm(config_list, total=len(config_list)):
+
+        embed_ln = True if embed_ln_weights != "no_ln" else False
+        unembed_ln = True if unembed_ln_weights != "no_ln" else False
 
         run_config = {
             "model_name": model_name,
@@ -194,6 +199,7 @@ def run_experiment(config_dict):
             "top_k": top_k,
             "top_k_selection_method": top_k_selection_method,
             "seed": seed,
+            "loss_function": loss_function,
             "embed_weight": embed_weight,
             "embed_ln": embed_ln,
             "embed_ln_weights": embed_ln_weights,
@@ -228,13 +234,13 @@ def run_experiment(config_dict):
             last_model_config = current_model_config
 
             model_weights = {
-                "W_E": model.W_E.clone().detach(),
-                "embed.ln.w": model.embed.ln.w.clone().detach(),
-                "embed.ln.b": model.embed.ln.b.clone().detach(),
-                "ln_final.w": model.ln_final.w.clone().detach(),
-                "ln_final.b": model.ln_final.b.clone().detach(),
-                "W_U": model.W_U.clone().detach(),
-                "b_U": model.b_U.clone().detach(),
+                "W_E": model.W_E.detach().clone(),
+                "embed.ln.w": model.embed.ln.w.detach().clone(),
+                "embed.ln.b": model.embed.ln.b.detach().clone(),
+                "ln_final.w": model.ln_final.w.detach().clone(),
+                "ln_final.b": model.ln_final.b.detach().clone(),
+                "W_U": model.W_U.detach().clone(),
+                "b_U": model.b_U.detach().clone(),
             }
 
             del model
@@ -317,7 +323,7 @@ def run_experiment(config_dict):
                 optim_kwargs={"lr": lr, "weight_decay": weight_decay},
             )
 
-        loss_module = initialize_loss("cosine_similarity")
+        loss_module = initialize_loss(loss_function)
 
         if optim is not None:
             transform, loss_history = train_transform(
@@ -335,6 +341,18 @@ def run_experiment(config_dict):
             )
 
         # Evaluate and log results
+        cosine_similarity_test_loss = calculate_test_loss(
+            test_loader=test_loader,
+            transform=transform,
+            loss_module=initialize_loss("cosine_similarity"),
+        )
+
+        mse_test_loss = calculate_test_loss(
+            test_loader=test_loader,
+            transform=transform,
+            loss_module=initialize_loss("mse_loss"),
+        )
+
         test_accuracy = evaluate_accuracy(
             tokenizer=tokenizer,
             test_loader=test_loader,
@@ -376,6 +394,8 @@ def run_experiment(config_dict):
                 "mark_translation_acc": mark_translation_acc,
                 "cos_sims_trend_plot": cos_sims_trend_plot,
                 "test_cos_sim_diff": test_cos_sim_diff,
+                "cosine_similarity_test_loss": cosine_similarity_test_loss,
+                "mse_test_loss": mse_test_loss,
             }
         )
 
@@ -420,7 +440,7 @@ if __name__ == "__main__":
             config_to_use = get_experiment_worker_config(
                 experiment_config=experiment_config,
                 split_parameter="datasets",
-                n_splits=3,
+                n_splits=1,
                 worker_id=args.worker_id,
             )
             print(f"Running experiment for worker ID = {args.worker_id}")

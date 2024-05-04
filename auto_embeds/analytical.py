@@ -1,7 +1,6 @@
 from typing import Tuple
 
 import torch as t
-import torch.nn as nn
 from torch import Tensor
 
 from auto_embeds.modules import ManualTransformModule

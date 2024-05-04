@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import plotly.express as px
 import torch as t
 import torch.nn as nn
-import transformer_lens as tl
 from torch import Tensor
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
@@ -18,7 +17,6 @@ from auto_embeds.modules import (
     Embed,
     IdentityTransform,
     LinearTransform,
-    MSELoss,
     RotationTransform,
     TranslationTransform,
     UncenteredLinearMapTransform,
@@ -36,7 +34,7 @@ def initialize_loss(loss: str, loss_kwargs: Dict[str, Any] = {}) -> nn.Module:
 
     Args:
         loss: The type of loss to initialize. Supported types
-            include 't_cosine_similarity', 't_l1_loss', 't_mse_loss', 'mse_loss',
+            include 't_cosine_similarity', 't_l1_loss', 'mse_loss',
             'cosine_similarity', 'l1_cosine_similarity', and 'l2_cosine_similarity'.
         loss_kwargs: A dictionary of keyword arguments for the loss module.
 
@@ -50,10 +48,8 @@ def initialize_loss(loss: str, loss_kwargs: Dict[str, Any] = {}) -> nn.Module:
         return nn.CosineEmbeddingLoss(**loss_kwargs)
     elif loss == "t_l1_loss":
         return nn.L1Loss(**loss_kwargs)
-    elif loss == "t_mse_loss":
-        return nn.MSELoss(**loss_kwargs)
     elif loss == "mse_loss":
-        return MSELoss(**loss_kwargs)
+        return nn.MSELoss(**loss_kwargs)
     elif loss == "cosine_similarity":
         return CosineSimilarityLoss(**loss_kwargs)
     elif loss == "l1_cosine_similarity":
@@ -62,6 +58,31 @@ def initialize_loss(loss: str, loss_kwargs: Dict[str, Any] = {}) -> nn.Module:
         return CosineSimilarityLoss(**loss_kwargs)
     else:
         raise ValueError(f"Unsupported loss type: {loss}")
+
+
+def calculate_test_loss(
+    test_loader: DataLoader[Tuple[Tensor, ...]],
+    transform: nn.Module,
+    loss_module: nn.Module,
+) -> float:
+    """Calculate the average test loss over all batches in the test loader.
+
+    Args:
+        test_loader: DataLoader for the test dataset.
+        transform: The transformation module to be evaluated.
+        loss_module: The loss function used for evaluation.
+
+    Returns:
+        The average test loss as a float.
+    """
+    with t.no_grad():
+        total_test_loss = 0.0
+        for test_en_embed, test_fr_embed in test_loader:
+            test_pred = transform(test_en_embed)
+            test_loss = loss_module(test_pred.squeeze(), test_fr_embed.squeeze())
+            total_test_loss += test_loss.item()
+        avg_test_loss = total_test_loss / len(test_loader)
+        return avg_test_loss
 
 
 def initialize_transform_and_optim(
@@ -296,7 +317,7 @@ def train_transform(
                 if trans["normalizedTarget"] is not None
             ]
             translations_dict[source] = translations
-    for epoch in (epoch_pbar := tqdm(range(n_epochs))):
+    for epoch in (epoch_pbar := tqdm(range(n_epochs + 1))):
         for batch_idx, (en_embed, fr_embed) in enumerate(train_loader):
             optim.zero_grad()
             pred = transform(en_embed)
@@ -316,13 +337,7 @@ def train_transform(
         if epoch % 10 == 0:
             with t.no_grad():
                 total_test_loss = 0
-                for test_en_embed, test_fr_embed in test_loader:
-                    test_pred = transform(test_en_embed)
-                    test_loss = loss_module(
-                        test_pred.squeeze(), test_fr_embed.squeeze()
-                    )
-                    total_test_loss += test_loss.item()
-                avg_test_loss = total_test_loss / len(test_loader)
+                avg_test_loss = calculate_test_loss(test_loader, transform, loss_module)
                 info_dict = {"test_loss": avg_test_loss, "epoch": epoch}
                 train_history["test_loss"].append(info_dict)
                 # Calculate and log mark_translation score if azure_translations_path

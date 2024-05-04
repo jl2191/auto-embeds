@@ -522,8 +522,3 @@ class L2CosineSimilarityLoss(nn.Module):
         ).mean()
         l2_loss = nn.functional.mse_loss(predictions, targets).mean()
         return cosine_loss + self.l2_lambda * l2_loss
-
-
-class MSELoss(nn.Module):
-    def forward(self, predictions: Tensor, targets: Tensor) -> Tensor:
-        return nn.functional.mse_loss(predictions, targets)

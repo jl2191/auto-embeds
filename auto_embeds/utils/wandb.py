@@ -214,6 +214,15 @@ def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.Da
             test_accuracy=lambda df: attempt_to_process(
                 df, lambda x: x["summary"].apply(lambda x: x["test_accuracy"])
             ),
+            cosine_similarity_test_loss=lambda df: attempt_to_process(
+                df,
+                lambda x: x["summary"].apply(
+                    lambda x: x["cosine_similarity_test_loss"]
+                ),
+            ),
+            mse_test_loss=lambda df: attempt_to_process(
+                df, lambda x: x["summary"].apply(lambda x: x["mse_test_loss"])
+            ),
         )
         # turn these booleans into strings
         .astype(
