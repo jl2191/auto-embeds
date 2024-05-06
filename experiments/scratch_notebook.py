@@ -112,12 +112,12 @@ experiment_config = {
     ],
     "transformations": [
         # "identity",
-        # "translation",
+        "translation",
         # "linear_map",
         # "biased_linear_map",
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
-        # "rotation",
+        "rotation",
         # "biased_rotation",
         # "uncentered_rotation",
         "analytical_translation",
@@ -132,7 +132,7 @@ experiment_config = {
         "top_src",
         # "top_tgt",
     ],
-    "seeds": [2],
+    "seeds": [1],
     # "loss_functions": ["cosine_similarity", "mse"],
     "loss_functions": ["cosine_similarity"],
     # "embed_weight": ["model_weights"],
@@ -192,6 +192,7 @@ results = {
     "mark_translation_accuracy": [],
     # "cos_sim_trend_plot": [],
     "cosine_similarity_loss": [],
+    "test_tensors": [],
 }
 
 for (
@@ -302,9 +303,8 @@ for (
     verify_learning = prepare_verify_analysis(
         tokenizer=tokenizer,
         embed_module=embed_module,
-        all_word_pairs=all_word_pairs,
+        all_word_pairs=all_word_pairs[:600],
         seed=seed,
-        keep_other_pair=True,
     )
 
     train_loader, test_loader = prepare_verify_datasets(
@@ -313,10 +313,6 @@ for (
         top_k=top_k,
         top_k_selection_method=top_k_selection_method,
     )
-
-    for thing in test_loader:
-        for second in thing:
-            print(second)
 
     if "mark_accuracy_path" in dataset_config:
         azure_translations_path = get_dataset_path(dataset_config["mark_accuracy_path"])
@@ -409,20 +405,49 @@ for (
         calculate_test_loss(test_loader, transform, loss_module)
     )
 
+    for thing in test_loader:
+        for second in test_loader:
+            results["test_tensors"].append(second)
 
 results_df = pd.DataFrame(results)
 
 # %%
 results["test_cos_sims"][2]
-# %%
 results["test_cos_sims"][3]
-
-# %%
-results["cosine_similarity_loss"]
-# %%
 results["cosine_similarity_loss"]
 # %%
 results_df
+test_tensors = list(results["test_tensors"])
+t.testing.assert_close(test_tensors[1][0], test_tensors[2][0])
+# print(test_tensors[0])
+src_test_embeds, tgt_test_embeds = test_tensors[0]
+# print(src_test_embeds)  # [200, 1, 1024]
+
+# train_loader, test_loader =
+
+x, y = next(iter(train_loader))
+x = unembed_module(x)
+x = x.argmax(dim=-1)
+x = tokenizer.batch_decode(x)
+print(x)
+
+y = unembed_module(y)
+y = y.argmax(dim=-1)
+y = tokenizer.batch_decode(y)
+print(y)
+
+# %%
+
+src_test_embeds, tgt_test_embeds = test_tensors[i]
+x = unembed_module(src_test_embeds)
+x = x.argmax(dim=-1)
+x = tokenizer.batch_decode(x)
+print(x)
+
+y = unembed_module(tgt_test_embeds)
+y = y.argmax(dim=-1)
+y = tokenizer.batch_decode(y)
+print(y)
 
 # %%
 results_df = results_df.assign(

@@ -2,15 +2,13 @@
 import json
 
 import dash_bootstrap_components as dbc
-import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 from dash import Dash, Input, Output, State, callback_context, dcc, html, no_update
 from plotly.subplots import make_subplots
-from auto_embeds.utils.wandb import fetch_wandb_runs
 
-from auto_embeds.utils.wandb import process_wandb_runs_df
+from auto_embeds.utils.wandb import fetch_wandb_runs, process_wandb_runs_df
 
 # Load and preprocess data outside of callbacks
 original_df = fetch_wandb_runs(
@@ -222,7 +220,7 @@ figure_1_train_test_loss_refreshed = generate_train_loss_figure(
 )
 figure_2_default_data = {
     "plotly_json": runs_df["cos_sims_trend_plot"].iloc[0],
-    "run_name": runs_df["name"].iloc[0],
+    "run_name": runs_df["run_name"].iloc[0],
 }
 figure_2_cos_sims_trend = generate_cos_sims_trend_figure(
     json.dumps(figure_2_default_data)

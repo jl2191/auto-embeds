@@ -51,7 +51,7 @@ experiment_config = {
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
             f"{datetime.datetime.now():%Y-%m-%d} analytical and ln",
-            "experiment 7",
+            "experiment 2",
             "run group 1",
             # "actual",
             # "test",
@@ -66,22 +66,22 @@ experiment_config = {
         False,
     ],
     "datasets": [
-        # {
-        #     "name": "wikdict_en_fr_extracted",
-        #     "min_length": 5,
-        #     "space_configurations": [{"en": "space", "fr": "space"}],
-        #     "mark_accuracy_path": "wikdict_en_fr_azure_validation",
-        # },
-        # {
-        #     "name": "random_word_pairs",
-        #     "min_length": 2,
-        #     "space_configurations": [{"en": "space", "fr": "space"}],
-        # },
-        # {
-        #     "name": "singular_plural_pairs",
-        #     "min_length": 2,
-        #     "space_configurations": [{"en": "space", "fr": "space"}],
-        # },
+        {
+            "name": "wikdict_en_fr_extracted",
+            "min_length": 5,
+            "space_configurations": [{"en": "space", "fr": "space"}],
+            "mark_accuracy_path": "wikdict_en_fr_azure_validation",
+        },
+        {
+            "name": "random_word_pairs",
+            "min_length": 2,
+            "space_configurations": [{"en": "space", "fr": "space"}],
+        },
+        {
+            "name": "singular_plural_pairs",
+            "min_length": 2,
+            "space_configurations": [{"en": "space", "fr": "space"}],
+        },
         # {
         #     "name": "muse_en_fr_extracted",
         #     "min_length": 5,
@@ -102,9 +102,9 @@ experiment_config = {
         # },
     ],
     "transformations": [
-        # "identity",
-        # "translation",
-        # "linear_map",
+        "identity",
+        "translation",
+        "linear_map",
         # "biased_linear_map",
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
@@ -112,7 +112,7 @@ experiment_config = {
         # "biased_rotation",
         # "uncentered_rotation",
         "analytical_rotation",
-        # "analytical_translation",
+        "analytical_translation",
     ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
@@ -124,16 +124,12 @@ experiment_config = {
         "top_tgt",
     ],
     "seeds": [1],
-    "loss_functions": ["cosine_similarity"],
+    "loss_functions": ["cosine_similarity", "mse_loss"],
     "embed_weight": ["model_weights"],
-    # "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-    "embed_ln_weights": [
-        "model_weights",
-    ],
+    "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
     "unembed_weight": ["model_weights"],
-    # "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-    "unembed_ln_weights": ["model_weights"],
-    "n_epochs": [100],
+    "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    "n_epochs": [150],
     "weight_decay": [
         0,
         # 2e-5,
@@ -292,7 +288,6 @@ def run_experiment(config_dict):
             embed_module=embed_module,
             all_word_pairs=all_word_pairs,
             seed=seed,
-            keep_other_pair=True,
         )
 
         train_loader, test_loader = prepare_verify_datasets(
@@ -440,7 +435,7 @@ if __name__ == "__main__":
             config_to_use = get_experiment_worker_config(
                 experiment_config=experiment_config,
                 split_parameter="datasets",
-                n_splits=1,
+                n_splits=4,
                 worker_id=args.worker_id,
             )
             print(f"Running experiment for worker ID = {args.worker_id}")

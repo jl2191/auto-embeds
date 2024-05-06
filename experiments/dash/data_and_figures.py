@@ -61,7 +61,7 @@ def generate_train_loss_figure(color_var, df, highlighted_name=None):
                     text=df.apply(
                         lambda row: "<br>".join(
                             [
-                                f'Name: {row["name"]}',
+                                f'Name: {row["run_name"]}',
                                 f'Dataset: {row["dataset"]}',
                                 f'Seed: {row["seed"]}',
                                 f'Transformation: {row["transformation"]}',
@@ -77,7 +77,7 @@ def generate_train_loss_figure(color_var, df, highlighted_name=None):
                         ),
                         axis=1,
                     ),
-                    customdata=df["name"],
+                    customdata=df["run_name"],
                 ),
                 row=row,
                 col=col,
@@ -280,7 +280,7 @@ exploded_df_fig_1 = (
     .explode(column=["epoch", "test_loss", "train_loss"])
     .melt(
         id_vars=[
-            "name",
+            "run_name",
             "dataset",
             "seed",
             "transformation",
@@ -303,7 +303,7 @@ figure_1_train_test_loss_refreshed = generate_train_loss_figure(
 )
 figure_2_default_data = {
     "plotly_json": runs_df["cos_sims_trend_plot"].iloc[0],
-    "run_name": runs_df["name"].iloc[0],
+    "run_name": runs_df["run_name"].iloc[0],
 }
 figure_2_cos_sims_trend = generate_cos_sims_trend_figure(
     json.dumps(figure_2_default_data)

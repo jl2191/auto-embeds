@@ -15,13 +15,10 @@ from auto_embeds.embed_utils import (
     train_transform,
 )
 from auto_embeds.metrics import (
-    calc_canonical_angles,
     evaluate_accuracy,
     mark_translation,
 )
-from auto_embeds.utils.misc import repo_path_to_abs_path
 from auto_embeds.verify import (
-    calc_tgt_is_closest_embed,
     plot_cosine_similarity_trend,
     prepare_verify_analysis,
     prepare_verify_datasets,

@@ -95,7 +95,7 @@ def update_cos_sims_trend_plot(hoverData, clicked_trace_data, hovered_trace_data
         default_data = json.dumps(
             {
                 "plotly_json": runs_df["cos_sims_trend_plot"].iloc[0],
-                "run_name": runs_df["name"].iloc[0],
+                "run_name": runs_df["run_name"].iloc[0],
             }
         )
         return generate_cos_sims_trend_figure(default_data)
@@ -105,7 +105,7 @@ def update_run_count(text_filter):
     filtered_df = (
         exploded_df_fig_1.query(text_filter) if text_filter else exploded_df_fig_1
     )
-    count = filtered_df["name"].nunique()
+    count = filtered_df["run_name"].nunique()
     return f"Showing {count} Runs"
 
 

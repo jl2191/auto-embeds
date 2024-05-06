@@ -45,7 +45,7 @@ def create_figure_1():
 
 def create_group_by_dropdown():
     options = [
-        "name",
+        "run_name",
         "dataset",
         "seed",
         "transformation",

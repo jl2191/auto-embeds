@@ -1,6 +1,10 @@
+import json
+from typing import List, Tuple
+
 import numpy as np
 import pandas as pd
 import wandb
+from loguru import logger
 from tqdm import tqdm
 
 from auto_embeds.utils.cache import auto_embeds_cache
@@ -35,11 +39,11 @@ def fetch_wandb_runs(
     print(filters)
     runs = api.runs(project_name, filters=filters)
 
-    name_list, summary_list, config_list, history_list = [], [], [], []
+    run_name_list, summary_list, config_list, history_list = [], [], [], []
 
     for run_value in tqdm(runs, desc="Processing runs"):
         # .name is the human-readable name of the run.
-        name_list.append(run_value.name)
+        run_name_list.append(run_value.name)
 
         # .summary contains output keys/values for
         # metrics such as accuracy.
@@ -66,12 +70,57 @@ def fetch_wandb_runs(
 
     df = pd.DataFrame(
         {
-            "name": name_list,
+            "run_name": run_name_list,
             "summary": summary_list,
             "config": config_list,
             "history": history_list,
         }
     )
+
+    return df
+
+
+def process_wandb_runs_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Processes a DataFrame of WandB runs returned by fetch_wandb_runs.
+
+    Args:
+        wandb_run_df: A DataFrame containing WandB runs data.
+
+    Returns:
+        A DataFrame with columns for 'name', 'summary', 'config', and 'history'.
+    """
+
+    # log the unique run configs so that we know what parameters we changed / swept
+    # through during the collection of runs
+    configs = df["config"].to_list()
+    unique_configs = {param: set() for config in configs for param in config.keys()}
+    for config in configs:
+        for param, value in config.items():
+            if isinstance(value, dict):
+                value = json.dumps(value, indent=4)
+            unique_configs[param].add(value)
+
+    # Log the unique config values
+    for param, values in unique_configs.items():
+        if any(isinstance(value, str) and "\n" in value for value in values):
+            values = "\n".join(values)
+            logger.info(f"unique config values | {param}: {values}")
+        else:
+            logger.info(f"unique config values | {param}: {values}")
+
+    # Log the unique config values that change between runs
+    for param, values in unique_configs.items():
+        if len(values) > 1:
+            if any(isinstance(value, str) and "\n" in value for value in values):
+                values = "\n".join(values)
+                logger.info(
+                    f"unique config values that change between runs | {param}: {values}"
+                )
+            else:
+                logger.info(
+                    f"unique config values that change between runs | {param}: {values}"
+                )
 
     filtered_df = df.query("history.str.len() > 0 or summary.str.len() > 0")
 
@@ -97,23 +146,8 @@ def fetch_wandb_runs(
         )
 
     df = filtered_df
-
-    return df
-
-
-def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.DataFrame:
-    """
-    Processes a DataFrame of WandB runs returned by fetch_wandb_runs.
-
-    Args:
-        wandb_run_df: A DataFrame containing WandB runs data.
-        custom_labels: Optional; Dict for custom column entry labels.
-
-    Returns:
-        A DataFrame with columns for 'name', 'summary', 'config', and 'history'.
-    """
     # ensure the DataFrame contains the expected columns
-    expected_columns = ["name", "summary", "config", "history"]
+    expected_columns = ["run_name", "summary", "config", "history"]
     if not all(column in df.columns for column in expected_columns):
         raise ValueError(f"Input DataFrame must contain columns: {expected_columns}")
 
@@ -134,12 +168,14 @@ def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.Da
     df = (
         # processing these fine gentlemen
         df.assign(
-            run_name=lambda df: df["name"],
             dataset=lambda df: attempt_to_process(
                 df, lambda x: x["config"].apply(lambda x: x["dataset"]["name"])
             ),
             seed=lambda df: attempt_to_process(
                 df, lambda x: x["config"].apply(lambda x: x["seed"])
+            ),
+            loss_function=lambda df: attempt_to_process(
+                df, lambda x: x["config"].apply(lambda x: x["loss_function"])
             ),
             transformation=lambda df: attempt_to_process(
                 df, lambda x: x["config"].apply(lambda x: x["transformation"])
@@ -161,9 +197,6 @@ def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.Da
             ),
             unembed_ln_weights=lambda df: attempt_to_process(
                 df, lambda x: x["config"].apply(lambda x: x["unembed_ln_weights"])
-            ),
-            cos_sims_trend_plot=lambda df: attempt_to_process(
-                df, lambda x: x["summary"].apply(lambda x: x["cos_sims_trend_plot"])
             ),
         )
         # process train_loss and test_loss
@@ -208,6 +241,9 @@ def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.Da
         )
         # %% summary stats
         .assign(
+            cos_sims_trend_plot=lambda df: attempt_to_process(
+                df, lambda x: x["summary"].apply(lambda x: x["cos_sims_trend_plot"])
+            ),
             mark_translation_acc=lambda df: attempt_to_process(
                 df, lambda x: x["summary"].apply(lambda x: x["mark_translation_acc"])
             ),
@@ -232,6 +268,74 @@ def process_wandb_runs_df(df: pd.DataFrame, custom_labels: dict = None) -> pd.Da
             }
         )
     )
-    labels_to_use = custom_labels if custom_labels is not None else {}
-    df = df.replace(labels_to_use)
     return df
+
+
+def list_changed_configs(df):
+    # Collect unique run configs to identify parameters that were changed or swept
+    # through during the collection of runs
+    configs = df["config"].to_list()
+    unique_configs = {param: set() for config in configs for param in config.keys()}
+    for config in configs:
+        for param, value in config.items():
+            if isinstance(value, dict):
+                value = str(value)
+            unique_configs[param].add(value)
+
+    # Create a dictionary to store unique config values that change between runs
+    changed_configs = {}
+    for param, values in unique_configs.items():
+        if len(values) > 1:
+            changed_configs[param] = values
+
+    return changed_configs
+
+
+# Calculate differences in test_accuracy between analytical_rotation and rotation
+def get_difference_df(
+    df: pd.DataFrame,
+    configs_that_change_names: List[str],
+    metric: str,
+    comparison_config: Tuple[str, str],
+) -> pd.DataFrame:
+    """
+    Computes the difference between two configurations for a specified metric.
+
+    Args:
+        df: DataFrame containing the data.
+        configs_that_change_names: List of configuration names that change.
+        metric: The metric for which the difference is to be calculated.
+        comparison_config: A tuple containing the query strings for the two configs to
+                           compare. Each element should be a valid DataFrame query
+                           string that uniquely identifies each configuration subset.
+
+    Returns:
+        A DataFrame with the differences computed between the specified configurations.
+    """
+    # Filter out columns with unhashable data types (e.g., lists, dicts)
+    hashable_columns = list(configs_that_change_names) + [metric]
+    # Create subsets for each configuration in the comparison
+    df_first_config = (
+        df[hashable_columns].query(comparison_config[0]).reset_index(drop=True)
+    )
+    df_second_config = (
+        df[hashable_columns].query(comparison_config[1]).reset_index(drop=True)
+    )
+
+    # Merge on all other parameters
+    merged_df = pd.merge(
+        df_first_config,
+        df_second_config,
+        on=[
+            col for col in hashable_columns if col not in comparison_config + (metric,)
+        ],
+        suffixes=(f"_{comparison_config[0]}", f"_{comparison_config[1]}"),
+    )
+
+    # Calculate the difference
+    merged_df["difference"] = (
+        merged_df[f"{metric}_{comparison_config[1]}"]
+        - merged_df[f"{metric}_{comparison_config[0]}"]
+    )
+
+    return merged_df
