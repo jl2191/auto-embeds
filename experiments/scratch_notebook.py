@@ -5,7 +5,7 @@ import json
 import os
 
 import pandas as pd
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizerFast
 
 from auto_embeds.analytical import initialize_manual_transform
 
@@ -22,10 +22,9 @@ except Exception:
 
 import numpy as np
 import torch as t
-import transformer_lens as tl
 from transformers import AutoTokenizer
 
-from auto_embeds.data import filter_word_pairs, get_dataset_path
+from auto_embeds.data import filter_word_pairs, get_cached_weights, get_dataset_path
 from auto_embeds.embed_utils import (
     calculate_test_loss,
     initialize_embed_and_unembed,
@@ -59,8 +58,8 @@ experiment_config = {
         "notes": "blank",
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
-            f"{datetime.datetime.now():%Y-%m-%d} analytical solutions",
-            "experiment 1",
+            f"{datetime.datetime.now():%Y-%m-%d} analytical and ln",
+            "experiment 2",
             "run group 1",
             # "actual",
             # "test",
@@ -75,22 +74,22 @@ experiment_config = {
         False,
     ],
     "datasets": [
-        # {
-        #     "name": "wikdict_en_fr_extracted",
-        #     "min_length": 5,
-        #     "space_configurations": [{"en": "space", "fr": "space"}],
-        #     "mark_accuracy_path": "wikdict_en_fr_azure_validation",
-        # },
-        # {
-        #     "name": "random_word_pairs",
-        #     "min_length": 2,
-        #     "space_configurations": [{"en": "space", "fr": "space"}],
-        # },
-        # {
-        #     "name": "singular_plural_pairs",
-        #     "min_length": 2,
-        #     "space_configurations": [{"en": "space", "fr": "space"}],
-        # },
+        {
+            "name": "wikdict_en_fr_extracted",
+            "min_length": 5,
+            "space_configurations": [{"en": "space", "fr": "space"}],
+            "mark_accuracy_path": "wikdict_en_fr_azure_validation",
+        },
+        {
+            "name": "random_word_pairs",
+            "min_length": 2,
+            "space_configurations": [{"en": "space", "fr": "space"}],
+        },
+        {
+            "name": "singular_plural_pairs",
+            "min_length": 2,
+            "space_configurations": [{"en": "space", "fr": "space"}],
+        },
         # {
         #     "name": "muse_en_fr_extracted",
         #     "min_length": 5,
@@ -111,17 +110,17 @@ experiment_config = {
         # },
     ],
     "transformations": [
-        # "identity",
+        "identity",
         "translation",
-        # "linear_map",
+        "linear_map",
         # "biased_linear_map",
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
         "rotation",
         # "biased_rotation",
         # "uncentered_rotation",
-        "analytical_translation",
         "analytical_rotation",
+        "analytical_translation",
     ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
@@ -129,26 +128,16 @@ experiment_config = {
     "top_k_selection_methods": [
         # "src_and_src",
         # "tgt_and_tgt",
-        "top_src",
-        # "top_tgt",
+        # "top_src",
+        "top_tgt",
     ],
     "seeds": [1],
-    # "loss_functions": ["cosine_similarity", "mse"],
-    "loss_functions": ["cosine_similarity"],
-    # "embed_weight": ["model_weights"],
-    # "embed_ln": [True, False],
-    # "embed_ln_weights": ["default_weights", "model_weights"],
-    # "unembed_weight": ["model_weights"],
-    # "unembed_ln": [True, False],
-    # "unembed_ln_weights": ["default_weights", "model_weights"],
+    "loss_functions": ["cosine_similarity", "mse_loss"],
     "embed_weight": ["model_weights"],
-    "embed_ln": [True],
-    # "embed_ln_weights": ["default_weights", "model_weights"],
-    "embed_ln_weights": ["model_weights"],
+    "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
     "unembed_weight": ["model_weights"],
-    "unembed_ln": [True],
-    "unembed_ln_weights": ["model_weights"],
-    "n_epochs": [100],
+    "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    "n_epochs": [150],
     "weight_decay": [
         0,
         # 2e-5,
@@ -207,15 +196,16 @@ for (
     seed,
     loss_function,
     embed_weight,
-    embed_ln,
     embed_ln_weights,
     unembed_weight,
-    unembed_ln,
     unembed_ln_weights,
     n_epoch,
     weight_decay,
     lr,
 ) in tqdm(config_list, total=len(config_list)):
+
+    embed_ln = True if embed_ln_weights != "no_ln" else False
+    unembed_ln = True if unembed_ln_weights != "no_ln" else False
 
     run_config = {
         "model_name": model_name,
@@ -240,30 +230,15 @@ for (
     }
 
     # Tokenizer setup
-    tokenizer: PreTrainedTokenizer = AutoTokenizer.from_pretrained(
+    tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(
         model_name
     )  # type: ignore
 
-    # Model setup
+    # Model weights setup
     current_model_config = (model_name, processing)
     if current_model_config != last_model_config:
-        if processing:
-            model = tl.HookedTransformer.from_pretrained(model_name)
-        else:
-            model = tl.HookedTransformer.from_pretrained_no_processing(model_name)
+        model_weights = get_cached_weights(model_name, processing)
         last_model_config = current_model_config
-
-        model_weights = {
-            "W_E": model.W_E.detach().clone(),
-            "embed.ln.w": model.embed.ln.w.detach().clone(),
-            "embed.ln.b": model.embed.ln.b.detach().clone(),
-            "ln_final.w": model.ln_final.w.detach().clone(),
-            "ln_final.b": model.ln_final.b.detach().clone(),
-            "W_U": model.W_U.detach().clone(),
-            "b_U": model.b_U.detach().clone(),
-        }
-
-        del model
 
     # Initialize embed and unembed modules
     embed_module, unembed_module = initialize_embed_and_unembed(
@@ -303,7 +278,7 @@ for (
     verify_learning = prepare_verify_analysis(
         tokenizer=tokenizer,
         embed_module=embed_module,
-        all_word_pairs=all_word_pairs[:600],
+        all_word_pairs=all_word_pairs,
         seed=seed,
     )
 
@@ -346,13 +321,15 @@ for (
             unembed_module=unembed_module,
             loss_module=loss_module,
             n_epochs=n_epoch,
-            plot_fig=True,
+            plot_fig=False,
             azure_translations_path=azure_translations_path,
         )
 
     results["transformation"].append(transformation)
     if "analytical" in transformation:
         results["matrix"].append(transform.transformations[0][1].detach().clone().cpu())
+    elif "identity" in transformation:
+        results["matrix"].append(transform.identity.weight.detach().clone().cpu())
     elif "rotation" in transformation:
         results["matrix"].append(transform.rotation.weight.detach().clone().cpu())
     elif "translation" in transformation:
@@ -363,6 +340,18 @@ for (
         raise ValueError(f"Unknown transformation: {transformation}")
 
     # Evaluate and log results
+    cosine_similarity_test_loss = calculate_test_loss(
+        test_loader=test_loader,
+        transform=transform,
+        loss_module=initialize_loss("cosine_similarity"),
+    )
+
+    mse_test_loss = calculate_test_loss(
+        test_loader=test_loader,
+        transform=transform,
+        loss_module=initialize_loss("mse_loss"),
+    )
+
     test_accuracy = evaluate_accuracy(
         tokenizer=tokenizer,
         test_loader=test_loader,
@@ -405,49 +394,7 @@ for (
         calculate_test_loss(test_loader, transform, loss_module)
     )
 
-    for thing in test_loader:
-        for second in test_loader:
-            results["test_tensors"].append(second)
-
 results_df = pd.DataFrame(results)
-
-# %%
-results["test_cos_sims"][2]
-results["test_cos_sims"][3]
-results["cosine_similarity_loss"]
-# %%
-results_df
-test_tensors = list(results["test_tensors"])
-t.testing.assert_close(test_tensors[1][0], test_tensors[2][0])
-# print(test_tensors[0])
-src_test_embeds, tgt_test_embeds = test_tensors[0]
-# print(src_test_embeds)  # [200, 1, 1024]
-
-# train_loader, test_loader =
-
-x, y = next(iter(train_loader))
-x = unembed_module(x)
-x = x.argmax(dim=-1)
-x = tokenizer.batch_decode(x)
-print(x)
-
-y = unembed_module(y)
-y = y.argmax(dim=-1)
-y = tokenizer.batch_decode(y)
-print(y)
-
-# %%
-
-src_test_embeds, tgt_test_embeds = test_tensors[i]
-x = unembed_module(src_test_embeds)
-x = x.argmax(dim=-1)
-x = tokenizer.batch_decode(x)
-print(x)
-
-y = unembed_module(tgt_test_embeds)
-y = y.argmax(dim=-1)
-y = tokenizer.batch_decode(y)
-print(y)
 
 # %%
 results_df = results_df.assign(

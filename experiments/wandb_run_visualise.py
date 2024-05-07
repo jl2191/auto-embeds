@@ -33,7 +33,6 @@ runs_df = process_wandb_runs_df(original_df)
 runs_df = runs_df.drop(columns=["summary", "config", "history"]).reset_index(drop=True)
 runs_df = runs_df.query("dataset != 'singular_plural_pairs'")
 
-
 custom_labels = (
     {
         "transformation": {
@@ -57,65 +56,103 @@ custom_labels = (
 runs_df = runs_df.query(
     "dataset not in ['singular_plural_pairs', 'random_word_pairs']"
 ).reset_index(drop=True)
+
+
 # %%
-difference_df = get_difference_df(
+def plot_difference(
+    query,
+    comparison_name,
+    comparison_values,
+    metric,
+    annotation_text,
+    invert_colors=False,
+):
+    # Only perform the query if it is provided, otherwise use the full dataframe
+    if query:
+        filtered_df = runs_df.query(query)
+    else:
+        filtered_df = runs_df
+
+    difference_df = get_difference_df(
+        df=filtered_df,
+        configs_that_change_names=configs_that_change_names,
+        comparison_name=comparison_name,
+        comparison_values=comparison_values,
+        metric=metric,
+    )
+    negative_values_exist = (difference_df["difference"] < 0).any()
+    if negative_values_exist:
+        print(f"There are negative differences in {metric}.")
+    else:
+        print(f"All differences in {metric} are non-negative.")
+    fig = create_parallel_categories_plot(
+        difference_df,
+        dimensions=[
+            name for name in configs_that_change_names if name != comparison_name
+        ],
+        color="difference",
+        title=f"Parallel Categories Plot for {metric}",
+        annotation_text=annotation_text,
+        difference=True,
+        invert_colors=True,
+    )
+    return fig
+
+
+# %%
+fig = plot_difference(
+    query="loss_function == 'cosine_similarity'",
+    comparison_name="transformation",
+    comparison_values=("analytical_rotation", "rotation"),
+    metric="cosine_similarity_test_loss",
+    annotation_text="filters: loss_function = cosine_similarity",
+)
+
+# %%
+fig = plot_difference(
+    query="loss_function == 'mse_loss'",
+    comparison_name="transformation",
+    comparison_values=("analytical_rotation", "rotation"),
+    metric="mse_test_loss",
+    annotation_text="filters: loss_function = mse_loss",
+)
+
+# %%
+fig = plot_difference(
+    query="",
+    comparison_name="transformation",
+    comparison_values=("analytical_rotation", "rotation"),
+    metric="cosine_similarity_test_loss",
+    annotation_text="filters: None",
+)
+
+# %%
+fig = plot_difference(
+    query="",
+    comparison_name="transformation",
+    comparison_values=("analytical_rotation", "rotation"),
+    metric="mse_test_loss",
+    annotation_text="filters: None",
+)
+
+# %%
+fig = create_parallel_categories_plot(
     runs_df,
-    configs_that_change_names,
-    comparison_config=("rotation", "analytical_rotation"),
-    "cosine_similarity_test_loss",
-)
-fig = create_parallel_categories_plot(
-    difference_df,
-    dimensions=[name for name in configs_that_change_names if name != "transformation"],
-    color="difference",
-    title="Parallel Categories Plot for Cosine Similarity Test Loss",
-    annotation_text="Parallel Categories Plot for Cosine Similarity Test Loss",
+    dimensions=configs_that_change_names,
+    color="cosine_similarity_test_loss",
+    title="Parallel Categories Plot for cosine_similarity_test_loss",
+    annotation_text="filters: None",
+    invert_colors=True,
 )
 
 # %%
-query = "difference > 0"
-difference_df = get_difference_df(
-    runs_df, configs_that_change_names, "mark_translation_acc"
-)
 fig = create_parallel_categories_plot(
-    difference_df.query(query),
-    dimensions=[name for name in configs_that_change_names if name != "transformation"],
-    color="difference",
-    title="Parallel Categories Plot for Cosine Similarity Test Loss",
-    annotation_text="Parallel Categories Plot for Cosine Similarity Test Loss",
+    runs_df,
+    dimensions=configs_that_change_names,
+    color="mse_test_loss",
+    title="Parallel Categories Plot for mse_test_loss",
+    annotation_text="filters: None",
 )
-
-# %%
-
-query = "transformation in ['rotation', 'analytical_rotation'] and unembed_ln_weights in ['no_ln']"
-fig = create_parallel_categories_plot(
-    runs_df.query(query),
-    dimensions=[
-        "transformation",
-        "embed_ln_weights",
-        "unembed_ln_weights",
-    ],
-    color="test_accuracy",
-    title="Parallel Categories Plot for Test Accuracy",
-    annotation_text="Parallel Categories Plot for Test Accuracy",
-)
-
-# %%
-query = "transformation in ['rotation', 'analytical_rotation'] and unembed_ln_weights in ['no_ln']"
-fig = create_parallel_categories_plot(
-    runs_df.query(query),
-    dimensions=[
-        "transformation",
-        "embed_ln_weights",
-        "unembed_ln_weights",
-    ],
-    color="mark_translation_acc",
-    title="Parallel Categories Plot for Mark Translation Accuracy",
-    annotation_text="Parallel Categories Plot for Mark Translation Accuracy",
-)
-
-# %%
-
 # %%
 fig = px.bar(
     runs_df,

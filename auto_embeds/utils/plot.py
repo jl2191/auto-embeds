@@ -14,11 +14,15 @@ def create_parallel_categories_plot(
     groupby_conditions=None,
     query=None,
     labels=None,
+    difference=None,
+    invert_colors=False,  # New argument to invert the color scale
 ):
     """
     Creates and displays a parallel categories plot based on the provided parameters,
     with options to filter the DataFrame using a query string and to group the DataFrame
     by specified conditions. Rows where the color column is NA are filtered out.
+    If 'difference' is True, the color scale will explicitly mark 0 and highlight
+    negative values. If 'invert_colors' is True, the color scale will be inverted.
 
     Args:
         df (pd.DataFrame): The DataFrame to plot.
@@ -30,6 +34,9 @@ def create_parallel_categories_plot(
         query (str, optional): A query string to filter the DataFrame before plotting.
         labels (dict, optional): A mapping of column names to display labels.
             Defaults to a predefined dictionary.
+        difference (bool, optional): If True, use a diverging colour scale and set scale
+            midpoint to 0 to highlight differences between postive and negative values.
+        invert_colors (bool, optional): If True, invert the color scale.
     """
 
     # Apply query if provided
@@ -48,6 +55,10 @@ def create_parallel_categories_plot(
     if groupby_conditions:
         df = df.groupby(groupby_conditions)[color].mean().reset_index()
 
+    color_scale = px.colors.diverging.Tealrose
+    if invert_colors:
+        color_scale = color_scale[::-1]  # Invert the color scale
+
     fig = (
         px.parallel_categories(
             df,
@@ -55,6 +66,8 @@ def create_parallel_categories_plot(
             color=color,
             labels=labels,
             title=title,
+            color_continuous_scale=color_scale if difference else None,
+            color_continuous_midpoint=0 if difference else None,
         )
         .update_traces(arrangement="freeform")
         .add_annotation(

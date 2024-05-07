@@ -9,13 +9,13 @@ import numpy as np
 import torch as t
 import transformer_lens as tl
 from einops import repeat
-from fancy_einsum import einsum
 from Levenshtein import distance as levenshtein_distance
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
 from transformers import PreTrainedTokenizerFast
 from word2word import Word2word
 
+from auto_embeds.utils.cache import auto_embeds_cache
 from auto_embeds.utils.misc import (
     default_device,
     repo_path_to_abs_path,
@@ -811,3 +811,22 @@ def get_most_similar_embeddings(
             print_most_similar_embeddings_dict(batch_results)
             print()
     return results
+
+
+@auto_embeds_cache
+def get_cached_weights(model_name: str, processing: bool = True) -> Dict[str, t.Tensor]:
+    if processing:
+        model = tl.HookedTransformer.from_pretrained(model_name)
+    else:
+        model = tl.HookedTransformer.from_pretrained_no_processing(model_name)
+    model_weights = {
+        "W_E": model.W_E.detach().clone(),
+        "embed.ln.w": model.embed.ln.w.detach().clone(),
+        "embed.ln.b": model.embed.ln.b.detach().clone(),
+        "ln_final.w": model.ln_final.w.detach().clone(),
+        "ln_final.b": model.ln_final.b.detach().clone(),
+        "W_U": model.W_U.detach().clone(),
+        "b_U": model.b_U.detach().clone(),
+    }
+    del model
+    return model_weights

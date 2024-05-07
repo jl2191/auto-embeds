@@ -295,8 +295,9 @@ def list_changed_configs(df):
 def get_difference_df(
     df: pd.DataFrame,
     configs_that_change_names: List[str],
+    comparison_name: str,
+    comparison_values: Tuple[str, str],
     metric: str,
-    comparison_config: Tuple[str, str],
 ) -> pd.DataFrame:
     """
     Computes the difference between two configurations for a specified metric.
@@ -304,22 +305,27 @@ def get_difference_df(
     Args:
         df: DataFrame containing the data.
         configs_that_change_names: List of configuration names that change.
-        metric: The metric for which the difference is to be calculated.
         comparison_config: A tuple containing the query strings for the two configs to
                            compare. Each element should be a valid DataFrame query
                            string that uniquely identifies each configuration subset.
+        metric: The metric for which the difference is to be calculated.
 
     Returns:
         A DataFrame with the differences computed between the specified configurations.
     """
+    first_value, second_value = comparison_values
     # Filter out columns with unhashable data types (e.g., lists, dicts)
     hashable_columns = list(configs_that_change_names) + [metric]
     # Create subsets for each configuration in the comparison
     df_first_config = (
-        df[hashable_columns].query(comparison_config[0]).reset_index(drop=True)
+        df[hashable_columns]
+        .query(f"{comparison_name} == @first_value")
+        .reset_index(drop=True)
     )
     df_second_config = (
-        df[hashable_columns].query(comparison_config[1]).reset_index(drop=True)
+        df[hashable_columns]
+        .query(f"{comparison_name} == @second_value")
+        .reset_index(drop=True)
     )
 
     # Merge on all other parameters
@@ -327,15 +333,14 @@ def get_difference_df(
         df_first_config,
         df_second_config,
         on=[
-            col for col in hashable_columns if col not in comparison_config + (metric,)
+            col for col in hashable_columns if col != metric and col != comparison_name
         ],
-        suffixes=(f"_{comparison_config[0]}", f"_{comparison_config[1]}"),
+        suffixes=[f"_{first_value}", f"_{second_value}"],
     )
 
     # Calculate the difference
     merged_df["difference"] = (
-        merged_df[f"{metric}_{comparison_config[1]}"]
-        - merged_df[f"{metric}_{comparison_config[0]}"]
+        merged_df[f"{metric}_{second_value}"] - merged_df[f"{metric}_{first_value}"]
     )
 
     return merged_df
