@@ -35,6 +35,7 @@ dash = "^2.16.1"
 dash-bootstrap-components = "^1.6.0"
 loguru = "^0.7.2"
 statsmodels = "^0.14.2"
+neptune = "^1.10.3"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.3.3"

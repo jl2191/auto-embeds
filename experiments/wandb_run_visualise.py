@@ -1,10 +1,10 @@
 # %%
-from auto_embeds.utils.plot import create_parallel_categories_plot
-from auto_embeds.utils.wandb import (
-    fetch_wandb_runs,
+from auto_embeds.utils.neptune import (
+    fetch_neptune_runs,
     list_changed_configs,
-    process_wandb_runs_df,
+    process_neptune_runs_df,
 )
+from auto_embeds.utils.plot import create_parallel_categories_plot
 from experiments.scratch_funcs import plot_difference
 
 try:
@@ -14,7 +14,7 @@ except Exception:
     pass
 
 # %%
-original_df = fetch_wandb_runs(
+original_df = fetch_neptune_runs(
     project_name="jl2191/language-transformations",
     tags=[
         "actual",
@@ -32,7 +32,7 @@ configs_that_change_names = ["dataset"] + [
 configs_that_change_values = [changed_configs[key] for key in configs_that_change_names]
 
 # %%
-runs_df = process_wandb_runs_df(original_df, has_plot=False)
+runs_df = process_neptune_runs_df(original_df, has_plot=False)
 runs_df = runs_df.drop(columns=["summary", "config", "history"]).reset_index(drop=True)
 runs_df = runs_df.query("dataset not in ['singular_plural_pairs', 'random_word_pairs']")
 

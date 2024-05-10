@@ -3,10 +3,10 @@ import itertools
 import json
 import os
 
+import neptune
 import numpy as np
 import torch as t
 import transformer_lens as tl
-import wandb
 
 from auto_embeds.data import filter_word_pairs, get_dataset_path
 from auto_embeds.embed_utils import (
@@ -43,7 +43,7 @@ except Exception:
 
 # Configuration for experiments
 config = {
-    "wandb": {
+    "neptune": {
         "notes": "instead of just selecting top k based on source word pair, will now \
             will now select an entire given word pair based on whether it is source or \
             target language that is closest.",
@@ -263,12 +263,12 @@ for (
         "top_k": top_k,
     }
 
-    # WandB setup
-    run = wandb.init(
+    # neptune setup
+    run = neptune.init(
         project="language-transformations",
         config=run_config,
-        notes=config["wandb"]["notes"],
-        tags=config["wandb"]["tags"],
+        notes=config["neptune"]["notes"],
+        tags=config["neptune"]["tags"],
     )
 
     # Initialize transformation and optimizer
@@ -290,7 +290,7 @@ for (
             loss_module=loss_module,
             n_epochs=n_epoch,
             plot_fig=False,
-            wandb=wandb,
+            neptune=neptune,
             azure_translations_path=azure_translations_path,
         )
 
@@ -324,7 +324,7 @@ for (
 
     test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
 
-    wandb.log(
+    neptune.log(
         {
             "mark_translation_acc": mark_translation_acc,
             "cos_sims_trend_plot": cos_sims_trend_plot,
@@ -333,4 +333,4 @@ for (
         }
     )
 
-    wandb.finish()
+    neptune.finish()

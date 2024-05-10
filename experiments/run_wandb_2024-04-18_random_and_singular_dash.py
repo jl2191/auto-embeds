@@ -8,15 +8,15 @@ import plotly.io as pio
 from dash import Dash, Input, Output, State, callback_context, dcc, html, no_update
 from plotly.subplots import make_subplots
 
-from auto_embeds.utils.wandb import fetch_wandb_runs, process_wandb_runs_df
+from auto_embeds.utils.neptune import fetch_neptune_runs, process_neptune_runs_df
 
 # Load and preprocess data outside of callbacks
-original_df = fetch_wandb_runs(
+original_df = fetch_neptune_runs(
     project_name="jl2191/language-transformations",
     tags=["actual", "2024-04-17 random and singular plural", "run group 2"],
     get_artifacts=True,
 )
-runs_df = process_wandb_runs_df(
+runs_df = process_neptune_runs_df(
     original_df,
     custom_labels={
         "transformation": {

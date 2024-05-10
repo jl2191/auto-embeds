@@ -1,18 +1,13 @@
 # %%
 # import numpy as np
-import dash
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-import plotly.io as pio
-from plotly.subplots import make_subplots
-from tqdm import tqdm
-from auto_embeds.utils.plot import create_parallel_categories_plot
 
 from auto_embeds.utils.misc import (
     dynamic_text_wrap,
 )
-from auto_embeds.utils.wandb import fetch_wandb_runs, process_wandb_runs_df
+from auto_embeds.utils.neptune import fetch_neptune_runs, process_neptune_runs_df
+from auto_embeds.utils.plot import create_parallel_categories_plot
 
 try:
     get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore
@@ -23,14 +18,14 @@ except Exception:
 # %%
 ## run that was specifically for random and singular plural
 # fetching data and creating DataFrame
-original_df = fetch_wandb_runs(
+original_df = fetch_neptune_runs(
     project_name="jl2191/language-transformations",
     tags=["actual", "2024-04-17 random and singular plural", "run group 2"],
     get_artifacts=True,
 )
 
 # %%
-runs_df = process_wandb_runs_df(
+runs_df = process_neptune_runs_df(
     original_df,
     custom_labels={
         "transformation": {"rotation": "Rotation", "linear_map": "Linear Map"},
@@ -42,11 +37,11 @@ runs_df = process_wandb_runs_df(
 )
 
 # %%
-wandb_run_config_variables_that_change = (
+neptune_run_config_variables_that_change = (
     pd.json_normalize(runs_df["config"]).nunique().loc[lambda x: x > 1]
 )
 
-for variable in wandb_run_config_variables_that_change.index:
+for variable in neptune_run_config_variables_that_change.index:
     unique_values = pd.json_normalize(runs_df["config"])[variable].unique()
     print(f"{variable}: {unique_values}")
 

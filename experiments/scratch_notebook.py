@@ -59,7 +59,7 @@ t.cuda.manual_seed(1)
 
 # Configuration for overall experiments
 experiment_config = {
-    "wandb": {
+    "neptune": {
         "notes": "blank",
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
@@ -168,9 +168,9 @@ config_dict = get_experiment_worker_config(
     n_splits=1,
     worker_id=0,
 )
-# Extracting 'wandb' configuration and generating all combinations of configurations
+# Extracting 'neptune' configuration and generating all combinations of configurations
 # as a list of lists
-wandb_config = config_dict.pop("wandb")
+neptune_config = config_dict.pop("neptune")
 config_values = [
     config_dict[entry] if entry != "datasets" else config_dict[entry]
     for entry in config_dict

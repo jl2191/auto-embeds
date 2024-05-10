@@ -126,7 +126,7 @@ train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 test_dataset = TensorDataset(test_en_embeds, test_fr_embeds)
 test_loader = DataLoader(test_dataset, batch_size=64, shuffle=True)
 # %%
-# run = wandb.init(
+# run = neptune.init(
 #     project="single_token_tests",
 # )
 # %%
@@ -173,7 +173,7 @@ for transformation_name in transformation_names:
             n_epochs=100,
             plot_fig=False,
             save_fig=True,
-            # wandb=wandb,
+            # neptune=neptune,
         )
     else:
         print(f"nothing trained for {transformation_name}")

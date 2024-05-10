@@ -1,23 +1,18 @@
 # Import necessary libraries
 import dash_bootstrap_components as dbc
-import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, callback, callback_context, dcc, html
+from dash import Dash, Input, Output, callback_context, dcc, html
 from plotly.subplots import make_subplots
-from auto_embeds.utils.wandb import process_wandb_runs_df
 
-from auto_embeds.utils.misc import (
-    dynamic_text_wrap,
-)
-from auto_embeds.utils.wandb import fetch_wandb_runs
+from auto_embeds.utils.neptune import fetch_neptune_runs, process_neptune_runs_df
 
 # Load and preprocess data outside of callbacks
-original_df = fetch_wandb_runs(
+original_df = fetch_neptune_runs(
     project_name="jl2191/language-transformations",
     tags=["actual", "2024-04-17 random and singular plural", "run group 2"],
 )
-runs_df = process_wandb_runs_df(
+runs_df = process_neptune_runs_df(
     original_df,
     custom_labels={
         "transformation": {"rotation": "Rotation", "linear_map": "Linear Map"},

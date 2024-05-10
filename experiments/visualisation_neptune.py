@@ -18,11 +18,35 @@ except Exception:
     pass
 
 # %%
+import neptune
+
+project = neptune.init_project(
+    project="mars/language-transformations",
+    mode="read-only",
+)
+
+runs_table_df = project.fetch_runs_table(
+    # tag=["experiment 1"],
+    columns=[
+        "config/embed_ln",
+        "config/unembed_ln",
+        "config/loss_function",
+        "config/dataset",
+    ],
+).to_pandas()
+# %%
+project.print_structure()
+# %%
+runs_table_df
+# %%
+loss_df = run["train/loss"].fetch_values
+# %%
 original_df = fetch_neptune_runs(
     project_name="jl2191/language-transformations",
     tags=["actual", "2024-05-09 translation", "experiment 3"],
     get_artifacts=True,
 )
+
 
 changed_configs = list_changed_configs(original_df)
 configs_that_change_names = [

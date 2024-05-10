@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots
 
-from auto_embeds.utils.wandb import fetch_wandb_runs, process_wandb_runs_df
+from auto_embeds.utils.neptune import fetch_neptune_runs, process_neptune_runs_df
 
 
 def generate_train_loss_figure(color_var, df, highlighted_name=None):
@@ -244,13 +244,13 @@ def generate_parallel_categories_plot(
     return fig
 
 
-original_df = fetch_wandb_runs(
+original_df = fetch_neptune_runs(
     project_name="jl2191/language-transformations",
     tags=["actual", "2024-04-29 analytical and ln", "experiment 3"],
     get_artifacts=True,
 )
 
-runs_df = process_wandb_runs_df(
+runs_df = process_neptune_runs_df(
     original_df,
     custom_labels={
         "transformation": {

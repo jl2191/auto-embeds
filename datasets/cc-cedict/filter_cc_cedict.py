@@ -1,20 +1,18 @@
 # %%
-import glob
 import json
-import os
 import random
 
 import torch as t
 import transformer_lens as tl
 from torch.utils.data import DataLoader, TensorDataset
-from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy
-from auto_embeds.data import filter_word_pairs, tokenize_word_pairs
 
+from auto_embeds.data import filter_word_pairs, tokenize_word_pairs
 from auto_embeds.embed_utils import (
     initialize_loss,
     initialize_transform_and_optim,
     train_transform,
 )
+from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
 model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
@@ -144,7 +142,7 @@ for transformation_name in transformation_names:
             optim=optim,
             loss_module=loss_module,
             n_epochs=100,
-            # wandb=wandb,
+            # neptune=neptune,
         )
     else:
         print(f"nothing trained for {transformation_name}")

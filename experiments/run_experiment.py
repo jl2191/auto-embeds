@@ -10,9 +10,12 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 os.environ["AUTOEMBEDS_CACHING"] = "true"
 
+import os
+
+import neptune
 import numpy as np
 import torch as t
-import wandb
+from neptune.utils import stringify_unsupported
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
 from auto_embeds.analytical import initialize_manual_transform
@@ -31,6 +34,7 @@ from auto_embeds.metrics import (
 from auto_embeds.utils.custom_tqdm import tqdm
 from auto_embeds.utils.misc import get_experiment_worker_config, is_notebook
 from auto_embeds.verify import (
+    plot_cosine_similarity_trend,
     prepare_verify_analysis,
     prepare_verify_datasets,
     test_cos_sim_difference,
@@ -44,13 +48,13 @@ t.cuda.manual_seed(1)
 
 # Configuration for overall experiments
 experiment_config = {
-    "wandb": {
+    "neptune": {
         "notes": "blank",
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
-            f"{datetime.datetime.now():%Y-%m-%d} translation and linear map",
+            f"{datetime.datetime.now():%Y-%m-%d} linear map",
             "experiment 1",
-            "run group 5",
+            "run group 1",
             # "actual",
             # "test",
         ],
@@ -100,9 +104,9 @@ experiment_config = {
         # },
     ],
     "transformations": [
-        "identity",
-        "translation",
-        "rotation",
+        # "identity",
+        # "translation",
+        # "rotation",
         # "biased_rotation",
         # "uncentered_rotation",
         "linear_map",
@@ -110,8 +114,8 @@ experiment_config = {
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
         "analytical_linear_map",
-        "analytical_translation",
-        "analytical_rotation",
+        # "analytical_translation",
+        # "analytical_rotation",
     ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
@@ -125,12 +129,12 @@ experiment_config = {
     "seeds": [1],
     "loss_functions": ["cosine_similarity", "mse_loss"],
     "embed_weight": ["model_weights"],
-    "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-    # "embed_ln_weights": ["no_ln", "model_weights"],
+    # "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    "embed_ln_weights": ["no_ln", "model_weights"],
     # "embed_ln_weights": ["default_weights"],
     "unembed_weight": ["model_weights"],
-    "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-    # "unembed_ln_weights": ["no_ln", "model_weights"],
+    # "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    "unembed_ln_weights": ["no_ln", "model_weights"],
     # "unembed_ln_weights": ["default_weights"],
     "n_epochs": [100],
     "weight_decay": [
@@ -150,9 +154,9 @@ print(f"Total experiment runs calculated: {total_runs}")
 
 # %%
 def run_experiment(config_dict):
-    # Extracting 'wandb' configuration and generating all combinations of configurations
+    # Extracting 'neptune' configuration and generating all combinations of configurations
     # as a list of lists
-    wandb_config = config_dict.pop("wandb")
+    neptune_config = config_dict.pop("neptune")
     config_values = [
         config_dict[entry] if entry != "datasets" else config_dict[entry]
         for entry in config_dict
@@ -189,7 +193,6 @@ def run_experiment(config_dict):
         unembed_ln = True if unembed_ln_weights != "no_ln" else False
 
         run_config = {
-            "note": "new_implementation",
             "model_name": model_name,
             "processing": processing,
             "dataset": dataset_config,
@@ -211,13 +214,12 @@ def run_experiment(config_dict):
             "lr": lr,
         }
 
-        # WandB run init
-        run = wandb.init(
-            project="language-transformations",
-            config=run_config,
-            notes=wandb_config["notes"],
-            tags=wandb_config["tags"],
+        # neptune run init
+        run = neptune.init_run(
+            project="mars/language-transformations",
+            tags=neptune_config["tags"],
         )
+        run["config"] = stringify_unsupported(run_config)
 
         # Tokenizer setup
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(
@@ -313,7 +315,7 @@ def run_experiment(config_dict):
                 loss_module=loss_module,
                 n_epochs=n_epoch,
                 plot_fig=False,
-                wandb=wandb,
+                neptune_run=run,
                 azure_translations_path=azure_translations_path,
             )
 
@@ -359,24 +361,22 @@ def run_experiment(config_dict):
             unembed_module=unembed_module,
         )
 
-        # cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
+        cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
 
         # cos_sims_trend_plot.show(config={"responsive": True, "autosize": True})
 
         test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
 
-        wandb.log(
-            {
-                "test_accuracy": test_accuracy,
-                "mark_translation_acc": mark_translation_acc,
-                # "cos_sims_trend_plot": cos_sims_trend_plot,
-                "test_cos_sim_diff": test_cos_sim_diff,
-                "cosine_similarity_test_loss": cosine_similarity_test_loss,
-                "mse_test_loss": mse_test_loss,
-            }
-        )
+        run["results"] = {
+            "test_accuracy": test_accuracy,
+            "mark_translation_acc": mark_translation_acc,
+            "cos_sims_trend_plot": cos_sims_trend_plot,
+            "test_cos_sim_diff": test_cos_sim_diff,
+            "cosine_similarity_test_loss": cosine_similarity_test_loss,
+            "mse_test_loss": mse_test_loss,
+        }
 
-        wandb.finish()
+        run.stop()
 
 
 def setup_arg_parser():
@@ -398,7 +398,7 @@ if __name__ == "__main__":
         # If running in a Jupyter notebook, run all experiments
         print(
             "Detected Jupyter notebook or IPython session. Running all experiments "
-            "and adding 'test' wandb tag."
+            "and adding 'test' neptune tag."
         )
         run_experiment(
             get_experiment_worker_config(
@@ -415,7 +415,7 @@ if __name__ == "__main__":
         if args.worker_id:
             config_to_use = get_experiment_worker_config(
                 experiment_config=experiment_config,
-                split_parameter="loss_functions",
+                split_parameter="datasets",
                 n_splits=2,
                 worker_id=args.worker_id,
             )

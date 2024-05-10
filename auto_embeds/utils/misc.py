@@ -1,4 +1,3 @@
-import itertools
 import pickle
 from contextlib import contextmanager
 from datetime import datetime
@@ -7,9 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Set
 
 import torch as t
-from einops import einsum
 from icecream import install
-from IPython.display import Image, display
 from torch.utils.hooks import RemovableHandle
 
 install()
@@ -148,9 +145,9 @@ def get_experiment_worker_config(
     Returns:
         dict: A subset of the configuration based on the provided arguments.
     """
-    # Add "test" or "actual" tag to wandb configuration based on worker_id
+    # Add "test" or "actual" tag to neptune configuration based on worker_id
     tag = "test" if worker_id == 0 else "actual"
-    experiment_config["wandb"]["tags"].append(tag)
+    experiment_config["neptune"]["tags"].append(tag)
 
     if worker_id == 0:
         # If worker_id is 0, return the entire configuration for testing

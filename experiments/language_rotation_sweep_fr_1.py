@@ -3,10 +3,10 @@ import json
 import random
 import time
 
+import neptune
 import numpy as np
 import torch as t
 import transformer_lens as tl
-import wandb
 from torch.utils.data import DataLoader, TensorDataset
 
 from auto_embeds.data import filter_word_pairs, get_dataset_path, tokenize_word_pairs
@@ -116,8 +116,8 @@ def run_sweep_for_model(
 
         d_model = model.cfg.d_model
         start_time = time.time()
-        wandb.init(tags=["test_run"])
-        config = wandb.config
+        neptune.init(tags=["test_run"])
+        config = neptune.config
 
         np.random.seed(1)
         t.manual_seed(1)
@@ -163,7 +163,7 @@ def run_sweep_for_model(
                 loss_module=loss_module,
                 n_epochs=config.epochs,
                 plot_fig=False,
-                wandb=wandb,
+                neptune=neptune,
             )
 
         accuracy = evaluate_accuracy(
@@ -189,11 +189,11 @@ def run_sweep_for_model(
             "model_name": model_name,
         }
         for metric, value in wand_summary.items():
-            wandb.run.summary[metric] = value  # type: ignore
+            neptune.run.summary[metric] = value  # type: ignore
 
-    wandb.finish()
-    sweep_id = wandb.sweep(sweep=sweep_config, project="language_rotations_pilot")
-    wandb.agent(sweep_id, train, count=20)
+    neptune.finish()
+    sweep_id = neptune.sweep(sweep=sweep_config, project="language_rotations_pilot")
+    neptune.agent(sweep_id, train, count=20)
 
 
 # %%

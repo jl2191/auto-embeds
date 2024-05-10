@@ -64,7 +64,6 @@ from auto_embeds.data import tokenize_word_pairs  # noqa: I001
 from torch.utils.data import DataLoader, TensorDataset
 from auto_embeds.metrics import mark_translation
 import torch as t
-from auto_embeds.data import get_dataset_path
 from auto_embeds.embed_utils import (
     initialize_transform_and_optim,
     train_transform,
@@ -158,7 +157,7 @@ for transformation_name in transformation_names:
             optim=optim,
             loss_module=loss_module,
             n_epochs=100,
-            # wandb=wandb,
+            # neptune=neptune,
         )
     else:
         print(f"nothing trained for {transformation_name}")

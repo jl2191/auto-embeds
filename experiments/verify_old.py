@@ -245,7 +245,7 @@ test_dataset = TensorDataset(src_test_embeds, tgt_test_embeds)
 test_loader = DataLoader(test_dataset, batch_size=256)
 
 # %%
-# run = wandb.init(
+# run = neptune.init(
 #     project="single_token_tests",
 # )
 
@@ -290,7 +290,7 @@ for transformation_name in transformation_names:
             plot_fig=False,
             azure_translations_path=translation_file,
             save_fig=True,
-            # wandb=wandb,
+            # neptune=neptune,
         )
     else:
         print(f"nothing trained for {transformation_name}")

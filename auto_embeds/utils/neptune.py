@@ -1,8 +1,8 @@
 import json
 
+import neptune
 import numpy as np
 import pandas as pd
-import wandb
 from loguru import logger
 from tqdm import tqdm
 
@@ -10,7 +10,7 @@ from auto_embeds.utils.cache import auto_embeds_cache
 
 
 @auto_embeds_cache
-def fetch_wandb_runs(
+def fetch_neptune_runs(
     project_name: str,
     tags: list,
     samples: int = 10000,
@@ -22,7 +22,7 @@ def fetch_wandb_runs(
     caching to speed up repeated calls with the same arguments.
 
     Args:
-        project_name: The name of the project in wandb to fetch runs from.
+        project_name: The name of the project in neptune to fetch runs from.
         tags: A list of tags to filter the runs by.
         samples: The number of samples to fetch for each run history. Defaults to 10000.
         get_artifacts: Whether to download artifacts for the runs. If true, the artifact
@@ -33,7 +33,7 @@ def fetch_wandb_runs(
         Each row corresponds to each run that matches the filters.
     """
 
-    api = wandb.Api()
+    api = neptune.Api()
     filters = {"$and": [{"tags": tag} for tag in tags]}
     print(filters)
     runs = api.runs(project_name, filters=filters)
@@ -79,12 +79,12 @@ def fetch_wandb_runs(
     return df
 
 
-def process_wandb_runs_df(df: pd.DataFrame, has_plot: bool = True) -> pd.DataFrame:
+def process_neptune_runs_df(df: pd.DataFrame, has_plot: bool = True) -> pd.DataFrame:
     """
-    Processes a DataFrame of WandB runs returned by fetch_wandb_runs.
+    Processes a DataFrame of neptune runs returned by fetch_neptune_runs.
 
     Args:
-        wandb_run_df: A DataFrame containing WandB runs data.
+        neptune_run_df: A DataFrame containing neptune runs data.
         has_plot: A boolean to control whether to filter runs based on the presence
             of 'cos_sims_trend_plot' in the summary.
 
