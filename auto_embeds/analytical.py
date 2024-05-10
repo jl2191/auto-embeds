@@ -1,22 +1,18 @@
 from typing import Tuple
 
 import torch as t
+from jaxtyping import Float
+from loguru import logger
+from scipy.linalg import orthogonal_procrustes
 from torch import Tensor
 
 from auto_embeds.modules import ManualTransformModule
 
 
-def calculate_rotation(train_src_embeds: Tensor, train_tgt_embeds: Tensor) -> Tensor:
-    """Calculates rotation matrix for source to target language embeddings."""
-    X = train_src_embeds.detach().clone().squeeze()
-    Y = train_tgt_embeds.detach().clone().squeeze()
-    C = t.matmul(X.T, Y)
-    U, _, V = t.svd(C)
-    W = t.matmul(U, V.t())
-    return W
-
-
-def calculate_translation(train_src_embeds: Tensor, train_tgt_embeds: Tensor) -> Tensor:
+def calculate_translation(
+    train_src_embeds: Float[Tensor, "batch pos d_model"],
+    train_tgt_embeds: Float[Tensor, "batch pos d_model"],
+) -> Float[Tensor, "pos d_model"]:
     """Calculates translation vector for source to target language embeddings."""
     X = train_src_embeds.detach().clone().squeeze()
     Y = train_tgt_embeds.detach().clone().squeeze()
@@ -24,9 +20,124 @@ def calculate_translation(train_src_embeds: Tensor, train_tgt_embeds: Tensor) ->
     return T
 
 
+def calculate_rotation_kabsch(
+    P: Float[Tensor, "batch pos d_model"],
+    Q: Float[Tensor, "batch pos d_model"],
+) -> Float[Tensor, "d_model d_model"]:
+    """
+    Computes the optimal rotation and translation to align two sets of points (P -> Q),
+    and their RMSD, in a batched manner.
+    :param P: A BxNx3 matrix of points
+    :param Q: A BxNx3 matrix of points
+    :return: A tuple containing the optimal rotation matrix, the optimal
+            translation vector, and the RMSD.
+    """
+    assert P.shape == Q.shape, "Matrix dimensions must match"
+    logger.debug(f"P.shape: {P.shape}")
+    logger.debug(f"Q.shape: {Q.shape}")
+
+    # Compute centroids
+    centroid_P = t.mean(P, dim=1, keepdims=True)  # Bx1x3
+    centroid_Q = t.mean(Q, dim=1, keepdims=True)  # Bx1x3
+
+    logger.debug(
+        f"Allocated GPU memory after computing centroids: "
+        f"{t.cuda.memory_allocated() / 1024**3:.2f} GB"
+    )
+
+    # Optimal translation
+    T = centroid_Q - centroid_P  # Bx1x3
+    T = T.squeeze(1)  # Bx3
+
+    # Center the points
+    p = P - centroid_P  # BxNx3
+    q = Q - centroid_Q  # BxNx3
+
+    # Compute the covariance matrix
+    H = t.matmul(p.transpose(1, 2), q)  # Bx3x3
+    logger.debug(f"H.shape: {H.shape}")
+
+    logger.debug(
+        f"Allocated GPU memory after computing covariance matrix: "
+        f"{t.cuda.memory_allocated() / 1024**3:.2f} GB"
+    )
+
+    # SVD
+    U, S, Vt = t.linalg.svd(H)  # Bx3x3
+    logger.debug(f"U.shape: {U.shape}")
+    logger.debug(f"S.shape: {S.shape}")
+    logger.debug(f"Vt.shape: {Vt.shape}")
+
+    # Validate right-handed coordinate system
+    d = t.det(t.matmul(Vt.transpose(1, 2), U.transpose(1, 2)))  # B
+    flip = d < 0.0
+    if flip.any().item():
+        Vt[flip, -1] *= -1.0
+
+    # Optimal rotation
+    R = t.matmul(Vt.transpose(1, 2), U.transpose(1, 2))
+
+    # RMSD
+    rmsd = t.sqrt(
+        t.sum(t.square(t.matmul(p, R.transpose(1, 2)) - q), dim=(1, 2)) / P.shape[1]
+    )
+
+    return R, T, rmsd
+
+
+def calculate_rotation_scipy(
+    train_src_embeds: Float[Tensor, "batch pos d_model"],
+    train_tgt_embeds: Float[Tensor, "batch pos d_model"],
+) -> Float[Tensor, "d_model d_model"]:
+    """Calculates the best linear map matrix for source to target language embeddings."""
+    A = train_src_embeds.detach().clone().squeeze().cpu()
+    B = train_tgt_embeds.detach().clone().squeeze().cpu()
+    R, _ = orthogonal_procrustes(A, B)
+    return R
+
+
+def calculate_rotation_torch(
+    train_src_embeds: Float[Tensor, "batch pos d_model"],
+    train_tgt_embeds: Float[Tensor, "batch pos d_model"],
+) -> Float[Tensor, "d_model d_model"]:
+    """Calculates the best linear map matrix for source to target language embeddings."""
+    A = train_src_embeds.detach().clone().squeeze()
+    B = train_tgt_embeds.detach().clone().squeeze()
+    u, w, vt = t.linalg.svd(B.T.dot(A).T)
+    R = u.dot(vt)
+    return R
+
+
+def calculate_rotation(train_src_embeds: Tensor, train_tgt_embeds: Tensor) -> Tensor:
+    """Calculates rotation matrix for source to target language embeddings."""
+    A = train_src_embeds.detach().clone().squeeze()
+    B = train_tgt_embeds.detach().clone().squeeze()
+    C = t.matmul(B.T, A)
+    U, _, Vt = t.linalg.svd(C)
+    R = t.matmul(U, Vt)
+    return R
+
+
+def calculate_linear_map(
+    train_src_embeds: Float[Tensor, "batch pos d_model"],
+    train_tgt_embeds: Float[Tensor, "batch pos d_model"],
+) -> Float[Tensor, "d_model d_model"]:
+    """Calculates the best linear map matrix for source to target language embeddings."""
+    A = train_src_embeds.detach().clone().squeeze()
+    B = train_tgt_embeds.detach().clone().squeeze()
+    logger.debug(f"A.shape: {A.shape}")
+    logger.debug(f"B.shape: {B.shape}")
+    # solving the linear system AX = B for X
+    result = t.linalg.lstsq(A, B)
+    A = result.solution  # Extract the solution matrix A
+    logger.debug(f"A.shape: {A.shape}")
+    return A
+
+
 def calculate_rotation_translation(
-    train_src_embeds: Tensor, train_tgt_embeds: Tensor
-) -> Tuple[Tensor, Tensor]:
+    train_src_embeds: Float[Tensor, "batch pos d_model"],
+    train_tgt_embeds: Float[Tensor, "batch pos d_model"],
+) -> Tuple[Float[Tensor, "pos d_model d_model"], Float[Tensor, "pos d_model"]]:
     """Calculates rotation then translation transformation matrix for embeddings."""
     X = train_src_embeds.detach().clone().squeeze()
     Y = train_tgt_embeds.detach().clone().squeeze()
@@ -78,16 +189,12 @@ def initialize_manual_transform(transform_name, train_loader):
     if transform_name == "analytical_rotation":
         rotation_matrix = calculate_rotation(train_src_embeds, train_tgt_embeds)
         transformations.append(("multiply", rotation_matrix))
-        metrics["expected_loss"] = (
-            0.0  # TODO: Placeholder for expected metric calculation
-        )
     elif transform_name == "analytical_translation":
         translation_vector = calculate_translation(train_src_embeds, train_tgt_embeds)
         transformations.append(("add", translation_vector))
         metrics["expected_translation_magnitude"] = (
             0.0  # Placeholder metric calculation
         )
-
     elif transform_name == "rotation_then_translation":
         rotation_matrix, translation_vector = calculate_rotation_translation(
             train_src_embeds, train_tgt_embeds
@@ -95,6 +202,12 @@ def initialize_manual_transform(transform_name, train_loader):
         transformations.append(("multiply", rotation_matrix))
         transformations.append(("add", translation_vector))
         metrics["expected_combined_magnitude"] = 0.0
+    elif transform_name == "analytical_linear_map":
+        linear_map_matrix = calculate_linear_map(train_src_embeds, train_tgt_embeds)
+        transformations.append(("multiply", linear_map_matrix))
+        metrics["expected_linear_map_accuracy"] = (
+            0.0  # Placeholder for expected metric calculation
+        )
 
     transform_module = ManualTransformModule(transformations)
 

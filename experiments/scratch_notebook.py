@@ -5,9 +5,14 @@ import json
 import os
 
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from loguru import logger
 from transformers import PreTrainedTokenizerFast
 
 from auto_embeds.analytical import initialize_manual_transform
+from auto_embeds.utils.misc import default_device
+from experiments.scratch_funcs import plot_matrix_visualizations
 
 # Set environment variables
 # os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -74,22 +79,22 @@ experiment_config = {
         False,
     ],
     "datasets": [
-        {
-            "name": "wikdict_en_fr_extracted",
-            "min_length": 5,
-            "space_configurations": [{"en": "space", "fr": "space"}],
-            "mark_accuracy_path": "wikdict_en_fr_azure_validation",
-        },
-        {
-            "name": "random_word_pairs",
-            "min_length": 2,
-            "space_configurations": [{"en": "space", "fr": "space"}],
-        },
-        {
-            "name": "singular_plural_pairs",
-            "min_length": 2,
-            "space_configurations": [{"en": "space", "fr": "space"}],
-        },
+        # {
+        #     "name": "wikdict_en_fr_extracted",
+        #     "min_length": 5,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
+        #     "mark_accuracy_path": "wikdict_en_fr_azure_validation",
+        # },
+        # {
+        #     "name": "random_word_pairs",
+        #     "min_length": 2,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
+        # },
+        # {
+        #     "name": "singular_plural_pairs",
+        #     "min_length": 2,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
+        # },
         # {
         #     "name": "muse_en_fr_extracted",
         #     "min_length": 5,
@@ -110,17 +115,18 @@ experiment_config = {
         # },
     ],
     "transformations": [
-        "identity",
-        "translation",
-        "linear_map",
+        # "identity",
+        # "translation",
+        # "linear_map",
         # "biased_linear_map",
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
-        "rotation",
+        # "rotation",
         # "biased_rotation",
         # "uncentered_rotation",
-        "analytical_rotation",
+        # "analytical_rotation",
         "analytical_translation",
+        # "analytical_linear_map",
     ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
@@ -132,11 +138,14 @@ experiment_config = {
         "top_tgt",
     ],
     "seeds": [1],
-    "loss_functions": ["cosine_similarity", "mse_loss"],
+    # "loss_functions": ["cosine_similarity", "mse_loss"],
+    "loss_functions": ["cosine_similarity"],
     "embed_weight": ["model_weights"],
     "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    # "embed_ln_weights": ["no_ln"],
     "unembed_weight": ["model_weights"],
     "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    # "unembed_ln_weights": ["no_ln"],
     "n_epochs": [150],
     "weight_decay": [
         0,
@@ -181,7 +190,6 @@ results = {
     "mark_translation_accuracy": [],
     # "cos_sim_trend_plot": [],
     "cosine_similarity_loss": [],
-    "test_tensors": [],
 }
 
 for (
@@ -281,6 +289,7 @@ for (
         all_word_pairs=all_word_pairs,
         seed=seed,
     )
+    logger.debug("verify_learning done!")
 
     train_loader, test_loader = prepare_verify_datasets(
         verify_learning=verify_learning,
@@ -288,11 +297,13 @@ for (
         top_k=top_k,
         top_k_selection_method=top_k_selection_method,
     )
+    logger.debug("train_loader and test_loader done!")
 
     if "mark_accuracy_path" in dataset_config:
         azure_translations_path = get_dataset_path(dataset_config["mark_accuracy_path"])
     else:
         azure_translations_path = None
+    logger.debug("azure_translations_path done!")
 
     # Initialize transformation and optimizer
     if "analytical" in transformation:
@@ -307,8 +318,10 @@ for (
             transformation=transformation,
             optim_kwargs={"lr": lr, "weight_decay": weight_decay},
         )
+    logger.debug("transform and optim done!")
 
     loss_module = initialize_loss(loss_function)
+    logger.debug("loss_module done!")
 
     # Train transformation
     if optim is not None:
@@ -329,7 +342,7 @@ for (
     if "analytical" in transformation:
         results["matrix"].append(transform.transformations[0][1].detach().clone().cpu())
     elif "identity" in transformation:
-        results["matrix"].append(transform.identity.weight.detach().clone().cpu())
+        results["matrix"].append(t.eye(transform.d_model, device=default_device))
     elif "rotation" in transformation:
         results["matrix"].append(transform.rotation.weight.detach().clone().cpu())
     elif "translation" in transformation:
@@ -383,7 +396,7 @@ for (
 
     cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
 
-    cos_sims_trend_plot.show(config={"responsive": True, "autosize": True})
+    # cos_sims_trend_plot.show(config={"responsive": True, "autosize": True})
 
     test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
 
@@ -398,62 +411,42 @@ results_df = pd.DataFrame(results)
 
 # %%
 results_df = results_df.assign(
-    test_cos_sims=lambda df: df["test_cos_sims"].apply(lambda x: x.mean()),
+    # test_cos_sims=lambda df: df["test_cos_sims"].apply(lambda x: x.mean()),
     # matrix=lambda df: df["matrix"].apply(lambda x: x.numpy()),
 )
 
 # %%
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+print(results_df)
 
 # %%
 
-
-def plot_matrix_visualizations(results_df):
-    """Plot the first three matrices from the results dataframe as heatmaps."""
-    # Number of matrices to plot
-    num_matrices = len(results_df["matrix"][0:3])
-
-    # Create subplots
-    fig = make_subplots(rows=num_matrices, cols=1)
-
-    # Add each matrix as a heatmap to the subplots
-    for i, matrix in enumerate(results_df["matrix"].iloc[0:3], start=1):
-        fig.add_trace(
-            go.Heatmap(z=matrix, colorscale="Viridis", showscale=True), row=i, col=1
-        )
-
-    # Update layout to make each plot square
-    fig.update_layout(
-        height=1024 * num_matrices, width=1024, title_text="Matrix Visualizations"
-    )
-
-    # Show the figure
-    fig.show()
-
-
-plot_matrix_visualizations(results_df)
+fig = plot_matrix_visualizations(results_df[:1]).show(renderer="png")
 
 # %%
 
 
 def cosine_similarity_matrix(matrices):
     """
-    Computes the cosine similarity matrix for a list of matrices.
+    Computes the cosine similarity matrix for a list of matrices square matrices.
 
     Args:
-        matrices (list of t.Tensor): List of matrices to compute similarity.
+        matrices (list of t.Tensor): List of matrices to compute similarity between.
 
     Returns:
         t.Tensor: A matrix of cosine similarities.
     """
-    # Flatten each matrix to a vector for cosine similarity computation
-    vectors = [mat.flatten() for mat in matrices]
-    print([mat.shape for mat in matrices])
-    # print([vec.shape for vec in vectors])
-    similarity_matrix = t.nn.functional.cosine_similarity(
-        t.stack(vectors).unsqueeze(1), t.stack(vectors).unsqueeze(0), dim=2
+    ic([matrix.shape for matrix in matrices])
+    # Normalize each matrix to unit norm
+    normalized_matrices = [
+        matrix / matrix.norm(dim=1, keepdim=True) for matrix in matrices
+    ]
+    # Compute cosine similarity between all pairs of matrices
+    similarity_matrix = t.stack(
+        [
+            t.mm(m1, m2.transpose(0, 1))
+            for m1 in normalized_matrices
+            for m2 in normalized_matrices
+        ]
     )
     return similarity_matrix
 
@@ -491,7 +484,8 @@ def visualize_matrix_similarity(df):
 
 
 # Example usage within the module
-visualize_matrix_similarity(results_df)
+visualize_matrix_similarity(results_df[:4])
+# %%
 
 # %%
 
@@ -575,12 +569,11 @@ tgt_is_closest_embed = calc_tgt_is_closest_embed(
     all_word_pairs=all_word_pairs,
     embed_module=embed_module,
 )
-
+print(tgt_is_closest_embed)
 # %%
 verify_results_dict
 
 # %%
-import torch
 
 
 def plot_difference_heatmap(matrix1, matrix2, title):
@@ -595,7 +588,7 @@ def plot_difference_heatmap(matrix1, matrix2, title):
         raise ValueError("Both matrices must have the same dimensions.")
 
     # Compute the absolute difference between the two matrices
-    difference_matrix = torch.abs(matrix1 - matrix2).cpu().numpy()
+    difference_matrix = t.abs(matrix1 - matrix2).cpu().numpy()
 
     # Create heatmap
     fig = go.Figure(

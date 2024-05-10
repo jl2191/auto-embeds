@@ -198,6 +198,7 @@ def generate_tokens(
     return t.tensor(en_toks, device=device), t.tensor(fr_toks, device=device)
 
 
+@auto_embeds_cache
 def filter_word_pairs(
     tokenizer: PreTrainedTokenizerFast,
     word_pairs: List[List[str]],

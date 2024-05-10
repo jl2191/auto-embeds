@@ -1,5 +1,4 @@
 import json
-from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -80,12 +79,14 @@ def fetch_wandb_runs(
     return df
 
 
-def process_wandb_runs_df(df: pd.DataFrame) -> pd.DataFrame:
+def process_wandb_runs_df(df: pd.DataFrame, has_plot: bool = True) -> pd.DataFrame:
     """
     Processes a DataFrame of WandB runs returned by fetch_wandb_runs.
 
     Args:
         wandb_run_df: A DataFrame containing WandB runs data.
+        has_plot: A boolean to control whether to filter runs based on the presence
+            of 'cos_sims_trend_plot' in the summary.
 
     Returns:
         A DataFrame with columns for 'name', 'summary', 'config', and 'history'.
@@ -134,16 +135,18 @@ def process_wandb_runs_df(df: pd.DataFrame) -> pd.DataFrame:
     df = filtered_df
 
     # Additional filtering for 'cos_sims_trend_plot'
-    def has_plot(x):
-        return "cos_sims_trend_plot" in x and len(x["cos_sims_trend_plot"]) > 0
+    if has_plot:
 
-    filtered_df = df.query("summary.map(@has_plot)")
-    num_filtered_out = len(df) - len(filtered_df)
-    if num_filtered_out > 0:
-        print(
-            f"Warning: {num_filtered_out} run(s) filtered out due to missing "
-            "'cos_sims_trend_plot' in summary. These runs may still be processing."
-        )
+        def has_plot_func(x):
+            return "cos_sims_trend_plot" in x and len(x["cos_sims_trend_plot"]) > 0
+
+        filtered_df = df.query("summary.map(@has_plot_func)")
+        num_filtered_out = len(df) - len(filtered_df)
+        if num_filtered_out > 0:
+            print(
+                f"Warning: {num_filtered_out} run(s) filtered out due to missing "
+                "'cos_sims_trend_plot' in summary. These runs may still be processing."
+            )
 
     df = filtered_df
     # ensure the DataFrame contains the expected columns
@@ -289,58 +292,3 @@ def list_changed_configs(df):
             changed_configs[param] = values
 
     return changed_configs
-
-
-# Calculate differences in test_accuracy between analytical_rotation and rotation
-def get_difference_df(
-    df: pd.DataFrame,
-    configs_that_change_names: List[str],
-    comparison_name: str,
-    comparison_values: Tuple[str, str],
-    metric: str,
-) -> pd.DataFrame:
-    """
-    Computes the difference between two configurations for a specified metric.
-
-    Args:
-        df: DataFrame containing the data.
-        configs_that_change_names: List of configuration names that change.
-        comparison_config: A tuple containing the query strings for the two configs to
-                           compare. Each element should be a valid DataFrame query
-                           string that uniquely identifies each configuration subset.
-        metric: The metric for which the difference is to be calculated.
-
-    Returns:
-        A DataFrame with the differences computed between the specified configurations.
-    """
-    first_value, second_value = comparison_values
-    # Filter out columns with unhashable data types (e.g., lists, dicts)
-    hashable_columns = list(configs_that_change_names) + [metric]
-    # Create subsets for each configuration in the comparison
-    df_first_config = (
-        df[hashable_columns]
-        .query(f"{comparison_name} == @first_value")
-        .reset_index(drop=True)
-    )
-    df_second_config = (
-        df[hashable_columns]
-        .query(f"{comparison_name} == @second_value")
-        .reset_index(drop=True)
-    )
-
-    # Merge on all other parameters
-    merged_df = pd.merge(
-        df_first_config,
-        df_second_config,
-        on=[
-            col for col in hashable_columns if col != metric and col != comparison_name
-        ],
-        suffixes=[f"_{first_value}", f"_{second_value}"],
-    )
-
-    # Calculate the difference
-    merged_df["difference"] = (
-        merged_df[f"{metric}_{second_value}"] - merged_df[f"{metric}_{first_value}"]
-    )
-
-    return merged_df

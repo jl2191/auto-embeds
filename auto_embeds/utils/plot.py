@@ -1,6 +1,5 @@
-import logging
-
 import plotly.express as px
+from loguru import logger
 
 from auto_embeds.utils.misc import dynamic_text_wrap
 
@@ -15,7 +14,7 @@ def create_parallel_categories_plot(
     query=None,
     labels=None,
     difference=None,
-    invert_colors=False,  # New argument to invert the color scale
+    invert_colors=False,
 ):
     """
     Creates and displays a parallel categories plot based on the provided parameters,
@@ -47,7 +46,7 @@ def create_parallel_categories_plot(
     filtered_df = df.dropna(subset=[color])
     num_filtered = len(df) - len(filtered_df)
     if num_filtered > 0:
-        logging.info(f"Filtered out {num_filtered} rows with NA in '{color}' column.")
+        logger.info(f"Filtered out {num_filtered} rows with NA in '{color}' column.")
 
     df = filtered_df
 
@@ -57,7 +56,7 @@ def create_parallel_categories_plot(
 
     color_scale = px.colors.diverging.Tealrose
     if invert_colors:
-        color_scale = color_scale[::-1]  # Invert the color scale
+        color_scale = color_scale[::-1]
 
     fig = (
         px.parallel_categories(
@@ -66,7 +65,7 @@ def create_parallel_categories_plot(
             color=color,
             labels=labels,
             title=title,
-            color_continuous_scale=color_scale if difference else None,
+            color_continuous_scale=color_scale,
             color_continuous_midpoint=0 if difference else None,
         )
         .update_traces(arrangement="freeform")
@@ -83,4 +82,4 @@ def create_parallel_categories_plot(
         .update_layout(autosize=True)
     )
 
-    fig.show(config={"responsive": True})
+    return fig

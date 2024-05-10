@@ -320,6 +320,7 @@ def train_transform(
     for epoch in (epoch_pbar := tqdm(range(n_epochs + 1))):
         for batch_idx, (en_embed, fr_embed) in enumerate(train_loader):
             optim.zero_grad()
+            # TODO: what happens when i move zero_grad elsewhere?
             pred = transform(en_embed)
             train_loss = loss_module(pred.squeeze(), fr_embed.squeeze())
             info_dict = {

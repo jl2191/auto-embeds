@@ -1,11 +1,12 @@
 # %%
+
+
 from auto_embeds.utils.plot import create_parallel_categories_plot
 from auto_embeds.utils.wandb import (
     fetch_wandb_runs,
     list_changed_configs,
     process_wandb_runs_df,
 )
-from experiments.scratch_funcs import plot_difference
 
 try:
     get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore
@@ -16,17 +17,12 @@ except Exception:
 # %%
 original_df = fetch_wandb_runs(
     project_name="jl2191/language-transformations",
-    tags=[
-        "actual",
-        "2024-05-09 translation and linear map",
-        "experiment 1",
-        "run group 3",
-    ],
+    tags=["actual", "2024-05-09 translation and linear map", "experiment 1"],
     get_artifacts=True,
 )
 
 changed_configs = list_changed_configs(original_df)
-configs_that_change_names = ["dataset"] + [
+configs_that_change_names = [
     key for key in changed_configs.keys() if key not in ["embed_ln", "unembed_ln"]
 ]
 configs_that_change_values = [changed_configs[key] for key in configs_that_change_names]
@@ -71,6 +67,7 @@ plot_index = 1
 
 # %%
 """
+what overall is the best performing in terms of mark_translation_acc?
 """
 df = (
     runs_df[configs_that_change_names + ["mark_translation_acc"]].query(
@@ -93,6 +90,8 @@ if should_show_plot(plot_index):
     fig.show(config={"responsive": True})
 plot_index += 1
 """
+hmm, seem like linear map is doing quite a bit better. how about if we look at mse and
+cosine similarity?
 """
 
 # %%
@@ -117,6 +116,7 @@ if should_show_plot(plot_index):
 plot_index += 1
 print(
     """
+seems like linear_map is still doing quite the bit better which should not be the case?
     """
 )
 
@@ -142,8 +142,6 @@ if should_show_plot(plot_index):
 plot_index += 1
 print(
     """
-    hmm it seems like the case that analytical_linear_map is indeed doing as well as the
-    linear map for the mse loss but this does not translate over to mark_translation_acc
     """
 )
 
@@ -151,7 +149,9 @@ print(
 """
 """
 df = (
-    runs_df[configs_that_change_names + ["mark_translation_acc"]]
+    runs_df[configs_that_change_names + ["mark_translation_acc"]].query(
+        "transformation != 'linear_map'"
+    )
     # .query("dataset == 'cc_cedict_zh_en_extracted'")
     # .query("embed_ln_weights != model_weights")
     # .query("loss_function == 'cosine_similarity'")
@@ -170,19 +170,6 @@ if should_show_plot(plot_index):
     fig.show(config={"responsive": True})
 plot_index += 1
 """
+hmm, seem like linear map is doing quite a bit better. how about if we look at mse and
+cosine similarity?
 """
-
-# %%
-fig = plot_difference(
-    df=runs_df[configs_that_change_names + ["mse_test_loss"]],
-    query="loss_function == 'mse_loss'",
-    configs_that_change_names=configs_that_change_names,
-    comparison_name="transformation",
-    comparison_values=("analytical_linear_map", "linear_map"),
-    metric="mse_test_loss",
-    annotation_text="",
-    invert_colors=True,
-)
-if should_show_plot(plot_index):
-    fig.show(config={"responsive": True})
-plot_index += 1

@@ -12,12 +12,11 @@ os.environ["AUTOEMBEDS_CACHING"] = "true"
 
 import numpy as np
 import torch as t
-import transformer_lens as tl
 import wandb
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
 from auto_embeds.analytical import initialize_manual_transform
-from auto_embeds.data import filter_word_pairs, get_dataset_path
+from auto_embeds.data import filter_word_pairs, get_cached_weights, get_dataset_path
 from auto_embeds.embed_utils import (
     calculate_test_loss,
     initialize_embed_and_unembed,
@@ -32,7 +31,6 @@ from auto_embeds.metrics import (
 from auto_embeds.utils.custom_tqdm import tqdm
 from auto_embeds.utils.misc import get_experiment_worker_config, is_notebook
 from auto_embeds.verify import (
-    plot_cosine_similarity_trend,
     prepare_verify_analysis,
     prepare_verify_datasets,
     test_cos_sim_difference,
@@ -50,9 +48,9 @@ experiment_config = {
         "notes": "blank",
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
-            f"{datetime.datetime.now():%Y-%m-%d} analytical and ln",
-            "experiment 2",
-            "run group 1",
+            f"{datetime.datetime.now():%Y-%m-%d} translation and linear map",
+            "experiment 1",
+            "run group 5",
             # "actual",
             # "test",
         ],
@@ -72,16 +70,16 @@ experiment_config = {
             "space_configurations": [{"en": "space", "fr": "space"}],
             "mark_accuracy_path": "wikdict_en_fr_azure_validation",
         },
-        {
-            "name": "random_word_pairs",
-            "min_length": 2,
-            "space_configurations": [{"en": "space", "fr": "space"}],
-        },
-        {
-            "name": "singular_plural_pairs",
-            "min_length": 2,
-            "space_configurations": [{"en": "space", "fr": "space"}],
-        },
+        # {
+        #     "name": "random_word_pairs",
+        #     "min_length": 2,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
+        # },
+        # {
+        #     "name": "singular_plural_pairs",
+        #     "min_length": 2,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
+        # },
         # {
         #     "name": "muse_en_fr_extracted",
         #     "min_length": 5,
@@ -104,15 +102,16 @@ experiment_config = {
     "transformations": [
         "identity",
         "translation",
+        "rotation",
+        # "biased_rotation",
+        # "uncentered_rotation",
         "linear_map",
         # "biased_linear_map",
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
-        "rotation",
-        # "biased_rotation",
-        # "uncentered_rotation",
-        "analytical_rotation",
+        "analytical_linear_map",
         "analytical_translation",
+        "analytical_rotation",
     ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
@@ -127,9 +126,13 @@ experiment_config = {
     "loss_functions": ["cosine_similarity", "mse_loss"],
     "embed_weight": ["model_weights"],
     "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    # "embed_ln_weights": ["no_ln", "model_weights"],
+    # "embed_ln_weights": ["default_weights"],
     "unembed_weight": ["model_weights"],
     "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-    "n_epochs": [150],
+    # "unembed_ln_weights": ["no_ln", "model_weights"],
+    # "unembed_ln_weights": ["default_weights"],
+    "n_epochs": [100],
     "weight_decay": [
         0,
         # 2e-5,
@@ -186,6 +189,7 @@ def run_experiment(config_dict):
         unembed_ln = True if unembed_ln_weights != "no_ln" else False
 
         run_config = {
+            "note": "new_implementation",
             "model_name": model_name,
             "processing": processing,
             "dataset": dataset_config,
@@ -220,33 +224,11 @@ def run_experiment(config_dict):
             model_name
         )  # type: ignore
 
-        # Model setup
+        # Model weights setup
         current_model_config = (model_name, processing)
         if current_model_config != last_model_config:
-            if processing:
-                model = tl.HookedTransformer.from_pretrained(model_name)
-            else:
-                model = tl.HookedTransformer.from_pretrained_no_processing(model_name)
+            model_weights = get_cached_weights(model_name, processing)
             last_model_config = current_model_config
-
-            model_weights = {
-                "W_E": model.W_E.detach().clone(),
-                "embed.ln.w": model.embed.ln.w.detach().clone(),
-                "embed.ln.b": model.embed.ln.b.detach().clone(),
-                "ln_final.w": model.ln_final.w.detach().clone(),
-                "ln_final.b": model.ln_final.b.detach().clone(),
-                "W_U": model.W_U.detach().clone(),
-                "b_U": model.b_U.detach().clone(),
-            }
-
-            del model
-
-        # Ensure model_weights is initialized
-        if model_weights is None:
-            raise ValueError("Model weights have not been initialized.")
-
-        d_model = model_weights["W_E"].shape[1]
-        n_toks = model_weights["W_E"].shape[0]
 
         # Initialize embed and unembed modules
         embed_module, unembed_module = initialize_embed_and_unembed(
@@ -377,7 +359,7 @@ def run_experiment(config_dict):
             unembed_module=unembed_module,
         )
 
-        cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
+        # cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
 
         # cos_sims_trend_plot.show(config={"responsive": True, "autosize": True})
 
@@ -387,7 +369,7 @@ def run_experiment(config_dict):
             {
                 "test_accuracy": test_accuracy,
                 "mark_translation_acc": mark_translation_acc,
-                "cos_sims_trend_plot": cos_sims_trend_plot,
+                # "cos_sims_trend_plot": cos_sims_trend_plot,
                 "test_cos_sim_diff": test_cos_sim_diff,
                 "cosine_similarity_test_loss": cosine_similarity_test_loss,
                 "mse_test_loss": mse_test_loss,
@@ -405,7 +387,7 @@ def setup_arg_parser():
     parser.add_argument(
         "--worker_id",
         type=int,
-        choices=[1, 2, 3, 4],
+        choices=[1, 2],
         help="Optional: Worker ID to use for running the experiment.",
     )
     return parser
@@ -430,12 +412,11 @@ if __name__ == "__main__":
         # Command-line execution
         parser = setup_arg_parser()
         args = parser.parse_args()
-
         if args.worker_id:
             config_to_use = get_experiment_worker_config(
                 experiment_config=experiment_config,
-                split_parameter="datasets",
-                n_splits=4,
+                split_parameter="loss_functions",
+                n_splits=2,
                 worker_id=args.worker_id,
             )
             print(f"Running experiment for worker ID = {args.worker_id}")
