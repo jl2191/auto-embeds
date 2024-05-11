@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 
 from auto_embeds.utils.neptune import (
-    fetch_neptune_runs,
+    fetch_neptune_runs_df,
     list_changed_configs,
     process_neptune_runs_df,
 )
@@ -18,7 +18,7 @@ except Exception:
     pass
 
 # %%
-original_df = fetch_neptune_runs(
+original_df = fetch_neptune_runs_df(
     project_name="jl2191/language-transformations",
     tags=["actual", "2024-05-05 analytical and ln", "experiment 2"],
     get_artifacts=True,

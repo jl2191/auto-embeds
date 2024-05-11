@@ -129,7 +129,7 @@ def calculate_linear_map(
     logger.debug(f"B.shape: {B.shape}")
     # solving the linear system AX = B for X
     result = t.linalg.lstsq(A, B)
-    A = result.solution  # Extract the solution matrix A
+    A = result.solution
     logger.debug(f"A.shape: {A.shape}")
     return A
 

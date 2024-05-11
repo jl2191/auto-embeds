@@ -10,11 +10,11 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 os.environ["AUTOEMBEDS_CACHING"] = "true"
 
-import os
-
 import neptune
 import numpy as np
+import plotly.io as pio
 import torch as t
+from neptune.types import File
 from neptune.utils import stringify_unsupported
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
@@ -52,11 +52,9 @@ experiment_config = {
         "notes": "blank",
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
-            f"{datetime.datetime.now():%Y-%m-%d} linear map",
-            "experiment 1",
+            f"{datetime.datetime.now():%Y-%m-%d} learned and analytical linear map",
+            "experiment 3",
             "run group 1",
-            # "actual",
-            # "test",
         ],
     },
     "models": [
@@ -361,20 +359,37 @@ def run_experiment(config_dict):
             unembed_module=unembed_module,
         )
 
+        # calculating and logging metrics
         cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
-
-        # cos_sims_trend_plot.show(config={"responsive": True, "autosize": True})
-
-        test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
+        verify_results_json = json.dumps(
+            {
+                key: value.tolist() if isinstance(value, t.Tensor) else value
+                for key, value in verify_results_dict.items()
+            }
+        )
+        test_cos_sim_diff = json.dumps(
+            {
+                k: bool(v) if isinstance(v, np.bool_) else v
+                for k, v in test_cos_sim_difference(verify_results_dict).items()
+            }
+        )
 
         run["results"] = {
             "test_accuracy": test_accuracy,
             "mark_translation_acc": mark_translation_acc,
             "cos_sims_trend_plot": cos_sims_trend_plot,
-            "test_cos_sim_diff": test_cos_sim_diff,
             "cosine_similarity_test_loss": cosine_similarity_test_loss,
             "mse_test_loss": mse_test_loss,
         }
+        run["results/json/verify_results"].upload(
+            File.from_content(verify_results_json)
+        )
+        run["results/json/cos_sims_trend_plot"].upload(
+            File.from_content(str(pio.to_json(cos_sims_trend_plot)))
+        )
+        run["results/json/test_cos_sim_diff"].upload(
+            File.from_content(test_cos_sim_diff)
+        )
 
         run.stop()
 

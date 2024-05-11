@@ -329,15 +329,13 @@ def train_transform(
             step_count += 1
             train_history["train_loss"].append(info_dict)
             if neptune_run:
-                for key, value in info_dict.items():
-                    neptune_run[key].append(value, step=step_count)
+                neptune_run["train"].append(info_dict, step=step_count)
             train_loss.backward()
             optim.step()
             epoch_pbar.set_description(f"train loss: {train_loss.item():.3f}")
         # Calculate and log test loss at the end of each epoch divisible by 10
         if epoch % 10 == 0:
             with t.no_grad():
-                total_test_loss = 0
                 avg_test_loss = calculate_test_loss(test_loader, transform, loss_module)
                 info_dict = {"test_loss": avg_test_loss, "epoch": epoch}
                 train_history["test_loss"].append(info_dict)

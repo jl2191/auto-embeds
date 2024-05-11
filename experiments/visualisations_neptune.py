@@ -1,10 +1,9 @@
 # %%
-
 import pandas as pd
 import plotly.express as px
 
 from auto_embeds.utils.neptune import (
-    fetch_neptune_runs,
+    fetch_neptune_runs_df,
     list_changed_configs,
     process_neptune_runs_df,
 )
@@ -18,22 +17,26 @@ except Exception:
     pass
 
 # %%
-original_df = fetch_neptune_runs(
-    project_name="jl2191/language-transformations",
-    tags=["actual", "2024-05-09 translation", "experiment 3"],
+original_df = fetch_neptune_runs_df(
+    project_name="mars/language-transformations",
+    tags=[
+        "actual",
+        "2024-05-11 learned and analytical linear map",
+        "experiment 3",
+        "run group 1",
+    ],
     get_artifacts=True,
 )
 
+# %%
 changed_configs = list_changed_configs(original_df)
 configs_that_change_names = [
     key for key in changed_configs.keys() if key not in ["embed_ln", "unembed_ln"]
-]
-configs_that_change_values = [changed_configs[key] for key in configs_that_change_names]
+] + ["dataset"]
+# configs_that_change_values = [changed_configs[key] for key in configs_that_change_names]
 
 # %%
 runs_df = process_neptune_runs_df(original_df)
-runs_df = runs_df.drop(columns=["summary", "config", "history"]).reset_index(drop=True)
-runs_df = runs_df.query("dataset not in ['singular_plural_pairs', 'random_word_pairs']")
 
 custom_labels = (
     {
@@ -54,7 +57,6 @@ custom_labels = (
     },
 )
 
-
 # %%
 # Global variable to control figure display ranges
 SHOW_PLOT_RANGE = (0, 99)
@@ -70,10 +72,9 @@ plot_index = 1
 
 fig = plot_difference(
     df=runs_df,
-    query="loss_function == 'cosine_similarity'",
     configs_that_change_names=configs_that_change_names,
     comparison_name="transformation",
-    comparison_values=("analytical_rotation", "rotation"),
+    comparison_values=("analytical_translation", "translation"),
     metric="cosine_similarity_test_loss",
     annotation_text="filters: loss_function = cosine_similarity",
 )
@@ -85,7 +86,6 @@ plot_index += 1
 # %%
 fig = plot_difference(
     df=runs_df,
-    query="loss_function == 'mse_loss'",
     configs_that_change_names=configs_that_change_names,
     comparison_name="transformation",
     comparison_values=("analytical_rotation", "rotation"),
@@ -99,7 +99,6 @@ plot_index += 1
 # %%
 fig = plot_difference(
     df=runs_df,
-    query="",
     configs_that_change_names=configs_that_change_names,
     comparison_name="transformation",
     comparison_values=("analytical_rotation", "rotation"),
@@ -113,7 +112,6 @@ plot_index += 1
 # %%
 fig = plot_difference(
     df=runs_df,
-    query="",
     configs_that_change_names=configs_that_change_names,
     comparison_name="transformation",
     comparison_values=("analytical_rotation", "rotation"),
@@ -151,7 +149,6 @@ df = (
 )
 fig = plot_difference(
     df=df,
-    query="",
     configs_that_change_names=configs_that_change_names,
     comparison_name="transformation",
     comparison_values=("analytical_rotation", "rotation"),
@@ -199,7 +196,6 @@ df = (
 )
 fig = plot_difference(
     df=df,
-    query="",
     configs_that_change_names=configs_that_change_names,
     comparison_name="transformation",
     comparison_values=("analytical_rotation", "rotation"),

@@ -62,6 +62,7 @@ def get_difference_df(
         .query(f"{comparison_name} == @first_value")
         .reset_index(drop=True)
     )
+    print(df_first_config)
     df_second_config = (
         df[hashable_columns]
         .query(f"{comparison_name} == @second_value")
@@ -89,7 +90,6 @@ def get_difference_df(
 # %%
 def plot_difference(
     df,
-    query,
     configs_that_change_names,
     comparison_name,
     comparison_values,
@@ -97,14 +97,9 @@ def plot_difference(
     annotation_text,
     invert_colors=False,
 ):
-    # Only perform the query if it is provided, otherwise use the full dataframe
-    if query:
-        filtered_df = df.query(query)
-    else:
-        filtered_df = df
 
     difference_df = get_difference_df(
-        df=filtered_df,
+        df=df,
         configs_that_change_names=configs_that_change_names,
         comparison_name=comparison_name,
         comparison_values=comparison_values,
