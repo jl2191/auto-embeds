@@ -4,11 +4,11 @@ import itertools
 import plotly.graph_objects as go
 import torch as t
 import transformer_lens as tl
-from loguru import logger
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
 from auto_embeds.data import get_cached_weights
 from auto_embeds.embed_utils import initialize_embed_and_unembed
+from auto_embeds.utils.logging import logger
 
 # %%
 print(

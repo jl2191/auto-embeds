@@ -2,11 +2,11 @@ from typing import Tuple
 
 import torch as t
 from jaxtyping import Float
-from loguru import logger
 from scipy.linalg import orthogonal_procrustes
 from torch import Tensor
 
 from auto_embeds.modules import ManualTransformModule
+from auto_embeds.utils.logging import logger
 
 
 def calculate_translation(
@@ -109,12 +109,22 @@ def calculate_rotation_torch(
 
 
 def calculate_rotation(train_src_embeds: Tensor, train_tgt_embeds: Tensor) -> Tensor:
-    """Calculates rotation matrix for source to target language embeddings."""
+    """Calculates rotation matrix for source to target language embeddings using RoMa."""
     A = train_src_embeds.detach().clone().squeeze()
     B = train_tgt_embeds.detach().clone().squeeze()
-    C = t.matmul(B.T, A)
-    U, _, Vt = t.linalg.svd(C)
-    R = t.matmul(U, Vt)
+    # Using RoMa to compute the special Procrustes orthonormalization
+    R = roma.special_procrustes(t.matmul(A.T, B))
+    return R
+
+
+def calculate_procrustes(
+    train_src_embeds: Tensor, train_tgt_embeds: Tensor, force_rotation: bool = True
+) -> Tensor:
+    """Calculates the Procrustes transformation matrix using RoMa, optionally forcing a proper rotation."""
+    A = train_src_embeds.detach().clone().squeeze()
+    B = train_tgt_embeds.detach().clone().squeeze()
+    C = t.matmul(A.T, B)  # Compute the cross-covariance matrix
+    R, _ = roma.procrustes(C, force_rotation=force_rotation)
     return R
 
 
@@ -127,11 +137,12 @@ def calculate_linear_map(
     B = train_tgt_embeds.detach().clone().squeeze()
     logger.debug(f"A.shape: {A.shape}")
     logger.debug(f"B.shape: {B.shape}")
-    # solving the linear system AX = B for X
+    # to solve the linear system XA = B for X, as lstsq solves the linear system
+    # AX = B we can solve A^T X^T = B^T and then transpose the result to get X.
     result = t.linalg.lstsq(A, B)
-    A = result.solution
-    logger.debug(f"A.shape: {A.shape}")
-    return A
+    X = result.solution
+    logger.debug(f"X.shape: {X.shape}")
+    return X
 
 
 def calculate_rotation_translation(

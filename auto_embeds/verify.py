@@ -7,7 +7,6 @@ import plotly.express as px
 import plotly.graph_objs as go
 import torch as t
 import torch.nn as nn
-from loguru import logger
 from plotly.graph_objects import Figure
 from rich.table import Table
 from scipy import stats
@@ -22,6 +21,7 @@ from auto_embeds.data import (
     WordData,
     tokenize_word_pairs,
 )
+from auto_embeds.utils.logging import logger
 from auto_embeds.utils.misc import calculate_gradient_color, default_device
 
 
@@ -79,7 +79,6 @@ def verify_transform(
         for batch in test_loader:
             # we get the embeddings for the source and target language
             en_embeds, fr_embeds = batch
-            top_pred_embeds = transformation(en_embeds)
             en_logits = unembed_module(en_embeds)
             en_strs: List[str] = tokenizer.batch_decode(
                 en_logits.squeeze().argmax(dim=-1)
@@ -799,10 +798,10 @@ def prepare_verify_datasets(
     src_embeds_with_top_k_cos_sims = src_embeds[test_indices]
     tgt_embeds_with_top_k_cos_sims = tgt_embeds[test_indices]
 
-# Unsqueeze to add an extra dimension for pos
+    # Unsqueeze to add an extra dimension for pos
     src_test_embeds = src_embeds_with_top_k_cos_sims.unsqueeze(1)
     tgt_test_embeds = tgt_embeds_with_top_k_cos_sims.unsqueeze(1)
-# these should now be [batch, pos, d_model]
+    # these should now be [batch, pos, d_model]
 
     logger.debug(f"source test embeds shape: {src_test_embeds.shape}")
     logger.debug(f"target test embeds shape: {tgt_test_embeds.shape}")

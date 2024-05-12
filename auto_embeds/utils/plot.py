@@ -1,6 +1,6 @@
 import plotly.express as px
-from loguru import logger
 
+from auto_embeds.utils.logging import logger
 from auto_embeds.utils.misc import dynamic_text_wrap
 
 
@@ -83,3 +83,16 @@ def create_parallel_categories_plot(
     )
 
     return fig
+
+
+def add_annotation_to_figure(fig, annotation_text):
+    return fig.add_annotation(
+        text=dynamic_text_wrap(annotation_text, 600),
+        align="left",
+        xref="paper",
+        yref="paper",
+        showarrow=False,
+        x=0,
+        y=-0.25,
+        font=dict(size=13),
+    )

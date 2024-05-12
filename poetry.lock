@@ -5467,6 +5467,17 @@ pygments = ">=2.13.0,<3.0.0"
 jupyter = ["ipywidgets (>=7.5.1,<9)"]
 
 [[package]]
+name = "roma"
+version = "1.5.0"
+description = "A lightweight library to deal with 3D rotations in PyTorch."
+optional = false
+python-versions = ">=3.6"
+files = [
+    {file = "roma-1.5.0-py3-none-any.whl", hash = "sha256:6d743e272ad217df90c9db83d84d1d881a74bc004accd4b6a416899f8778bd49"},
+    {file = "roma-1.5.0.tar.gz", hash = "sha256:df8466f99dd0796f133176146ec024133942555041001149aec7eddc98ed15be"},
+]
+
+[[package]]
 name = "rope"
 version = "1.13.0"
 description = "a python refactoring library..."
@@ -7557,4 +7568,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.11.0"
-content-hash = "4493188e969e8f3bfed3acdf725712583567346018ed7b1c4847f1cc4f92fe4b"
+content-hash = "a4d2debd2d845d51a2c1aef16e7a5e51a32eaefae267993572260605a8995421"

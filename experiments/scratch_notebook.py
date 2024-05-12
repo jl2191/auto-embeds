@@ -7,10 +7,10 @@ import os
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from loguru import logger
 from transformers import PreTrainedTokenizerFast
 
 from auto_embeds.analytical import initialize_manual_transform
+from auto_embeds.utils.logging import logger
 from auto_embeds.utils.misc import default_device
 from experiments.scratch_funcs import plot_matrix_visualizations
 

@@ -5,9 +5,9 @@ import torch as t
 import torch.nn as nn
 from fancy_einsum import einsum
 from jaxtyping import Float
-from loguru import logger
 from torch import Tensor
 
+from auto_embeds.utils.logging import logger
 from auto_embeds.utils.misc import get_default_device
 
 default_device = get_default_device()
@@ -380,7 +380,7 @@ class ManualTransformModule(nn.Module):
                 logger.info(f"x.shape: {x.shape}")
                 logger.info(f"transform_tensor.shape: {transform_tensor.shape}")
                 x = einsum(
-                    "batch pos d_model, d_model d_model -> batch pos d_model",
+                    "batch pos d_model_row, d_model_row d_model_col -> batch pos d_model_col",
                     x,
                     transform_tensor,
                 )
