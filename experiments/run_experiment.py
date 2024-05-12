@@ -107,7 +107,7 @@ experiment_config = {
         # "rotation",
         # "biased_rotation",
         # "uncentered_rotation",
-        "linear_map",
+        # "linear_map",
         # "biased_linear_map",
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",

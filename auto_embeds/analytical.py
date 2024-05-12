@@ -103,12 +103,26 @@ def calculate_rotation_torch(
     """Calculates the best linear map matrix for source to target language embeddings."""
     A = train_src_embeds.detach().clone().squeeze()
     B = train_tgt_embeds.detach().clone().squeeze()
+    u, w, vt = t.linalg.svd(t.matmul(B.T, A).T)
+    R = u.dot(vt)
+    return R
+
+
+def calculate_rotation_torch(
+    train_src_embeds: Float[Tensor, "batch pos d_model"],
+    train_tgt_embeds: Float[Tensor, "batch pos d_model"],
+) -> Float[Tensor, "d_model d_model"]:
+    """Calculates the best linear map matrix for source to target language embeddings."""
+    A = train_src_embeds.detach().clone().squeeze()
+    B = train_tgt_embeds.detach().clone().squeeze()
     u, w, vt = t.linalg.svd(B.T.dot(A).T)
     R = u.dot(vt)
     return R
 
 
-def calculate_rotation(train_src_embeds: Tensor, train_tgt_embeds: Tensor) -> Tensor:
+def calculate_rotation_special_procrustes(
+    train_src_embeds: Tensor, train_tgt_embeds: Tensor
+) -> Tensor:
     """Calculates rotation matrix for source to target language embeddings using RoMa."""
     A = train_src_embeds.detach().clone().squeeze()
     B = train_tgt_embeds.detach().clone().squeeze()

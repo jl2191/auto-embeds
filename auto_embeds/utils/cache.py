@@ -1,12 +1,11 @@
-import logging
 import os
 from functools import wraps
 
 from joblib import Memory
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Retrieve the cache directory from the environment variable or use '/tmp' as default.
+cachedir = os.getenv("AUTOEMBEDS_CACHE_DIR", "/tmp")
+memory = Memory(cachedir, verbose=0)
 
 
 def auto_embeds_cache(func):
@@ -36,8 +35,9 @@ def auto_embeds_cache(func):
 
     Returns:
         CachedFunction: A callable that behaves like the original function but caches
-        its results and logs cache usage.
+        its results.
     """
+
     cachedir = os.path.join(os.getenv("AUTOEMBEDS_CACHE_DIR", "/tmp"), func.__name__)
     memory = Memory(cachedir, verbose=0)
 
@@ -46,17 +46,9 @@ def auto_embeds_cache(func):
 
         class CachedFunction:
             def __call__(self, *args, **kwargs):
-                if memory.store_backend.contains_item([func, args, kwargs]):
-                    logger.info(
-                        f"Using cached result for {func.__name__} with args {args} and kwargs {kwargs}."
-                    )
-                    logger.info(
-                        f"To clear the cache, call {func.__name__}.clear_cache()"
-                    )
                 return cached_func(*args, **kwargs)
 
             def clear_cache(self):
-                logger.info(f"Clearing cache for {func.__name__}")
                 memory.clear(warn=False)
 
         return CachedFunction()

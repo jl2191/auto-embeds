@@ -22,7 +22,7 @@ original_df = fetch_neptune_runs_df(
     project_name="mars/language-transformations",
     tags=[
         "actual",
-        "2024-05-11 big sweep",
+        "2024-05-11 linear mapping tings",
         "experiment 1",
         "run group 1",
     ],
