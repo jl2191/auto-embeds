@@ -23,8 +23,8 @@ original_df = fetch_neptune_runs_df(
     project_name="mars/language-transformations",
     tags=[
         "actual",
-        # "2024-05-12 rotation trials",
-        "experiment 12",
+        "2024-05-12 rotation trials",
+        "experiment 8",
     ],
     get_artifacts=True,
 )
@@ -98,7 +98,6 @@ annotation_text = """
 df = (
     runs_df
     # .query("loss_function == 'mse_loss'")
-    # .query("loss_function == 'cosine_similarity'")
     # .query("dataset == 'cc_cedict_zh_en_extracted'")
     # .query("dataset == 'wikdict_en_fr_extracted'")
     # .query("embed_ln_weights == 'model_weights'")

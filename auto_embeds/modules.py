@@ -377,15 +377,15 @@ class ManualTransformModule(nn.Module):
         """
         for operation, transform_tensor in self.transformations:
             if operation == "multiply":
-                logger.info(f"x.shape: {x.shape}")
-                logger.info(f"transform_tensor.shape: {transform_tensor.shape}")
                 x = einsum(
-                    "batch pos d_model_row, d_model_row d_model_col -> batch pos d_model_col",
-                    x,
+                    "d_model_row d_model_col, batch pos d_model_row -> batch pos d_model_col",
                     transform_tensor,
+                    x,
                 )
             elif operation == "add":
                 x = x + transform_tensor
+            elif operation == "scale":
+                x = x * transform_tensor
             else:
                 raise ValueError(f"Unsupported operation: {operation}")
 

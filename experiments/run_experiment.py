@@ -32,6 +32,7 @@ from auto_embeds.metrics import (
     mark_translation,
 )
 from auto_embeds.utils.custom_tqdm import tqdm
+from auto_embeds.utils.logging import logger
 from auto_embeds.utils.misc import get_experiment_worker_config, is_notebook
 from auto_embeds.verify import (
     plot_cosine_similarity_trend,
@@ -49,14 +50,14 @@ t.cuda.manual_seed(1)
 # Configuration for overall experiments
 experiment_config = {
     "neptune": {
-        "notes": "blank",
         "tags": [
             f"{datetime.datetime.now():%Y-%m-%d}",
-            f"{datetime.datetime.now():%Y-%m-%d} linear mapping tings",
-            "experiment 1",
+            f"{datetime.datetime.now():%Y-%m-%d} rotation trials",
+            "experiment 12",
             "run group 1",
         ],
     },
+    "description": ["none"],
     "models": [
         "bigscience/bloom-560m",
         # "bloom-3b",
@@ -111,9 +112,21 @@ experiment_config = {
         # "biased_linear_map",
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
-        "analytical_linear_map",
+        # "analytical_linear_map",
         # "analytical_translation",
-        # "analytical_rotation",
+        # "analytical_rotation_scipy",
+        # "analytical_rotation_roma",
+        # "analytical_rotation_torch",
+        # "analytical_rotation_scipy_scale",
+        # "analytical_rotation_roma_scale",
+        # "analytical_rotation_torch_scale",
+        # "roma_analytical",
+        # "roma_scale_analytical",
+        # "torch_analytical",
+        # "torch_scale_analytical",
+        # "kabsch_analytical",
+        # "kabsch_analytical_new",
+        "kabsch_analytical_no_scale",
     ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
@@ -124,8 +137,9 @@ experiment_config = {
         # "top_src",
         "top_tgt",
     ],
-    "seeds": [2],
-    "loss_functions": ["cosine_similarity", "mse_loss"],
+    "seeds": [1],
+    # "loss_functions": ["cosine_similarity", "mse_loss"],
+    "loss_functions": ["cosine_similarity"],
     "embed_weight": ["model_weights"],
     "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
     # "embed_ln_weights": ["no_ln", "model_weights"],
@@ -168,6 +182,7 @@ def run_experiment(config_dict):
     model_weights = None
 
     for (
+        description,
         model_name,
         processing,
         dataset_config,
@@ -191,6 +206,7 @@ def run_experiment(config_dict):
         unembed_ln = True if unembed_ln_weights != "no_ln" else False
 
         run_config = {
+            "description": description,
             "model_name": model_name,
             "processing": processing,
             "dataset": dataset_config,
@@ -211,6 +227,8 @@ def run_experiment(config_dict):
             "weight_decay": weight_decay,
             "lr": lr,
         }
+
+        logger.info(f"Running experiment with config: {run_config}")
 
         # neptune run init
         run = neptune.init_run(
@@ -299,6 +317,7 @@ def run_experiment(config_dict):
                 transformation=transformation,
                 optim_kwargs={"lr": lr, "weight_decay": weight_decay},
             )
+            expected_metrics = None
 
         loss_module = initialize_loss(loss_function)
 
@@ -375,6 +394,7 @@ def run_experiment(config_dict):
         )
 
         run["results"] = {
+            "expected_metrics": expected_metrics,
             "test_accuracy": test_accuracy,
             "mark_translation_acc": mark_translation_acc,
             "cos_sims_trend_plot": cos_sims_trend_plot,

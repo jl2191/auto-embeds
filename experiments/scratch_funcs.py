@@ -190,13 +190,13 @@ def display_top_runs_table(
     top_runs_df.reset_index(inplace=True, drop=True)
 
     # Setup console for output
-    console = Console(record=record_console)
+    console = Console(record=record_console, width=900)
     table = Table(show_header=True, header_style="bold")
     for column in top_runs_df.columns:
         if column in metrics:
-            table.add_column(column, justify="center", width=12, max_width=20)
+            table.add_column(column, justify="center", width=8, max_width=12)
         else:
-            table.add_column(column, justify="left", width=20, max_width=30)
+            table.add_column(column, justify="left", width=23, max_width=24)
 
     # Prepare data for display with color coding
     min_values = top_runs_df.min(numeric_only=True)
@@ -242,7 +242,9 @@ def format_row(
     row_data = []
     for index, item in enumerate(row):
         column_name = columns[index]
-        if isinstance(item, bool):
+        if pd.isna(item):
+            row_data.append("[grey]-[/grey]")
+        elif isinstance(item, bool):
             color = "green" if item else "red"
             row_data.append(f"[{color}]{item}[/{color}]")
         elif isinstance(item, (int, float)):

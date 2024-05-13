@@ -1,3 +1,4 @@
+import json
 from typing import List, Tuple
 
 import neptune
@@ -98,6 +99,7 @@ def process_neptune_runs_df(
         - A list of result column names.
     """
     desired_configs_order = [
+        "config/description",
         "config/model_name",
         "config/processing",
         "config/dataset/name",
@@ -125,6 +127,16 @@ def process_neptune_runs_df(
         col for col in df.columns if col not in desired_configs_order
     ]
     df = df.reindex(columns=ordered_columns)
+
+    # deserialize and flatten the following columns
+    columns_to_deserialize = [
+        "results/test_cos_sim_diff",
+        "results/verify_results",
+    ]
+    for col in columns_to_deserialize:
+        df = df.join(
+            pd.json_normalize(df[col].apply(json.loads)).add_prefix(f"{col}.")
+        ).drop(columns=[col])
 
     # extract config and result columns before renaming for further use
     config_columns = [col for col in df.columns if col.startswith("config/")]
