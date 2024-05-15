@@ -1,5 +1,14 @@
+# %%
+import argparse
+import datetime
 import itertools
 import json
+import os
+
+# Set environment variables
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+os.environ["AUTOEMBEDS_CACHING"] = "true"
 
 import neptune
 import numpy as np
@@ -18,9 +27,13 @@ from auto_embeds.embed_utils import (
     initialize_transform_and_optim,
     train_transform,
 )
-from auto_embeds.metrics import evaluate_accuracy, mark_translation
+from auto_embeds.metrics import (
+    evaluate_accuracy,
+    mark_translation,
+)
 from auto_embeds.utils.custom_tqdm import tqdm
 from auto_embeds.utils.logging import logger
+from auto_embeds.utils.misc import get_experiment_worker_config, is_notebook
 from auto_embeds.verify import (
     plot_cosine_similarity_trend,
     prepare_verify_analysis,
@@ -28,6 +41,127 @@ from auto_embeds.verify import (
     test_cos_sim_difference,
     verify_transform,
 )
+
+# Seed for reproducibility
+np.random.seed(1)
+t.manual_seed(1)
+t.cuda.manual_seed(1)
+
+# Configuration for overall experiments
+experiment_config = {
+    "neptune": {
+        "tags": [
+            f"{datetime.datetime.now():%Y-%m-%d}",
+            f"{datetime.datetime.now():%Y-%m-%d} rotation trials",
+            "experiment 2",
+            "run group 2",
+        ],
+    },
+    "description": ["none"],
+    "models": [
+        "bigscience/bloom-560m",
+        # "bloom-3b",
+        # "bloom-7b",
+    ],
+    "processings": [
+        False,
+    ],
+    "datasets": [
+        {
+            "name": "wikdict_en_fr_extracted",
+            "min_length": 5,
+            "space_configurations": [{"en": "space", "fr": "space"}],
+            "mark_accuracy_path": "wikdict_en_fr_azure_validation",
+        },
+        # {
+        #     "name": "random_word_pairs",
+        #     "min_length": 2,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
+        # },
+        # {
+        #     "name": "singular_plural_pairs",
+        #     "min_length": 2,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
+        # },
+        # {
+        #     "name": "muse_en_fr_extracted",
+        #     "min_length": 5,
+        #     "space_configurations": [{"en": "space", "fr": "space"}],
+        #     "mark_accuracy_path": "muse_en_fr_azure_validation",
+        # },
+        {
+            "name": "cc_cedict_zh_en_extracted",
+            "min_length": 2,
+            "space_configurations": [{"en": "no_space", "fr": "space"}],
+            "mark_accuracy_path": "cc_cedict_zh_en_azure_validation",
+        },
+        # {
+        #     "name": "muse_zh_en_extracted_train",
+        #     "min_length": 2,
+        #     "space_configurations": [{"en": "no_space", "fr": "space"}],
+        #     "mark_accuracy_path": "muse_zh_en_azure_validation",
+        # },
+    ],
+    "transformations": [
+        # "identity",
+        # "translation",
+        # "rotation",
+        # "biased_rotation",
+        # "uncentered_rotation",
+        "linear_map",
+        # "biased_linear_map",
+        # "uncentered_linear_map",
+        # "biased_uncentered_linear_map",
+        # "analytical_linear_map",
+        # "analytical_translation",
+        # "analytical_rotation_scipy",
+        # "analytical_rotation_roma",
+        # "analytical_rotation_torch",
+        # "analytical_rotation_scipy_scale",
+        # "analytical_rotation_roma_scale",
+        # "analytical_rotation_torch_scale",
+        # "roma_analytical",
+        # "roma_scale_analytical",
+        # "torch_analytical",
+        # "torch_scale_analytical",
+        # "kabsch_analytical",
+        # "kabsch_analytical_new",
+        # "kabsch_analytical_no_scale",
+    ],
+    "train_batch_sizes": [128],
+    "test_batch_sizes": [256],
+    "top_k": [200],
+    "top_k_selection_methods": [
+        # "src_and_src",
+        # "tgt_and_tgt",
+        # "top_src",
+        "top_tgt",
+    ],
+    "seeds": [1],
+    # "loss_functions": ["cosine_similarity", "mse_loss"],
+    "loss_functions": ["cosine_similarity"],
+    "embed_weight": ["model_weights"],
+    "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    # "embed_ln_weights": ["no_ln", "model_weights"],
+    # "embed_ln_weights": ["default_weights"],
+    "unembed_weight": ["model_weights"],
+    "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    # "unembed_ln_weights": ["no_ln", "model_weights"],
+    # "unembed_ln_weights": ["default_weights"],
+    "n_epochs": [100],
+    "weight_decay": [
+        0,
+        # 2e-5,
+    ],
+    "lr": [8e-5],
+}
+
+total_runs = 1
+for value in experiment_config.values():
+    if isinstance(value, list):
+        total_runs *= len(value)
+
+print(f"Total experiment runs calculated: {total_runs}")
 
 
 def run_experiment(config_dict):
@@ -258,7 +392,7 @@ def run_experiment(config_dict):
             }
         )
 
-        results = {
+        run["results"] = {
             "expected_metrics": expected_metrics,
             "test_accuracy": test_accuracy,
             "mark_translation_acc": mark_translation_acc,
@@ -266,8 +400,6 @@ def run_experiment(config_dict):
             "cosine_similarity_test_loss": cosine_similarity_test_loss,
             "mse_test_loss": mse_test_loss,
         }
-
-        run["results"] = results
         run["results/json/verify_results"].upload(
             File.from_content(verify_results_json)
         )
@@ -280,8 +412,46 @@ def run_experiment(config_dict):
 
         run.stop()
 
-        # returning results that we are not uploading for local analysis
-        # transform_weights = transform.state_dict()
-        # results["transform_weights"] = transform_weights
 
-        return results
+def setup_arg_parser():
+    """Set up and return the argument parser."""
+    parser = argparse.ArgumentParser(
+        description="Run experiments with specified worker configuration."
+    )
+    parser.add_argument(
+        "--worker_id",
+        type=int,
+        choices=[1, 2],
+        help="Optional: Worker ID to use for running the experiment.",
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    if is_notebook():
+        # If running in a Jupyter notebook, run all experiments
+        print(
+            "Detected Jupyter notebook or IPython session. Running all experiments "
+            "and adding 'test' neptune tag."
+        )
+        run_experiment(
+            get_experiment_worker_config(
+                experiment_config=experiment_config,
+                split_parameter="datasets",
+                n_splits=1,
+                worker_id=0,
+            )
+        )
+    else:
+        # Command-line execution
+        parser = setup_arg_parser()
+        args = parser.parse_args()
+        if args.worker_id:
+            config_to_use = get_experiment_worker_config(
+                experiment_config=experiment_config,
+                split_parameter="datasets",
+                n_splits=2,
+                worker_id=args.worker_id,
+            )
+            print(f"Running experiment for worker ID = {args.worker_id}")
+            run_experiment(config_to_use)

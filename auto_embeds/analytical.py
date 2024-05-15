@@ -27,10 +27,7 @@ def calculate_procrustes_roma(
 ) -> Tuple[Float[Tensor, "d_model d_model"], Float[Tensor, ""]]:
     A = train_src_embeds.detach().clone().squeeze()
     B = train_tgt_embeds.detach().clone().squeeze()
-    scale = [1.0] * A.shape[0]
-    R = rigid_vectors_registration(A, B)
-    # ic(R.shape)
-    # ic(scale)
+    R, scale = rigid_vectors_registration(A, B, compute_scaling=True)
     return R, scale
 
 

@@ -23,8 +23,8 @@ original_df = fetch_neptune_runs_df(
     project_name="mars/language-transformations",
     tags=[
         "actual",
-        # "2024-05-12 rotation trials",
-        "experiment 12",
+        "2024-05-14 rotation trials",
+        "experiment 2",
     ],
     get_artifacts=True,
 )
@@ -114,6 +114,7 @@ df = (
 )
 sort_by = "mark_translation_acc"
 # sort_by = "mse_test_loss"
+# sort_by = "cosine_similarity_test_loss"
 # ascending = True
 ascending = False
 display_top_runs_table(
