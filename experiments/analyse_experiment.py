@@ -31,9 +31,12 @@ original_df = fetch_neptune_runs_df(
 )
 
 # %%
-runs_df, config_column_names, changed_configs_column_names, result_column_names = (
-    process_neptune_runs_df(original_df)
-)
+(
+    runs_df,
+    config_column_names,
+    changed_configs_column_names,
+    result_column_names,
+) = process_neptune_runs_df(original_df)
 excluded_substrings = ["dataset/"]
 excluded_exact_matches = ["embed_ln", "unembed_ln"]
 

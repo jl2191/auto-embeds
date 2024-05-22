@@ -3,7 +3,6 @@ from uuid import uuid4
 
 import dash_bootstrap_components as dbc
 import diskcache
-import pandas as pd
 from dash import Dash, DiskcacheManager
 
 from experiments.dash.callbacks import register_callbacks

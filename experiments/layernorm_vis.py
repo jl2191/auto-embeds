@@ -1,15 +1,11 @@
 # %%
-import os
 
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import torch as t
 import transformer_lens as tl
 import umap
 
-from auto_embeds.data import prepare_data
-from auto_embeds.metrics import calc_canonical_angles
 from auto_embeds.utils.custom_tqdm import tqdm
 
 # Set environment variables

@@ -1,19 +1,12 @@
 # %%
-import json
-import os
-import random
 
 import einops
 import matplotlib.pyplot as plt
-import numpy as np
 import plotly.graph_objects as go
 import seaborn as sns
 import torch as t
 import transformer_lens as tl
 from fancy_einsum import einsum
-from IPython.core.getipython import get_ipython
-from rich import print as rprint
-from torch.utils.data import DataLoader, TensorDataset, random_split
 
 model_name = "bloom-560m"
 no_processing = tl.HookedTransformer.from_pretrained_no_processing(model_name)
@@ -438,7 +431,7 @@ else:
 """
 okay, the difference now is a lot less!
 still unsure about why there is still a difference though... like the greatest relative
-difference is quite big. these i think should really be the same! 
+difference is quite big. these i think should really be the same!
 """
 
 # %%

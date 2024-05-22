@@ -3,11 +3,6 @@ import torch as t
 import transformer_lens as tl
 from transformers import AutoTokenizer
 
-from auto_embeds.data import (
-    get_most_similar_embeddings,
-    print_most_similar_embeddings_dict,
-)
-
 # %%
 gpt2 = tl.HookedTransformer.from_pretrained_no_processing("gpt2-small")
 
@@ -134,10 +129,11 @@ gpt2_common_embeds = gpt2_W_E[gpt2_tokens]
 bloom_common_embeds = bloom_W_E[bloom_tokens]
 
 # %%
-from torch.utils.data import TensorDataset, random_split, DataLoader
-from auto_embeds.utils.custom_tqdm import tqdm
 import plotly.graph_objects as go
 from fancy_einsum import einsum
+from torch.utils.data import DataLoader, TensorDataset, random_split
+
+from auto_embeds.utils.custom_tqdm import tqdm
 
 # %%
 transform = t.nn.utils.parametrizations.orthogonal(

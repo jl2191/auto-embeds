@@ -98,9 +98,10 @@ def initialize_manual_transform(
 
     # Extract embeddings from the train_loader
     for batch in train_loader:
-        src_embeds, tgt_embeds = (
-            batch  # Assuming each batch is a tuple (src_embeds, tgt_embeds)
-        )
+        (
+            src_embeds,
+            tgt_embeds,
+        ) = batch  # Assuming each batch is a tuple (src_embeds, tgt_embeds)
         train_src_embeds.append(src_embeds)
         train_tgt_embeds.append(tgt_embeds)
 
@@ -136,16 +137,16 @@ def initialize_manual_transform(
     elif transform_name == "analytical_translation":
         translation_vector = calculate_translation(train_src_embeds, train_tgt_embeds)
         transformations.append(("add", translation_vector))
-        metrics["expected_translation_magnitude"] = (
-            0.0  # Placeholder metric calculation
-        )
+        metrics[
+            "expected_translation_magnitude"
+        ] = 0.0  # Placeholder metric calculation
 
     elif transform_name == "analytical_linear_map":
         linear_map_matrix = calculate_linear_map(train_src_embeds, train_tgt_embeds)
         transformations.append(("multiply", linear_map_matrix))
-        metrics["expected_linear_map_accuracy"] = (
-            0.0  # Placeholder for expected metric calculation
-        )
+        metrics[
+            "expected_linear_map_accuracy"
+        ] = 0.0  # Placeholder for expected metric calculation
 
     else:
         raise ValueError(f"Unknown transformation name: {transform_name}")

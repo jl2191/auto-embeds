@@ -531,7 +531,8 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoTensors: ...
+) -> TwoTensors:
+    ...
 
 
 @overload
@@ -546,7 +547,8 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> FourTensors: ...
+) -> FourTensors:
+    ...
 
 
 @overload
@@ -561,7 +563,8 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TensorDataset: ...
+) -> TensorDataset:
+    ...
 
 
 @overload
@@ -576,7 +579,8 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoDatasets: ...
+) -> TwoDatasets:
+    ...
 
 
 @overload
@@ -591,7 +595,8 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> DataLoader: ...
+) -> DataLoader:
+    ...
 
 
 @overload
@@ -606,7 +611,8 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoDataLoaders: ...
+) -> TwoDataLoaders:
+    ...
 
 
 def prepare_data(
@@ -823,14 +829,10 @@ def get_cached_weights(model_name: str, processing: bool = True) -> Dict[str, t.
     model_weights = {
         "W_E": model.W_E.detach().clone(),
         "embed.ln.w": (
-            model.embed.ln.w.detach().clone()
-            if hasattr(model.embed, "ln")
-            else None
+            model.embed.ln.w.detach().clone() if hasattr(model.embed, "ln") else None
         ),
         "embed.ln.b": (
-            model.embed.ln.b.detach().clone()
-            if hasattr(model.embed, "ln")
-            else None
+            model.embed.ln.b.detach().clone() if hasattr(model.embed, "ln") else None
         ),
         "ln_final.w": model.ln_final.w.detach().clone(),
         "ln_final.b": model.ln_final.b.detach().clone(),

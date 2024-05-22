@@ -842,7 +842,9 @@ def prepare_verify_datasets(
         )
         return train_loader, test_loader
     else:
-        raise ValueError("Invalid return_type value. Accepted values are 'dataset' or 'loader'.")
+        raise ValueError(
+            "Invalid return_type value. Accepted values are 'dataset' or 'loader'."
+        )
 
 
 @t.no_grad()
