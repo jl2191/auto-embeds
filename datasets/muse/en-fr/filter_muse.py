@@ -76,15 +76,8 @@ all_word_pairs = filter_word_pairs(
 
 # %% code for quick training if required (commented out by default)
 from auto_embeds.data import tokenize_word_pairs  # noqa: I001
-from torch.utils.data import DataLoader, TensorDataset
 from auto_embeds.metrics import mark_translation
 import torch as t
-from auto_embeds.data import filter_word_pairs, get_dataset_path, tokenize_word_pairs
-from auto_embeds.embed_utils import (
-    initialize_transform_and_optim,
-    train_transform,
-    initialize_loss,
-)
 
 random.seed(1)
 random.shuffle(all_word_pairs)
@@ -173,7 +166,7 @@ for transformation_name in transformation_names:
             optim=optim,
             loss_module=loss_module,
             n_epochs=100,
-            # wandb=wandb,
+            # neptune=neptune,
         )
     else:
         print(f"nothing trained for {transformation_name}")

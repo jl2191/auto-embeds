@@ -1,22 +1,18 @@
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 import torch as t
+from jaxtyping import Float
+from roma.utils import rigid_vectors_registration
 from torch import Tensor
+from torch.utils.data import DataLoader
 
 from auto_embeds.modules import ManualTransformModule
 
 
-def calculate_rotation(train_src_embeds: Tensor, train_tgt_embeds: Tensor) -> Tensor:
-    """Calculates rotation matrix for source to target language embeddings."""
-    X = train_src_embeds.detach().clone().squeeze()
-    Y = train_tgt_embeds.detach().clone().squeeze()
-    C = t.matmul(X.T, Y)
-    U, _, V = t.svd(C)
-    W = t.matmul(U, V.t())
-    return W
-
-
-def calculate_translation(train_src_embeds: Tensor, train_tgt_embeds: Tensor) -> Tensor:
+def calculate_translation(
+    train_src_embeds: Float[Tensor, "batch pos d_model"],
+    train_tgt_embeds: Float[Tensor, "batch pos d_model"],
+) -> Float[Tensor, "pos d_model"]:
     """Calculates translation vector for source to target language embeddings."""
     X = train_src_embeds.detach().clone().squeeze()
     Y = train_tgt_embeds.detach().clone().squeeze()
@@ -24,25 +20,62 @@ def calculate_translation(train_src_embeds: Tensor, train_tgt_embeds: Tensor) ->
     return T
 
 
-def calculate_rotation_translation(
-    train_src_embeds: Tensor, train_tgt_embeds: Tensor
-) -> Tuple[Tensor, Tensor]:
-    """Calculates rotation then translation transformation matrix for embeddings."""
-    X = train_src_embeds.detach().clone().squeeze()
-    Y = train_tgt_embeds.detach().clone().squeeze()
-    X_mean = t.mean(X, dim=0, keepdim=True)
-    Y_mean = t.mean(Y, dim=0, keepdim=True)
-    X_centered = X - X_mean
-    Y_centered = Y - Y_mean
-    C = t.matmul(X_centered.T, Y_centered)
-    U, _, V = t.svd(C)
-    W = t.matmul(U, V.t())
-    X_rotated = t.matmul(X_centered, W)
-    b = Y_mean - t.mean(X_rotated, dim=0, keepdim=True)
-    return W, b
+def calculate_procrustes_roma(
+    train_src_embeds: Float[Tensor, "batch pos d_model"],
+    train_tgt_embeds: Float[Tensor, "batch pos d_model"],
+) -> Tuple[Float[Tensor, "d_model d_model"], Float[Tensor, ""]]:
+    A = train_src_embeds.detach().clone().squeeze()
+    B = train_tgt_embeds.detach().clone().squeeze()
+    R, scale = rigid_vectors_registration(A, B, compute_scaling=True)
+    return R, scale
 
 
-def initialize_manual_transform(transform_name, train_loader):
+def calculate_orthogonal_procrustes(
+    train_src_embeds: Float[Tensor, "batch pos d_model"],
+    train_tgt_embeds: Float[Tensor, "batch pos d_model"],
+    ensure_rotation: bool = False,
+) -> Tuple[Float[Tensor, "d_model d_model"], Float[Tensor, ""]]:
+    A = train_src_embeds.detach().clone().squeeze()
+    B = train_tgt_embeds.detach().clone().squeeze()
+    M = t.matmul(B.T, A)
+    U, S, Vt = t.linalg.svd(M)
+    if ensure_rotation:
+        if t.det(t.matmul(U, Vt)) < 0.0:
+            Vt[:, -1] *= -1.0
+    R = t.matmul(U, Vt)
+    scale = S.sum()
+    return R, scale
+
+
+def calculate_linear_map(
+    train_src_embeds: Float[Tensor, "batch pos d_model"],
+    train_tgt_embeds: Float[Tensor, "batch pos d_model"],
+) -> Float[Tensor, "d_model d_model"]:
+    """Calculates the best linear map matrix for source to target language embeddings."""
+    A = train_src_embeds.detach().clone().squeeze()
+    B = train_tgt_embeds.detach().clone().squeeze()
+    # A and B after squeezing is [batch d_model] and as we are following the convention
+    # of having our transformation matrix be left-multiplied i.e.
+    # XA = B
+    # however, this is not actually possible as A is shape [batch d_model] and X needs
+    # to be shape [d_model d_model]. therefore we need to take the transpose of A and
+    # whose multiplication with X gives a result of shape [d_model batch]. we then need
+    # to take the transpose of this to get the B that we want.
+    # as such, the linear system we want to solve for is
+    # XA^T = B^T
+    # but as lstsq solves the linear system AX = B for X, we can take the transpose of
+    # both sides to give:
+    # AX^T = B
+    # which we can feed into torch.linalg.lstsq and take the transpose of the solution
+    # to get X.
+    result = t.linalg.lstsq(A, B)
+    X = result.solution.T
+    return X
+
+
+def initialize_manual_transform(
+    transform_name: str, train_loader: DataLoader
+) -> Tuple[ManualTransformModule, Dict[str, Any]]:
     """Initializes a ManualTransformModule.
 
     Initializes a ManualTransformModule with transformations derived analytically from
@@ -75,12 +108,31 @@ def initialize_manual_transform(transform_name, train_loader):
     train_src_embeds = t.cat(train_src_embeds, dim=0)
     train_tgt_embeds = t.cat(train_tgt_embeds, dim=0)
 
-    if transform_name == "analytical_rotation":
-        rotation_matrix = calculate_rotation(train_src_embeds, train_tgt_embeds)
-        transformations.append(("multiply", rotation_matrix))
-        metrics["expected_loss"] = (
-            0.0  # TODO: Placeholder for expected metric calculation
+    if transform_name == "roma_analytical":
+        rotation_matrix, scale = calculate_procrustes_roma(
+            train_src_embeds, train_tgt_embeds
         )
+        transformations.append(("multiply", rotation_matrix))
+
+    elif transform_name == "roma_scale_analytical":
+        rotation_matrix, scale = calculate_procrustes_roma(
+            train_src_embeds, train_tgt_embeds
+        )
+        transformations.append(("multiply", rotation_matrix))
+        transformations.append(("scale", scale))
+
+    elif transform_name == "analytical_rotation":
+        rotation_matrix, scale = calculate_orthogonal_procrustes(
+            train_src_embeds, train_tgt_embeds, ensure_rotation=True
+        )
+        transformations.append(("multiply", rotation_matrix))
+
+    elif transform_name == "analytical_rotation_and_reflection":
+        rotation_matrix, scale = calculate_orthogonal_procrustes(
+            train_src_embeds, train_tgt_embeds
+        )
+        transformations.append(("multiply", rotation_matrix))
+
     elif transform_name == "analytical_translation":
         translation_vector = calculate_translation(train_src_embeds, train_tgt_embeds)
         transformations.append(("add", translation_vector))
@@ -88,13 +140,15 @@ def initialize_manual_transform(transform_name, train_loader):
             0.0  # Placeholder metric calculation
         )
 
-    elif transform_name == "rotation_then_translation":
-        rotation_matrix, translation_vector = calculate_rotation_translation(
-            train_src_embeds, train_tgt_embeds
+    elif transform_name == "analytical_linear_map":
+        linear_map_matrix = calculate_linear_map(train_src_embeds, train_tgt_embeds)
+        transformations.append(("multiply", linear_map_matrix))
+        metrics["expected_linear_map_accuracy"] = (
+            0.0  # Placeholder for expected metric calculation
         )
-        transformations.append(("multiply", rotation_matrix))
-        transformations.append(("add", translation_vector))
-        metrics["expected_combined_magnitude"] = 0.0
+
+    else:
+        raise ValueError(f"Unknown transformation name: {transform_name}")
 
     transform_module = ManualTransformModule(transformations)
 

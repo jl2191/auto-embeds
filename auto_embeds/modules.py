@@ -7,6 +7,7 @@ from fancy_einsum import einsum
 from jaxtyping import Float
 from torch import Tensor
 
+from auto_embeds.utils.logging import logger
 from auto_embeds.utils.misc import get_default_device
 
 default_device = get_default_device()
@@ -132,12 +133,14 @@ class TranslationTransform(nn.Module):
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
-        self.translation = t.nn.Parameter(t.zeros(d_model, device=device))
+        self.translation: Float[Tensor, "d_model"] = t.nn.Parameter(
+            t.zeros(d_model, device=device)
+        )
         self.d_model = d_model
 
     def forward(
-        self, x: Float[Tensor, "batch d_model"]
-    ) -> Float[Tensor, "batch d_model"]:
+        self, x: Float[Tensor, "batch pos d_model"]
+    ) -> Float[Tensor, "batch pos d_model"]:
         """
         Applies the translation transformation to the input tensor.
 
@@ -360,7 +363,9 @@ class ManualTransformModule(nn.Module):
         super(ManualTransformModule, self).__init__()
         self.transformations = transformations
 
-    def forward(self, x):
+    def forward(
+        self, x: Float[Tensor, "batch pos d_model"]
+    ) -> Float[Tensor, "batch pos d_model"]:
         """
         Applies the sequence of affine transformations to the input tensor.
 
@@ -372,9 +377,15 @@ class ManualTransformModule(nn.Module):
         """
         for operation, transform_tensor in self.transformations:
             if operation == "multiply":
-                x = t.matmul(x, transform_tensor)
+                x = einsum(
+                    "d_model_row d_model_col, batch pos d_model_col-> batch pos d_model_row",
+                    transform_tensor,
+                    x,
+                )
             elif operation == "add":
                 x = x + transform_tensor
+            elif operation == "scale":
+                x = x * transform_tensor
             else:
                 raise ValueError(f"Unsupported operation: {operation}")
 
@@ -409,7 +420,7 @@ class Embed(nn.Module):
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
-        self.W_E: Float[t.Tensor, "d_vocab d_model"] = nn.Parameter(
+        self.W_E: Float[Tensor, "d_vocab d_model"] = nn.Parameter(
             t.empty(d_vocab, d_model, device=device)
         )
         self.embed_ln = nn.LayerNorm(d_model, device=device) if apply_ln else None
@@ -427,8 +438,11 @@ class Embed(nn.Module):
         Returns:
             Tensor: The embedded (and optionally layer-normalized) tokens.
         """
+        logger.debug(f"input to embed_module: {tokens.shape}")
         if self.embed_ln is not None:
+            logger.debug(f"embedded shape: {self.W_E[tokens, :].shape}")
             return self.embed_ln(self.W_E[tokens, :])
+        logger.debug(f"embedded shape: {self.W_E[tokens, :].shape}")
         return self.W_E[tokens, :]
 
 
@@ -461,13 +475,17 @@ class Unembed(nn.Module):
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
-        self.W_U = nn.Parameter(t.empty(d_model, d_vocab, device=device))
-        self.b_U = nn.Parameter(t.zeros(d_vocab, device=device))
+        self.W_U: Float[Tensor, "d_model d_vocab"] = nn.Parameter(
+            t.empty(d_model, d_vocab, device=device)
+        )
+        self.b_U: Float[Tensor, "d_vocab"] = nn.Parameter(
+            t.zeros(d_vocab, device=device)
+        )
         self.ln_final = nn.LayerNorm(d_model, device=device) if apply_ln else None
 
     def forward(
-        self, x: Float[t.Tensor, "batch pos d_model"]
-    ) -> Float[t.Tensor, "batch pos d_vocab"]:
+        self, x: Float[Tensor, "batch pos d_model"]
+    ) -> Float[Tensor, "batch pos d_vocab"]:
         """
         Forward pass for unembedding, optionally applying layer normalization before
         converting embeddings back to the vocabulary space.
@@ -494,7 +512,11 @@ class Unembed(nn.Module):
 
 
 class CosineSimilarityLoss(nn.Module):
-    def forward(self, predictions: Tensor, targets: Tensor) -> Tensor:
+    def forward(
+        self,
+        predictions: Float[Tensor, "batch pos d_model"],
+        targets: Float[Tensor, "batch pos d_model"],
+    ) -> Float[Tensor, "batch pos"]:
         return -nn.functional.cosine_similarity(predictions, targets, dim=-1).mean()
 
 

@@ -1,23 +1,21 @@
 # %%
-import argparse
-import datetime
 import itertools
 import json
+import multiprocessing as mp
 import os
 
-# Set environment variables
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-os.environ["AUTOEMBEDS_CACHING"] = "true"
+os.environ["AUTOEMBEDS_CACHING"] = "TRUE"
 
+import neptune
 import numpy as np
+import plotly.io as pio
 import torch as t
-import transformer_lens as tl
-import wandb
+from neptune.types import File
+from neptune.utils import stringify_unsupported
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
 
 from auto_embeds.analytical import initialize_manual_transform
-from auto_embeds.data import filter_word_pairs, get_dataset_path
+from auto_embeds.data import filter_word_pairs, get_cached_weights, get_dataset_path
 from auto_embeds.embed_utils import (
     calculate_test_loss,
     initialize_embed_and_unembed,
@@ -25,12 +23,10 @@ from auto_embeds.embed_utils import (
     initialize_transform_and_optim,
     train_transform,
 )
-from auto_embeds.metrics import (
-    evaluate_accuracy,
-    mark_translation,
-)
+from auto_embeds.metrics import evaluate_accuracy, mark_translation
 from auto_embeds.utils.custom_tqdm import tqdm
-from auto_embeds.utils.misc import get_experiment_worker_config, is_notebook
+from auto_embeds.utils.logging import logger
+from auto_embeds.utils.misc import get_experiment_worker_config
 from auto_embeds.verify import (
     plot_cosine_similarity_trend,
     prepare_verify_analysis,
@@ -38,118 +34,37 @@ from auto_embeds.verify import (
     test_cos_sim_difference,
     verify_transform,
 )
-
-# Seed for reproducibility
-np.random.seed(1)
-t.manual_seed(1)
-t.cuda.manual_seed(1)
-
-# Configuration for overall experiments
-experiment_config = {
-    "wandb": {
-        "notes": "blank",
-        "tags": [
-            f"{datetime.datetime.now():%Y-%m-%d}",
-            f"{datetime.datetime.now():%Y-%m-%d} analytical and ln",
-            "experiment 2",
-            "run group 1",
-            # "actual",
-            # "test",
-        ],
-    },
-    "models": [
-        "bigscience/bloom-560m",
-        # "bloom-3b",
-        # "bloom-7b",
-    ],
-    "processings": [
-        False,
-    ],
-    "datasets": [
-        {
-            "name": "wikdict_en_fr_extracted",
-            "min_length": 5,
-            "space_configurations": [{"en": "space", "fr": "space"}],
-            "mark_accuracy_path": "wikdict_en_fr_azure_validation",
-        },
-        {
-            "name": "random_word_pairs",
-            "min_length": 2,
-            "space_configurations": [{"en": "space", "fr": "space"}],
-        },
-        {
-            "name": "singular_plural_pairs",
-            "min_length": 2,
-            "space_configurations": [{"en": "space", "fr": "space"}],
-        },
-        # {
-        #     "name": "muse_en_fr_extracted",
-        #     "min_length": 5,
-        #     "space_configurations": [{"en": "space", "fr": "space"}],
-        #     "mark_accuracy_path": "muse_en_fr_azure_validation",
-        # },
-        {
-            "name": "cc_cedict_zh_en_extracted",
-            "min_length": 2,
-            "space_configurations": [{"en": "no_space", "fr": "space"}],
-            "mark_accuracy_path": "cc_cedict_zh_en_azure_validation",
-        },
-        # {
-        #     "name": "muse_zh_en_extracted_train",
-        #     "min_length": 2,
-        #     "space_configurations": [{"en": "no_space", "fr": "space"}],
-        #     "mark_accuracy_path": "muse_zh_en_azure_validation",
-        # },
-    ],
-    "transformations": [
-        "identity",
-        "translation",
-        "linear_map",
-        # "biased_linear_map",
-        # "uncentered_linear_map",
-        # "biased_uncentered_linear_map",
-        "rotation",
-        # "biased_rotation",
-        # "uncentered_rotation",
-        "analytical_rotation",
-        "analytical_translation",
-    ],
-    "train_batch_sizes": [128],
-    "test_batch_sizes": [256],
-    "top_k": [200],
-    "top_k_selection_methods": [
-        # "src_and_src",
-        # "tgt_and_tgt",
-        # "top_src",
-        "top_tgt",
-    ],
-    "seeds": [1],
-    "loss_functions": ["cosine_similarity", "mse_loss"],
-    "embed_weight": ["model_weights"],
-    "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-    "unembed_weight": ["model_weights"],
-    "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-    "n_epochs": [150],
-    "weight_decay": [
-        0,
-        # 2e-5,
-    ],
-    "lr": [8e-5],
-}
-
-total_runs = 1
-for value in experiment_config.values():
-    if isinstance(value, list):
-        total_runs *= len(value)
-
-print(f"Total experiment runs calculated: {total_runs}")
+from experiments.configure_experiment import experiment_config, num_workers, total_runs
 
 
-# %%
+def run_experiment_parallel(config, num_workers):
+    logger.info(f"total runs: {total_runs}")
+    logger.info(f"running experiment with config: {config}")
+    logger.info(f"using {num_workers} workers")
+    if mp.get_start_method(allow_none=True) != "spawn":
+        mp.set_start_method("spawn", force=True)
+    tasks = [(i, config, "datasets", num_workers) for i in range(1, num_workers + 1)]
+    with mp.Pool(num_workers) as pool:
+        results = pool.starmap(run_worker, tasks)
+    return [item for sublist in results for item in sublist]
+
+
+def run_worker(worker_id, experiment_config, split_parameter="datasets", n_splits=2):
+    config_to_use = get_experiment_worker_config(
+        experiment_config=experiment_config,
+        split_parameter=split_parameter,
+        n_splits=n_splits,
+        worker_id=worker_id,
+    )
+    print(f"Running experiment for worker ID = {worker_id}")
+    return run_experiment(config_to_use)
+
+
 def run_experiment(config_dict):
-    # Extracting 'wandb' configuration and generating all combinations of configurations
+    local_results = []
+    # extracting 'neptune' configuration and generating all combinations of configs
     # as a list of lists
-    wandb_config = config_dict.pop("wandb")
+    neptune_config = config_dict.pop("neptune")
     config_values = [
         config_dict[entry] if entry != "datasets" else config_dict[entry]
         for entry in config_dict
@@ -157,12 +72,10 @@ def run_experiment(config_dict):
     config_list = list(itertools.product(*config_values))
 
     # To prevent unnecessary reloading
-    last_model_config = None
     last_dataset_config = None
-    model = None
-    model_weights = None
 
     for (
+        description,
         model_name,
         processing,
         dataset_config,
@@ -186,6 +99,7 @@ def run_experiment(config_dict):
         unembed_ln = True if unembed_ln_weights != "no_ln" else False
 
         run_config = {
+            "description": description,
             "model_name": model_name,
             "processing": processing,
             "dataset": dataset_config,
@@ -207,46 +121,22 @@ def run_experiment(config_dict):
             "lr": lr,
         }
 
-        # WandB run init
-        run = wandb.init(
-            project="language-transformations",
-            config=run_config,
-            notes=wandb_config["notes"],
-            tags=wandb_config["tags"],
+        logger.info(f"Running experiment with config: {run_config}")
+
+        # neptune run init
+        run = neptune.init_run(
+            project="mars/language-transformations",
+            tags=neptune_config["tags"],
         )
+        run["config"] = stringify_unsupported(run_config)
 
         # Tokenizer setup
         tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(
             model_name
         )  # type: ignore
 
-        # Model setup
-        current_model_config = (model_name, processing)
-        if current_model_config != last_model_config:
-            if processing:
-                model = tl.HookedTransformer.from_pretrained(model_name)
-            else:
-                model = tl.HookedTransformer.from_pretrained_no_processing(model_name)
-            last_model_config = current_model_config
-
-            model_weights = {
-                "W_E": model.W_E.detach().clone(),
-                "embed.ln.w": model.embed.ln.w.detach().clone(),
-                "embed.ln.b": model.embed.ln.b.detach().clone(),
-                "ln_final.w": model.ln_final.w.detach().clone(),
-                "ln_final.b": model.ln_final.b.detach().clone(),
-                "W_U": model.W_U.detach().clone(),
-                "b_U": model.b_U.detach().clone(),
-            }
-
-            del model
-
-        # Ensure model_weights is initialized
-        if model_weights is None:
-            raise ValueError("Model weights have not been initialized.")
-
-        d_model = model_weights["W_E"].shape[1]
-        n_toks = model_weights["W_E"].shape[0]
+        # Model weights setup
+        model_weights = get_cached_weights(model_name, processing)
 
         # Initialize embed and unembed modules
         embed_module, unembed_module = initialize_embed_and_unembed(
@@ -261,7 +151,6 @@ def run_experiment(config_dict):
         )
 
         d_model = model_weights["W_E"].shape[1]
-        n_toks = model_weights["W_E"].shape[0]
 
         # Dataset filtering
         dataset_name = dataset_config["name"]
@@ -317,6 +206,7 @@ def run_experiment(config_dict):
                 transformation=transformation,
                 optim_kwargs={"lr": lr, "weight_decay": weight_decay},
             )
+            expected_metrics = None
 
         loss_module = initialize_loss(loss_function)
 
@@ -331,7 +221,7 @@ def run_experiment(config_dict):
                 loss_module=loss_module,
                 n_epochs=n_epoch,
                 plot_fig=False,
-                wandb=wandb,
+                neptune_run=run,
                 azure_translations_path=azure_translations_path,
             )
 
@@ -377,66 +267,86 @@ def run_experiment(config_dict):
             unembed_module=unembed_module,
         )
 
+        # calculating and logging metrics
         cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
-
-        # cos_sims_trend_plot.show(config={"responsive": True, "autosize": True})
-
-        test_cos_sim_diff = test_cos_sim_difference(verify_results_dict)
-
-        wandb.log(
+        verify_results_json = json.dumps(
             {
-                "test_accuracy": test_accuracy,
-                "mark_translation_acc": mark_translation_acc,
-                "cos_sims_trend_plot": cos_sims_trend_plot,
-                "test_cos_sim_diff": test_cos_sim_diff,
-                "cosine_similarity_test_loss": cosine_similarity_test_loss,
-                "mse_test_loss": mse_test_loss,
+                key: value.tolist() if isinstance(value, t.Tensor) else value
+                for key, value in verify_results_dict.items()
+            }
+        )
+        test_cos_sim_diff = json.dumps(
+            {
+                k: bool(v) if isinstance(v, np.bool_) else v
+                for k, v in test_cos_sim_difference(verify_results_dict).items()
             }
         )
 
-        wandb.finish()
+        results = {
+            "expected_metrics": expected_metrics,
+            "test_accuracy": test_accuracy,
+            "mark_translation_acc": mark_translation_acc,
+            "cos_sims_trend_plot": cos_sims_trend_plot,
+            "cosine_similarity_test_loss": cosine_similarity_test_loss,
+            "mse_test_loss": mse_test_loss,
+        }
+
+        run["results"] = results
+        run["results/json/verify_results"].upload(
+            File.from_content(verify_results_json)
+        )
+        run["results/json/cos_sims_trend_plot"].upload(
+            File.from_content(str(pio.to_json(cos_sims_trend_plot)))
+        )
+        run["results/json/test_cos_sim_diff"].upload(
+            File.from_content(test_cos_sim_diff)
+        )
+
+        if local_results:
+            # pca = t.pca_lowrank(transform.transformations[0][1], q=2)
+            # principal_components = pca[0]
+            # results["principal_components"] = principal_components.tolist()
+
+            # svds, vector_norms = {"u": None, "s": None, "v": None}, []
+            # for operation, transform_tensor in transform.transformations:
+            #     if operation == "multiply":
+            #         u, s, v = t.linalg.svd(transform_tensor)
+            #         svds = {"u": u, "s": s, "v": v}
+            #         vector_norms = [
+            #             t.linalg.norm(tensors, dim=1)
+            #             for batch in test_loader
+            #             for tensors in batch
+            #         ]
+
+            # # large_tensors = {"pca": pca, "verify_learning": verify_learning}
+
+            # train_dataset, test_dataset = prepare_verify_datasets(
+            #     verify_learning=verify_learning,
+            #     batch_sizes=(train_batch_size, test_batch_size),
+            #     top_k=top_k,
+            #     top_k_selection_method=top_k_selection_method,
+            #     return_type="dataset",
+            # )
+
+            # big_tensors = {
+            #     "train_dataset": train_dataset,
+            #     "test_dataset": test_dataset,
+            # }
+
+            # results["svds"] = svds
+            # results["vector_norms"] = vector_norms
+            # local_results.append(run_config | results | big_tensors)
+
+        run.stop()
+
+        # returning results that we are not uploading for local analysis
+        # transform_weights = transform.state_dict()
+        # results["transform_weights"] = transform_weights
+
+    return local_results
 
 
-def setup_arg_parser():
-    """Set up and return the argument parser."""
-    parser = argparse.ArgumentParser(
-        description="Run experiments with specified worker configuration."
-    )
-    parser.add_argument(
-        "--worker_id",
-        type=int,
-        choices=[1, 2, 3, 4],
-        help="Optional: Worker ID to use for running the experiment.",
-    )
-    return parser
-
-
+# %%
 if __name__ == "__main__":
-    if is_notebook():
-        # If running in a Jupyter notebook, run all experiments
-        print(
-            "Detected Jupyter notebook or IPython session. Running all experiments "
-            "and adding 'test' wandb tag."
-        )
-        run_experiment(
-            get_experiment_worker_config(
-                experiment_config=experiment_config,
-                split_parameter="datasets",
-                n_splits=1,
-                worker_id=0,
-            )
-        )
-    else:
-        # Command-line execution
-        parser = setup_arg_parser()
-        args = parser.parse_args()
-
-        if args.worker_id:
-            config_to_use = get_experiment_worker_config(
-                experiment_config=experiment_config,
-                split_parameter="datasets",
-                n_splits=4,
-                worker_id=args.worker_id,
-            )
-            print(f"Running experiment for worker ID = {args.worker_id}")
-            run_experiment(config_to_use)
+    # run_experiment(experiment_config)
+    run_experiment_parallel(experiment_config, num_workers)

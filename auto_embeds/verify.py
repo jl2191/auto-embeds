@@ -21,6 +21,7 @@ from auto_embeds.data import (
     WordData,
     tokenize_word_pairs,
 )
+from auto_embeds.utils.logging import logger
 from auto_embeds.utils.misc import calculate_gradient_color, default_device
 
 
@@ -78,7 +79,6 @@ def verify_transform(
         for batch in test_loader:
             # we get the embeddings for the source and target language
             en_embeds, fr_embeds = batch
-            top_pred_embeds = transformation(en_embeds)
             en_logits = unembed_module(en_embeds)
             en_strs: List[str] = tokenizer.batch_decode(
                 en_logits.squeeze().argmax(dim=-1)
@@ -599,6 +599,8 @@ def prepare_verify_analysis(
         .data["input_ids"]
         .to(device)
     )
+    logger.debug(f"src_tok shape: {src_tok.shape}")
+    logger.debug(f"tgt_tok shape: {tgt_tok.shape}")
     ## embed
     src_embed = embed_module(src_tok).detach().clone().squeeze()
     tgt_embed = embed_module(tgt_tok).detach().clone().squeeze()
@@ -620,10 +622,14 @@ def prepare_verify_analysis(
         .data["input_ids"]
         .to(device)
     )
+    logger.debug(f"src_other_toks shape: {src_other_toks.shape}")
+    logger.debug(f"tgt_other_toks shape: {tgt_other_toks.shape}")
     ## embed
     src_other_embeds = embed_module(src_other_toks).detach().clone().squeeze(1)
     tgt_other_embeds = embed_module(tgt_other_toks).detach().clone().squeeze(1)
     # both should have shape [batch, d_model]
+    logger.debug(f"src_other_embeds shape: {src_other_embeds.shape}")
+    logger.debug(f"tgt_other_embeds shape: {tgt_other_embeds.shape}")
 
     # calculate cosine similarities and euclidean distances
     src_cos_sims = t.cosine_similarity(src_embed, src_other_embeds, dim=-1)
@@ -664,6 +670,7 @@ def prepare_verify_datasets(
     top_k=200,
     seed=None,
     top_k_selection_method="src_and_src",
+    return_type="loader",
 ):
     """Prepares training and testing datasets.
 
@@ -685,9 +692,11 @@ def prepare_verify_datasets(
             embeddings, tgt_and_tgt for target embeddings, top_src and top_tgt for
             selecting the entire word pair based on top cosine similarity from a
             randomly chosen source or target embedding, respectively.
+        return_type: Specifies whether to return DataLoader or TensorDataset objects.
+            Accepted values are 'loader' for DataLoader 'dataset' for TensorDataset.
 
     Returns:
-        A tuple with DataLoader objects for the training and testing datasets.
+        A tuple with either DataLoader objects or TensorDataset objects.
     """
     # Create a generator for deterministic shuffling if seed is provided
     generator = t.Generator()
@@ -709,6 +718,11 @@ def prepare_verify_datasets(
     tgt_embed = verify_learning.tgt.selected.embeds
     tgt_embeds = verify_learning.tgt.other.embeds
 
+    logger.debug(f"src embed shape: {src_embed.shape}")
+    logger.debug(f"src embeds shape: {src_embeds.shape}")
+    logger.debug(f"tgt embed shape: {tgt_embed.shape}")
+    logger.debug(f"tgt embeds shape: {tgt_embeds.shape}")
+
     if top_k_selection_method == "src_and_src":
         cos_sims = t.cosine_similarity(src_embed, src_embeds, dim=-1)
         top_k_cos_sims = t.topk(cos_sims, top_k, largest=True)
@@ -728,8 +742,14 @@ def prepare_verify_datasets(
         random_embed_w_src_embeds_cos_sims = t.cosine_similarity(
             random_embed, src_embeds, dim=-1
         )
+        logger.debug(
+            f"random_embed_w_src_embeds_cos_sims shape: {random_embed_w_src_embeds_cos_sims.shape}"
+        )
         random_embed_w_tgt_embeds_cos_sims = t.cosine_similarity(
             random_embed, tgt_embeds, dim=-1
+        )
+        logger.debug(
+            f"random_embed_w_tgt_embeds_cos_sims shape: {random_embed_w_tgt_embeds_cos_sims.shape}"
         )
         random_embed_w_all_embeds_cos_sims = t.cat(
             (random_embed_w_src_embeds_cos_sims, random_embed_w_tgt_embeds_cos_sims)
@@ -786,8 +806,8 @@ def prepare_verify_datasets(
     tgt_test_embeds = tgt_embeds_with_top_k_cos_sims.unsqueeze(1)
     # these should now be [batch, pos, d_model]
 
-    print(f"source test embeds shape: {src_test_embeds.shape}")
-    print(f"target test embeds shape: {tgt_test_embeds.shape}")
+    logger.debug(f"source test embeds shape: {src_test_embeds.shape}")
+    logger.debug(f"target test embeds shape: {tgt_test_embeds.shape}")
 
     # For train embeddings, we just need to remove the indices we used for the test
     mask = t.ones(src_embeds.shape[0], dtype=t.bool, device=src_embeds.device)
@@ -795,29 +815,34 @@ def prepare_verify_datasets(
 
     src_train_embeds = src_embeds[mask].unsqueeze(1)
     tgt_train_embeds = tgt_embeds[mask].unsqueeze(1)
-    # these should now be [batch, pos, d_model]
+    # these should now be [batch pos d_model]
 
-    print(f"source train embeds shape: {src_train_embeds.shape}")
-    print(f"target train embeds shape: {tgt_train_embeds.shape}")
+    logger.debug(f"source train embeds shape: {src_train_embeds.shape}")
+    logger.debug(f"target train embeds shape: {tgt_train_embeds.shape}")
 
     # Prepare DataLoader objects for training and testing datasets
     train_dataset = TensorDataset(src_train_embeds, tgt_train_embeds)
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_sizes[0],
-        shuffle=True,
-        worker_init_fn=seed_worker,
-        generator=generator,
-    )
     test_dataset = TensorDataset(src_test_embeds, tgt_test_embeds)
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_sizes[1],
-        worker_init_fn=seed_worker,
-        generator=generator,
-    )
 
-    return train_loader, test_loader
+    if return_type == "dataset":
+        return train_dataset, test_dataset
+    elif return_type == "loader":
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_sizes[0],
+            shuffle=True,
+            worker_init_fn=seed_worker,
+            generator=generator,
+        )
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=batch_sizes[1],
+            worker_init_fn=seed_worker,
+            generator=generator,
+        )
+        return train_loader, test_loader
+    else:
+        raise ValueError("Invalid return_type value. Accepted values are 'dataset' or 'loader'.")
 
 
 @t.no_grad()
@@ -834,6 +859,7 @@ def get_closest_embeds(word, embed_module, unembed_module, tokenizer, top_k):
     vocab_embeds = embed_module(vocab_tensor)  # [d_vocab, d_model]
 
     # Calculate cosine similarities between the word embedding and all other embeddings
+    # TODO: test
     word_embed = embed_module(word_token.unsqueeze(0))
     cos_sims = t.nn.functional.cosine_similarity(word_embed, vocab_embeds)
 

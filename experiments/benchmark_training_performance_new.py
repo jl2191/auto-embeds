@@ -5,14 +5,12 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import numpy as np
 import plotly.express as px
 import torch as t
 import torch.nn as nn
 import transformer_lens as tl
 from torch import Tensor
 from torch.optim import Optimizer
-from torch.profiler import ProfilerActivity, profile, record_function
 from torch.utils.data import DataLoader
 
 from auto_embeds.data import filter_word_pairs, get_dataset_path
@@ -21,14 +19,12 @@ from auto_embeds.embed_utils import (
     initialize_transform_and_optim,
 )
 from auto_embeds.metrics import (
-    calc_canonical_angles,
     evaluate_accuracy,
     mark_translation,
 )
 from auto_embeds.utils.custom_tqdm import tqdm
-from auto_embeds.utils.misc import default_device, repo_path_to_abs_path
+from auto_embeds.utils.misc import default_device
 from auto_embeds.verify import (
-    calc_tgt_is_closest_embed,
     plot_cosine_similarity_trend,
     prepare_verify_analysis,
     prepare_verify_datasets,
@@ -63,6 +59,7 @@ def compiled_training_step(transform, en_embed, fr_embed, loss_module, optim):
     optim.step()
     return train_loss
 
+
 def train_transform(
     model: tl.HookedTransformer,
     train_loader: DataLoader[Tuple[Tensor, ...]],
@@ -74,7 +71,7 @@ def train_transform(
     plot_fig: bool = True,
     save_fig: bool = False,
     device: Union[str, t.device] = default_device,
-    wandb: Optional[Any] = None,
+    neptune: Optional[Any] = None,
     azure_translations_path: Optional[Union[str, Path]] = None,
 ) -> Tuple[nn.Module, Dict[str, List[Dict[str, Union[float, int]]]]]:
     """Trains the transformation, returning the learned transformation and loss history.
@@ -89,7 +86,7 @@ def train_transform(
         n_epochs: The number of epochs to train for.
         plot_fig: If True, plots the training and test loss history.
         device: The device on which the model is allocated.
-        wandb: If provided, log training metrics to Weights & Biases.
+        neptune: If provided, log training metrics to Weights & Biases.
         azure_translations_path: Path to JSON file for mark_translation evaluation.
 
     Returns:
@@ -97,8 +94,8 @@ def train_transform(
     """
     train_history = {"train_loss": [], "test_loss": [], "mark_translation_score": []}
     transform.train()
-    if wandb:
-        wandb.watch(transform, log="all", log_freq=500)
+    if neptune:
+        neptune.watch(transform, log="all", log_freq=500)
     # if a azure_translations_path is provided we process the azure json file into a
     # more accessible format just once to speed up the marking, passing a
     # translations_dict directly into mark_translate()
@@ -117,7 +114,9 @@ def train_transform(
     for epoch in (epoch_pbar := tqdm(range(n_epochs))):
         for batch_idx, (en_embed, fr_embed) in enumerate(train_loader):
             # Call the compiled training step function
-            train_loss = compiled_training_step(transform, en_embed.to(device), fr_embed.to(device), loss_module, optim)
+            train_loss = compiled_training_step(
+                transform, en_embed.to(device), fr_embed.to(device), loss_module, optim
+            )
             # The rest of your training loop remains unchanged
             info_dict = {
                 "train_loss": train_loss.item(),
@@ -125,8 +124,8 @@ def train_transform(
                 "epoch": epoch,
             }
             train_history["train_loss"].append(info_dict)
-            if wandb:
-                wandb.log(info_dict)
+            if neptune:
+                neptune.log(info_dict)
             epoch_pbar.set_description(f"train loss: {train_loss.item():.3f}")
         # Calculate and log test loss at the end of each epoch
         if epoch % 2 == 0:
@@ -156,8 +155,8 @@ def train_transform(
                         }
                     )
                     train_history["mark_translation_score"].append(info_dict)
-                if wandb:
-                    wandb.log(info_dict)
+                if neptune:
+                    neptune.log(info_dict)
     if plot_fig or save_fig:
         fig = px.line(title="Train and Test Loss with Mark Correct Score")
         fig.add_scatter(

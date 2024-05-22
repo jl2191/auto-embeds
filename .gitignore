@@ -165,3 +165,6 @@ wandb/
 # plotly dash
 media/
 cache/
+
+# neptune
+.neptune/

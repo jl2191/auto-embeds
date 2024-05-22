@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
-import einops
 import torch as t
 import torch.nn as nn
 from torch import Tensor

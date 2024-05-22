@@ -1,6 +1,6 @@
 # %%
 # initialisation script for 2024-04-03-processing-worker.py
-import wandb
+import neptune
 
 
 def init_sweep():
@@ -22,7 +22,7 @@ def init_sweep():
     }
 
     # Initialize the sweep
-    sweep_id = wandb.sweep(sweep_config, project="language-transformations")
+    sweep_id = neptune.sweep(sweep_config, project="language-transformations")
     print(f"Sweep ID: {sweep_id}")
     return sweep_id
 

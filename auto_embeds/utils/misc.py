@@ -1,4 +1,4 @@
-import itertools
+import argparse
 import pickle
 from contextlib import contextmanager
 from datetime import datetime
@@ -7,9 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Set
 
 import torch as t
-from einops import einsum
 from icecream import install
-from IPython.display import Image, display
 from torch.utils.hooks import RemovableHandle
 
 install()
@@ -148,9 +146,9 @@ def get_experiment_worker_config(
     Returns:
         dict: A subset of the configuration based on the provided arguments.
     """
-    # Add "test" or "actual" tag to wandb configuration based on worker_id
+    # Add "test" or "actual" tag to neptune configuration based on worker_id
     tag = "test" if worker_id == 0 else "actual"
-    experiment_config["wandb"]["tags"].append(tag)
+    experiment_config["neptune"]["tags"].append(tag)
 
     if worker_id == 0:
         # If worker_id is 0, return the entire configuration for testing
@@ -258,3 +256,17 @@ def dynamic_text_wrap(text, plot_width_px, font_size=12, font_width_approx=7):
         current_line_length += len(word)
 
     return wrapped_text
+
+
+def setup_arg_parser():
+    """Set up and return the argument parser."""
+    parser = argparse.ArgumentParser(
+        description="Run experiments with specified worker configuration."
+    )
+    parser.add_argument(
+        "--worker_id",
+        type=int,
+        choices=[1, 2],
+        help="Optional: Worker ID to use for running the experiment.",
+    )
+    return parser

@@ -275,7 +275,7 @@ def train_transform(
     plot_fig: bool = True,
     save_fig: bool = False,
     device: Union[str, t.device] = default_device,
-    wandb: Optional[Any] = None,
+    neptune_run: Optional[Any] = None,
     azure_translations_path: Optional[Union[str, Path]] = None,
 ) -> Tuple[nn.Module, Dict[str, List[Dict[str, Union[float, int]]]]]:
     """Trains the transformation.
@@ -292,7 +292,7 @@ def train_transform(
         n_epochs: The number of epochs to train for.
         plot_fig: If True, plots the training and test loss history.
         device: The device on which the model is allocated.
-        wandb: If provided, log training metrics to Weights & Biases.
+        neptune: If provided, log training metrics to Neptune.
         azure_translations_path: Path to JSON file for mark_translation evaluation.
 
     Returns:
@@ -300,8 +300,6 @@ def train_transform(
     """
     train_history = {"train_loss": [], "test_loss": [], "mark_translation_score": []}
     transform.train()
-    if wandb:
-        wandb.watch(transform, log="all", log_freq=500)
     # if a azure_translations_path is provided we process the azure json file into a
     # more accessible format just once to speed up the marking, passing a
     # translations_dict directly into mark_translate()
@@ -317,26 +315,27 @@ def train_transform(
                 if trans["normalizedTarget"] is not None
             ]
             translations_dict[source] = translations
+    step_count = 0
     for epoch in (epoch_pbar := tqdm(range(n_epochs + 1))):
-        for batch_idx, (en_embed, fr_embed) in enumerate(train_loader):
+        for en_embed, fr_embed in train_loader:
             optim.zero_grad()
+            # TODO: what happens when i move zero_grad elsewhere?
             pred = transform(en_embed)
             train_loss = loss_module(pred.squeeze(), fr_embed.squeeze())
             info_dict = {
                 "train_loss": train_loss.item(),
-                "batch": batch_idx,
                 "epoch": epoch,
             }
+            step_count += 1
             train_history["train_loss"].append(info_dict)
+            if neptune_run:
+                neptune_run["train"].append(info_dict, step=step_count)
             train_loss.backward()
             optim.step()
-            if wandb:
-                wandb.log(info_dict, commit=False)
             epoch_pbar.set_description(f"train loss: {train_loss.item():.3f}")
         # Calculate and log test loss at the end of each epoch divisible by 10
         if epoch % 10 == 0:
             with t.no_grad():
-                total_test_loss = 0
                 avg_test_loss = calculate_test_loss(test_loader, transform, loss_module)
                 info_dict = {"test_loss": avg_test_loss, "epoch": epoch}
                 train_history["test_loss"].append(info_dict)
@@ -356,8 +355,8 @@ def train_transform(
                         }
                     )
                     train_history["mark_translation_score"].append(info_dict)
-                if wandb:
-                    wandb.log(info_dict)
+                if neptune_run:
+                    neptune_run["test"].append(info_dict, step=step_count)
     if plot_fig or save_fig:
         fig = px.line(title="Train and Test Loss with Mark Correct Score")
         fig.add_scatter(
