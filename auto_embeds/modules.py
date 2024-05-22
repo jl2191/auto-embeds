@@ -378,7 +378,7 @@ class ManualTransformModule(nn.Module):
         for operation, transform_tensor in self.transformations:
             if operation == "multiply":
                 x = einsum(
-                    "d_model_row d_model_col, batch pos d_model_row -> batch pos d_model_col",
+                    "d_model_row d_model_col, batch pos d_model_col-> batch pos d_model_row",
                     transform_tensor,
                     x,
                 )

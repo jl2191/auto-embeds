@@ -2,6 +2,7 @@
 import itertools
 
 import plotly.graph_objects as go
+import plotly.io as pio
 import torch as t
 import transformer_lens as tl
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
@@ -9,6 +10,12 @@ from transformers import AutoTokenizer, PreTrainedTokenizerFast
 from auto_embeds.data import get_cached_weights
 from auto_embeds.embed_utils import initialize_embed_and_unembed
 from auto_embeds.utils.logging import logger
+
+# %%
+pio.renderers
+
+# %%
+pio.renderers.default = "browser"
 
 # %%
 print(
@@ -35,8 +42,10 @@ embed_module, unembed_module = initialize_embed_and_unembed(
     tokenizer=tokenizer,
     model_weights=model_weights,
     embed_weight="model_weights",
-    embed_ln=True,
-    embed_ln_weights="model_weights",
+    # embed_ln=True,
+    # embed_ln_weights="model_weights",
+    embed_ln=False,
+    embed_ln_weights="no_ln",
     unembed_weight="model_weights",
     unembed_ln=True,
     unembed_ln_weights="default_weights",
@@ -143,7 +152,7 @@ for (
     )
 
     with t.no_grad():
-        random_token_embedding = embed_module(random_token_id).unsqueeze(0)
+        random_token_embedding = embed_module(random_token_id)
     with t.no_grad():
         random_token_unembedded = unembed_module(random_token_embedding)
     embedding_values = random_token_unembedded.squeeze().tolist()
@@ -191,6 +200,10 @@ for fig in softmax_figures:
     fig.show()
 
 # %%
+# calculate histogram of l1 weight distrobution
+
+
+# %%
 # Calculate L1 norm of the embedding weights
 l1_norms = t.norm(embed_module.W_E, p=1, dim=1).tolist()
 
@@ -201,6 +214,7 @@ l1_norm_fig = go.Figure(
         mode="markers",
         hoverinfo="text",
         text=token_labels,
+        opacity=0.5,
     )
 )
 l1_norm_fig.update_layout(

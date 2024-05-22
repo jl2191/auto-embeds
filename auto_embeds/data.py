@@ -822,8 +822,16 @@ def get_cached_weights(model_name: str, processing: bool = True) -> Dict[str, t.
         model = tl.HookedTransformer.from_pretrained_no_processing(model_name)
     model_weights = {
         "W_E": model.W_E.detach().clone(),
-        "embed.ln.w": model.embed.ln.w.detach().clone(),
-        "embed.ln.b": model.embed.ln.b.detach().clone(),
+        "embed.ln.w": (
+            model.embed.ln.w.detach().clone()
+            if hasattr(model.embed, "ln")
+            else None
+        ),
+        "embed.ln.b": (
+            model.embed.ln.b.detach().clone()
+            if hasattr(model.embed, "ln")
+            else None
+        ),
         "ln_final.w": model.ln_final.w.detach().clone(),
         "ln_final.b": model.ln_final.b.detach().clone(),
         "W_U": model.W_U.detach().clone(),

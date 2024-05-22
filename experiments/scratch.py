@@ -57,7 +57,6 @@ experiment_config = {
             "run group 2",
         ],
     },
-    "description": ["none"],
     "models": [
         "bigscience/bloom-560m",
         # "bloom-3b",
@@ -181,7 +180,6 @@ def run_experiment(config_dict):
     model_weights = None
 
     for (
-        description,
         model_name,
         processing,
         dataset_config,
@@ -205,7 +203,6 @@ def run_experiment(config_dict):
         unembed_ln = True if unembed_ln_weights != "no_ln" else False
 
         run_config = {
-            "description": description,
             "model_name": model_name,
             "processing": processing,
             "dataset": dataset_config,

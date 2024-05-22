@@ -670,6 +670,7 @@ def prepare_verify_datasets(
     top_k=200,
     seed=None,
     top_k_selection_method="src_and_src",
+    return_type="loader",
 ):
     """Prepares training and testing datasets.
 
@@ -691,9 +692,11 @@ def prepare_verify_datasets(
             embeddings, tgt_and_tgt for target embeddings, top_src and top_tgt for
             selecting the entire word pair based on top cosine similarity from a
             randomly chosen source or target embedding, respectively.
+        return_type: Specifies whether to return DataLoader or TensorDataset objects.
+            Accepted values are 'loader' for DataLoader 'dataset' for TensorDataset.
 
     Returns:
-        A tuple with DataLoader objects for the training and testing datasets.
+        A tuple with either DataLoader objects or TensorDataset objects.
     """
     # Create a generator for deterministic shuffling if seed is provided
     generator = t.Generator()
@@ -819,22 +822,27 @@ def prepare_verify_datasets(
 
     # Prepare DataLoader objects for training and testing datasets
     train_dataset = TensorDataset(src_train_embeds, tgt_train_embeds)
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_sizes[0],
-        shuffle=True,
-        worker_init_fn=seed_worker,
-        generator=generator,
-    )
     test_dataset = TensorDataset(src_test_embeds, tgt_test_embeds)
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_sizes[1],
-        worker_init_fn=seed_worker,
-        generator=generator,
-    )
 
-    return train_loader, test_loader
+    if return_type == "dataset":
+        return train_dataset, test_dataset
+    elif return_type == "loader":
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_sizes[0],
+            shuffle=True,
+            worker_init_fn=seed_worker,
+            generator=generator,
+        )
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=batch_sizes[1],
+            worker_init_fn=seed_worker,
+            generator=generator,
+        )
+        return train_loader, test_loader
+    else:
+        raise ValueError("Invalid return_type value. Accepted values are 'dataset' or 'loader'.")
 
 
 @t.no_grad()

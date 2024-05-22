@@ -1,5 +1,10 @@
+# %%
 import itertools
 import json
+import multiprocessing as mp
+import os
+
+os.environ["AUTOEMBEDS_CACHING"] = "TRUE"
 
 import neptune
 import numpy as np
@@ -21,6 +26,7 @@ from auto_embeds.embed_utils import (
 from auto_embeds.metrics import evaluate_accuracy, mark_translation
 from auto_embeds.utils.custom_tqdm import tqdm
 from auto_embeds.utils.logging import logger
+from auto_embeds.utils.misc import get_experiment_worker_config
 from auto_embeds.verify import (
     plot_cosine_similarity_trend,
     prepare_verify_analysis,
@@ -28,10 +34,35 @@ from auto_embeds.verify import (
     test_cos_sim_difference,
     verify_transform,
 )
+from experiments.configure_experiment import experiment_config, num_workers, total_runs
+
+
+def run_experiment_parallel(config, num_workers):
+    logger.info(f"total runs: {total_runs}")
+    logger.info(f"running experiment with config: {config}")
+    logger.info(f"using {num_workers} workers")
+    if mp.get_start_method(allow_none=True) != "spawn":
+        mp.set_start_method("spawn", force=True)
+    tasks = [(i, config, "datasets", num_workers) for i in range(1, num_workers + 1)]
+    with mp.Pool(num_workers) as pool:
+        results = pool.starmap(run_worker, tasks)
+    return [item for sublist in results for item in sublist]
+
+
+def run_worker(worker_id, experiment_config, split_parameter="datasets", n_splits=2):
+    config_to_use = get_experiment_worker_config(
+        experiment_config=experiment_config,
+        split_parameter=split_parameter,
+        n_splits=n_splits,
+        worker_id=worker_id,
+    )
+    print(f"Running experiment for worker ID = {worker_id}")
+    return run_experiment(config_to_use)
 
 
 def run_experiment(config_dict):
-    # Extracting 'neptune' configuration and generating all combinations of configurations
+    local_results = []
+    # extracting 'neptune' configuration and generating all combinations of configs
     # as a list of lists
     neptune_config = config_dict.pop("neptune")
     config_values = [
@@ -41,10 +72,7 @@ def run_experiment(config_dict):
     config_list = list(itertools.product(*config_values))
 
     # To prevent unnecessary reloading
-    last_model_config = None
     last_dataset_config = None
-    model = None
-    model_weights = None
 
     for (
         description,
@@ -108,10 +136,7 @@ def run_experiment(config_dict):
         )  # type: ignore
 
         # Model weights setup
-        current_model_config = (model_name, processing)
-        if current_model_config != last_model_config:
-            model_weights = get_cached_weights(model_name, processing)
-            last_model_config = current_model_config
+        model_weights = get_cached_weights(model_name, processing)
 
         # Initialize embed and unembed modules
         embed_module, unembed_module = initialize_embed_and_unembed(
@@ -126,7 +151,6 @@ def run_experiment(config_dict):
         )
 
         d_model = model_weights["W_E"].shape[1]
-        n_toks = model_weights["W_E"].shape[0]
 
         # Dataset filtering
         dataset_name = dataset_config["name"]
@@ -278,10 +302,51 @@ def run_experiment(config_dict):
             File.from_content(test_cos_sim_diff)
         )
 
+        if local_results:
+            # pca = t.pca_lowrank(transform.transformations[0][1], q=2)
+            # principal_components = pca[0]
+            # results["principal_components"] = principal_components.tolist()
+
+            # svds, vector_norms = {"u": None, "s": None, "v": None}, []
+            # for operation, transform_tensor in transform.transformations:
+            #     if operation == "multiply":
+            #         u, s, v = t.linalg.svd(transform_tensor)
+            #         svds = {"u": u, "s": s, "v": v}
+            #         vector_norms = [
+            #             t.linalg.norm(tensors, dim=1)
+            #             for batch in test_loader
+            #             for tensors in batch
+            #         ]
+
+            # # large_tensors = {"pca": pca, "verify_learning": verify_learning}
+
+            # train_dataset, test_dataset = prepare_verify_datasets(
+            #     verify_learning=verify_learning,
+            #     batch_sizes=(train_batch_size, test_batch_size),
+            #     top_k=top_k,
+            #     top_k_selection_method=top_k_selection_method,
+            #     return_type="dataset",
+            # )
+
+            # big_tensors = {
+            #     "train_dataset": train_dataset,
+            #     "test_dataset": test_dataset,
+            # }
+
+            # results["svds"] = svds
+            # results["vector_norms"] = vector_norms
+            # local_results.append(run_config | results | big_tensors)
+
         run.stop()
 
         # returning results that we are not uploading for local analysis
         # transform_weights = transform.state_dict()
         # results["transform_weights"] = transform_weights
 
-        return results
+    return local_results
+
+
+# %%
+if __name__ == "__main__":
+    # run_experiment(experiment_config)
+    run_experiment_parallel(experiment_config, num_workers)

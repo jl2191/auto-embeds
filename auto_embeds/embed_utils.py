@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import plotly.express as px
 import torch as t
 import torch.nn as nn
-from loguru import logger
 from torch import Tensor
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
@@ -80,7 +79,6 @@ def calculate_test_loss(
         total_test_loss = 0.0
         for test_en_embed, test_fr_embed in test_loader:
             test_pred = transform(test_en_embed)
-            logger.debug(f"test_pred.shape: {test_pred.shape}")
             test_loss = loss_module(test_pred.squeeze(), test_fr_embed.squeeze())
             total_test_loss += test_loss.item()
         avg_test_loss = total_test_loss / len(test_loader)

@@ -196,7 +196,7 @@ def display_top_runs_table(
         if column in metrics:
             table.add_column(column, justify="center", width=8, max_width=12)
         else:
-            table.add_column(column, justify="left", width=23, max_width=24)
+            table.add_column(column, justify="left", width=20, max_width=24)
 
     # Prepare data for display with color coding
     min_values = top_runs_df.min(numeric_only=True)

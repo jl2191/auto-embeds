@@ -9,6 +9,17 @@ from auto_embeds.utils.cache import auto_embeds_cache
 from auto_embeds.utils.logging import logger
 
 
+def download_artifact(run, run_id, artifact_name):
+    destination = f"neptune_artifact_downloads/{run_id}-{artifact_name}"
+    run[f"results/json/{artifact_name}"].download(
+        destination=destination,
+        progress_bar=False,
+    )
+    with open(destination, "r") as file:
+        artifact = file.read()
+    return artifact
+
+
 @auto_embeds_cache
 def fetch_neptune_runs_df(
     project_name: str,
@@ -48,17 +59,6 @@ def fetch_neptune_runs_df(
         artifact_types = ["cos_sims_trend_plot", "test_cos_sim_diff", "verify_results"]
         artifacts_data = {f"results/{artifact}": [] for artifact in artifact_types}
 
-        def download_artifact(run, artifact_name):
-            import tempfile
-
-            with tempfile.NamedTemporaryFile(mode="w+", delete=True) as temp_file:
-                run[f"results/json/{artifact_name}"].download(
-                    destination=temp_file.name,
-                    progress_bar=False,
-                )
-                temp_file.seek(0)
-                return temp_file.read()
-
         pbar = tqdm(df["sys/id"].to_list(), desc="Downloading artifacts", unit="run")
         for run_id in pbar:
             run = neptune.init_run(
@@ -68,7 +68,7 @@ def fetch_neptune_runs_df(
             )
             for artifact in artifact_types:
                 artifacts_data[f"results/{artifact}"].append(
-                    download_artifact(run, artifact)
+                    download_artifact(run, run_id, artifact)
                 )
             pbar.set_description(f"Downloading artifacts for run ID: {run_id}")
         df = df.assign(**artifacts_data)

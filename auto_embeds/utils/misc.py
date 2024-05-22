@@ -10,8 +10,6 @@ import torch as t
 from icecream import install
 from torch.utils.hooks import RemovableHandle
 
-from experiments.run_experiment import run_experiment
-
 install()
 
 
@@ -272,14 +270,3 @@ def setup_arg_parser():
         help="Optional: Worker ID to use for running the experiment.",
     )
     return parser
-
-
-def run_worker(worker_id, experiment_config):
-    config_to_use = get_experiment_worker_config(
-        experiment_config=experiment_config,
-        split_parameter="datasets",
-        n_splits=2,
-        worker_id=worker_id,
-    )
-    print(f"Running experiment for worker ID = {worker_id}")
-    return run_experiment(config_to_use)
