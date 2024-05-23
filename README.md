@@ -20,6 +20,48 @@ poetry install --with dev
 
 Poetry is configured to use system packages by default, which can be beneficial when working on systems with pre-installed packages like PyTorch. To change this behavior, set `options.system-site-packages` to `false` in `poetry.toml`.
 
+## Features
+
+### Performance Tricks
+
+#### Caching with `@auto_embeds_cache`
+
+AutoEmbeds leverages a custom caching mechanism to optimize performance for functions with expensive or frequently repeated computations. This is achieved using the `@auto_embeds_cache` decorator from `auto_embeds/utils/cache.py`.
+
+- **Caching Mechanism**: The cache directory is determined by the environment variable `AUTOEMBEDS_CACHE_DIR` which defaults to `/tmp`.
+- **Clearing Cache**: You can clear the cache for a specific function by calling the `clear_cache` method on the decorated function. To delete all cached data, you just simply delete the entire cache directory.
+- **Disabling Cache**: The caching mechanism can be turned off entirely by setting the environment variable `AUTOEMBEDS_CACHING` to `false`.
+
+Example usage:
+```python
+from auto_embeds.utils.cache import auto_embeds_cache
+
+@auto_embeds_cache
+def expensive_function(param1, param2):
+    # expensive goodies here
+    return computation_result
+
+# after the first run, it should be super speedy!
+result = expensive_function(1, 2)
+
+# clear the cache for this specific function should you want to.
+expensive_function.clear_cache()
+```
+
+#### Parallel Processing
+
+AutoEmbeds also supports parallel processing to speed up experiments. This is demonstrated in `experiments/run_experiment.py` where multiprocessing is used to run experiments in parallel.
+
+- **Parallel Execution**: The `run_experiment_parallel` function utilizes Python's `multiprocessing` module to distribute tasks across multiple workers, significantly reducing the time required for large-scale experiments.
+
+Example usage:
+```python
+from experiments.run_experiment import run_experiment_parallel, experiment_config, num_workers
+
+if __name__ == "__main__":
+    run_experiment_parallel(experiment_config, num_workers)
+```
+
 ## Contributing
 Contributions are welcome! Here are some guidelines to follow:
 
