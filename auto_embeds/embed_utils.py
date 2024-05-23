@@ -174,12 +174,13 @@ def initialize_embed_and_unembed(
         tokenizer: The tokenizer used for tokenization.
         model_weights: Dict with keys "W_E", "W_U", "embed.ln.w", "embed.ln.b",
             "ln_final.w", "ln_final.b".
-        embed_weight: If "model_weights", uses weights from the model for EmbedModule. If
-            "random_normal" or "random_uniform", initializes weights randomly with
+        embed_weight: If "model_weights", uses weights from the model for EmbedModule.
+            If "random_normal" or "random_uniform", initializes weights randomly with
             normal or uniform distribution respectively. Defaults to "model_weights".
         embed_ln: If True, applies layer normalization in EmbedModule.
-        embed_ln_weights: If "model_weights", uses layer normalization weights from the model
-            for EmbedModule. If "default_weights", does not apply weights. Defaults to "model_weights".
+        embed_ln_weights: If "model_weights", uses layer normalization weights from the
+            model for EmbedModule. If "default_weights", does not apply weights.
+            Defaults to "model_weights".
         unembed_weight: Similar to embed_weight but for UnembedModule.
         unembed_ln: If True, applies layer normalization in UnembedModule.
         unembed_ln_weights: Similar to embed_ln_weights but for UnembedModule.
@@ -189,75 +190,56 @@ def initialize_embed_and_unembed(
     Returns:
         A tuple containing instances of Embed and Unembed.
     """
+
+    def initialize_weights(param, weight_type, model_weights, weight_key):
+        if weight_type == "model_weights":
+            param.data = model_weights[weight_key].detach().clone()
+        elif weight_type == "random_normal":
+            t.nn.init.normal_(param.data, mean=0, std=1)
+        elif weight_type == "random_uniform":
+            t.nn.init.uniform_(param.data, -1, 1)
+        elif weight_type == "default_weights":
+            pass
+        else:
+            raise ValueError(f"Unsupported initialization method: {weight_type}")
+
     d_model = model_weights["W_E"].shape[1]
-    d_vocab = tokenizer.vocab_size
+    d_vocab = model_weights["W_E"].shape[0]
 
-    # Initialize EmbedModule
     embed_module = Embed(d_model, d_vocab, apply_ln=embed_ln, device=device)
-    if embed_weight == "model_weights":
-        embed_module.W_E.data = model_weights["W_E"].detach().clone()
-    elif embed_weight == "random_normal":
-        t.nn.init.normal_(embed_module.W_E.data, mean=0, std=1)
-    elif embed_weight == "random_uniform":
-        t.nn.init.uniform_(embed_module.W_E.data, -1, 1)
-    elif embed_weight == "default_weights":
-        pass
-    else:
-        raise ValueError(f"Unsupported embedding initialization method: {embed_weight}")
-
-    if embed_ln and embed_ln_weights == "model_weights":
-        embed_module.embed_ln.weight.data = model_weights["embed.ln.w"].detach().clone()
-        embed_module.embed_ln.bias.data = model_weights["embed.ln.b"].detach().clone()
-    elif embed_ln and embed_ln_weights == "random_normal":
-        t.nn.init.normal_(embed_module.embed_ln.weight.data, mean=0, std=1)
-        t.nn.init.normal_(embed_module.embed_ln.bias.data, mean=0, std=1)
-    elif embed_ln and embed_ln_weights == "random_uniform":
-        t.nn.init.uniform_(embed_module.embed_ln.weight.data, -1, 1)
-        t.nn.init.uniform_(embed_module.embed_ln.bias.data, -1, 1)
-    elif embed_ln and embed_ln_weights == "default_weights":
-        pass
-    elif not embed_ln:
-        pass
-    else:
-        raise ValueError(
-            f"Unsupported embedding layer normalization method: {embed_ln_weights}"
+    initialize_weights(embed_module.W_E, embed_weight, model_weights, "W_E")
+    if embed_ln:
+        assert embed_module.embed_ln is not None
+        initialize_weights(
+            embed_module.embed_ln,
+            embed_ln_weights,
+            model_weights,
+            "embed.ln.w",
+        )
+        initialize_weights(
+            embed_module.embed_ln.bias,
+            embed_ln_weights,
+            model_weights,
+            "embed.ln.b",
         )
 
     # Initialize Unembed
     unembed_module = Unembed(d_model, d_vocab, apply_ln=unembed_ln, device=device)
-    if unembed_weight == "model_weights":
-        unembed_module.W_U.data = model_weights["W_U"].detach().clone()
-        unembed_module.b_U.data = model_weights["b_U"].detach().clone()
-    elif unembed_weight == "random_normal":
-        t.nn.init.normal_(unembed_module.W_U.data, mean=0, std=1)
-        t.nn.init.normal_(unembed_module.b_U.data, mean=0, std=1)
-    elif unembed_weight == "random_uniform":
-        t.nn.init.uniform_(unembed_module.W_U.data, -1, 1)
-        t.nn.init.uniform_(unembed_module.b_U.data, -1, 1)
-    else:
-        raise ValueError(
-            f"Unsupported unembedding initialization method: {unembed_weight}"
+    initialize_weights(unembed_module.W_U, unembed_weight, model_weights, "W_U")
+    initialize_weights(unembed_module.b_U, unembed_weight, model_weights, "b_U")
+    if unembed_ln:
+        assert unembed_module.ln_final is not None
+        initialize_weights(
+            unembed_module.ln_final,
+            unembed_ln_weights,
+            model_weights,
+            "ln_final.w",
         )
-
-    if unembed_ln and unembed_ln_weights == "model_weights":
-        unembed_module.ln_final.weight.data = (
-            model_weights["ln_final.w"].detach().clone()
-        )
-        unembed_module.ln_final.bias.data = model_weights["ln_final.b"].detach().clone()
-    elif unembed_ln and unembed_ln_weights == "random_normal":
-        t.nn.init.normal_(unembed_module.ln_final.weight.data, mean=0, std=1)
-        t.nn.init.normal_(unembed_module.ln_final.bias.data, mean=0, std=1)
-    elif unembed_ln and unembed_ln_weights == "random_uniform":
-        t.nn.init.uniform_(unembed_module.ln_final.weight.data, -1, 1)
-        t.nn.init.uniform_(unembed_module.ln_final.bias.data, -1, 1)
-    elif unembed_ln and unembed_ln_weights == "default_weights":
-        pass
-    elif not unembed_ln:
-        pass
-    else:
-        raise ValueError(
-            f"Unsupported unembedding layer normalization method: "
-            f"{unembed_ln_weights}"
+        initialize_weights(
+            unembed_module.ln_final.bias,
+            unembed_ln_weights,
+            model_weights,
+            "ln_final.b",
         )
 
     return embed_module, unembed_module

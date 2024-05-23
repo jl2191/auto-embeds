@@ -1,4 +1,9 @@
+# %%
+import itertools
 from datetime import datetime
+from typing import Dict, Generator, List
+
+from auto_embeds.utils.logging import logger
 
 num_workers = 2
 
@@ -7,17 +12,19 @@ experiment_config = {
     "neptune": {
         "tags": [
             f"{datetime.now():%Y-%m-%d}",
-            f"{datetime.now():%Y-%m-%d} rotations",
-            "experiment 35",
-            "run group 3",
+            f"{datetime.now():%Y-%m-%d} sweep",
+            "experiment 8",
+            "run group 1",
         ],
     },
-    "description": ["fourth_einsum"],
+    "description": ["new"],
     "models": [
         "bigscience/bloom-560m",
         # "bigscience/bloom-1b1",
-        # "bigscience/bloom-3b",
-        # "bigscience/bloom-7b1",
+        "bigscience/bloom-3b",
+        "gpt2",
+        "gpt2-medium",
+        # "gpt2-large",
     ],
     "processings": [
         False,
@@ -70,10 +77,10 @@ experiment_config = {
         # "biased_uncentered_linear_map",
         "analytical_linear_map",
         # "analytical_translation",
-        "analytical_rotation",
-        "analytical_rotation_and_reflection",
-        "roma_analytical",
-        "roma_scale_analytical",
+        # "analytical_rotation",
+        # "analytical_rotation_and_reflection",
+        # "roma_analytical",
+        # "roma_scale_analytical",
     ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
@@ -88,13 +95,15 @@ experiment_config = {
     # "loss_functions": ["cosine_similarity", "mse_loss"],
     "loss_functions": ["cosine_similarity"],
     "embed_weight": ["model_weights"],
-    # "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-    "embed_ln_weights": ["no_ln", "model_weights"],
+    "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    # "embed_ln_weights": ["no_ln", "model_weights"],
     # "embed_ln_weights": ["default_weights"],
+    # "embed_ln_weights": ["model_weights"],
     "unembed_weight": ["model_weights"],
-    # "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-    "unembed_ln_weights": ["no_ln", "model_weights"],
+    "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    # "unembed_ln_weights": ["no_ln", "model_weights"],
     # "unembed_ln_weights": ["default_weights"],
+    # "unembed_ln_weights": ["model_weights"],
     "n_epochs": [100],
     "weight_decay": [
         0,
@@ -104,11 +113,31 @@ experiment_config = {
 }
 
 
-def _get_total_runs(experiment_config):
-    total_runs = 1
-    for value in experiment_config.values():
-        if isinstance(value, list):
-            total_runs *= len(value)
+def generate_configurations(
+    config_dict: Dict[str, List],
+) -> Generator[tuple, None, None]:
+    config_keys = list(config_dict.keys())
+    config_values = [config_dict[key] for key in config_keys]
+    for config_tuple in itertools.product(*config_values):
+        config = dict(zip(config_keys, config_tuple))
+        if "gpt2" in config["models"]:
+            if config["embed_ln_weights"] != "no_ln":
+                continue
+        yield tuple(config.values())
 
 
-total_runs = _get_total_runs(experiment_config)
+def get_config_list(config_dict: Dict[str, List]) -> List[tuple]:
+    config_list = list(generate_configurations(config_dict))
+    return config_list
+
+
+def get_total_runs(experiment_config: Dict[str, List]) -> int:
+    experiment_config = {k: v for k, v in experiment_config.items() if k != "neptune"}
+    config_list = get_config_list(experiment_config)
+    return len(config_list)
+
+
+total_runs = get_total_runs(experiment_config)
+
+if __name__ == "__main__":
+    logger.info(f"total_runs: {total_runs}")

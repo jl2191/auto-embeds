@@ -1,5 +1,4 @@
 # %%
-import itertools
 import json
 import multiprocessing as mp
 import os
@@ -10,6 +9,7 @@ import neptune
 import numpy as np
 import plotly.io as pio
 import torch as t
+from IPython.core.getipython import get_ipython
 from neptune.types import File
 from neptune.utils import stringify_unsupported
 from transformers import AutoTokenizer, PreTrainedTokenizerFast
@@ -34,7 +34,17 @@ from auto_embeds.verify import (
     test_cos_sim_difference,
     verify_transform,
 )
-from experiments.configure_experiment import experiment_config, num_workers, total_runs
+from experiments.configure_experiment import (
+    experiment_config,
+    get_config_list,
+    total_runs,
+)
+
+try:
+    get_ipython().run_line_magic("load_ext", "autoreload")  # type: ignore
+    get_ipython().run_line_magic("autoreload", "2")  # type: ignore
+except Exception:
+    pass
 
 
 def run_experiment_parallel(config, num_workers):
@@ -64,15 +74,11 @@ def run_experiment(config_dict):
     local_results = []
     # extracting 'neptune' configuration and generating all combinations of configs
     # as a list of lists
-    neptune_config = config_dict.pop("neptune")
-    config_values = [
-        config_dict[entry] if entry != "datasets" else config_dict[entry]
-        for entry in config_dict
-    ]
-    config_list = list(itertools.product(*config_values))
-
-    # To prevent unnecessary reloading
-    last_dataset_config = None
+    neptune_config = config_dict["neptune"]
+    config_dict = {k: v for k, v in config_dict.items() if k != "neptune"}
+    config_list = get_config_list(config_dict)
+    for config in config_list:
+        print(config)
 
     for (
         description,
@@ -137,6 +143,7 @@ def run_experiment(config_dict):
 
         # Model weights setup
         model_weights = get_cached_weights(model_name, processing)
+        d_model = model_weights["W_E"].shape[1]
 
         # Initialize embed and unembed modules
         embed_module, unembed_module = initialize_embed_and_unembed(
@@ -150,7 +157,7 @@ def run_experiment(config_dict):
             unembed_ln_weights=unembed_ln_weights,
         )
 
-        d_model = model_weights["W_E"].shape[1]
+        del model_weights
 
         # Dataset filtering
         dataset_name = dataset_config["name"]
@@ -158,18 +165,15 @@ def run_experiment(config_dict):
         with open(file_path, "r", encoding="utf-8") as file:
             word_pairs = json.load(file)
 
-        current_dataset_config = dataset_config
-        if current_dataset_config != last_dataset_config:
-            all_word_pairs = filter_word_pairs(
-                tokenizer=tokenizer,
-                word_pairs=word_pairs,
-                discard_if_same=True,
-                min_length=dataset_config["min_length"],
-                space_configurations=dataset_config["space_configurations"],
-                print_number=True,
-                verbose_count=True,
-            )
-            last_dataset_config = current_dataset_config
+        all_word_pairs = filter_word_pairs(
+            tokenizer=tokenizer,
+            word_pairs=word_pairs,
+            discard_if_same=True,
+            min_length=dataset_config["min_length"],
+            space_configurations=dataset_config["space_configurations"],
+            print_number=True,
+            verbose_count=True,
+        )
 
         # Prepare datasets
         verify_learning = prepare_verify_analysis(
@@ -184,6 +188,7 @@ def run_experiment(config_dict):
             batch_sizes=(train_batch_size, test_batch_size),
             top_k=top_k,
             top_k_selection_method=top_k_selection_method,
+            return_type="dataloader",
         )
 
         if "mark_accuracy_path" in dataset_config:
@@ -303,39 +308,39 @@ def run_experiment(config_dict):
         )
 
         if local_results:
-            # pca = t.pca_lowrank(transform.transformations[0][1], q=2)
-            # principal_components = pca[0]
-            # results["principal_components"] = principal_components.tolist()
+            pca = t.pca_lowrank(transform.transformations[0][1], q=2)
+            principal_components = pca[0]
+            results["principal_components"] = principal_components.tolist()
 
-            # svds, vector_norms = {"u": None, "s": None, "v": None}, []
-            # for operation, transform_tensor in transform.transformations:
-            #     if operation == "multiply":
-            #         u, s, v = t.linalg.svd(transform_tensor)
-            #         svds = {"u": u, "s": s, "v": v}
-            #         vector_norms = [
-            #             t.linalg.norm(tensors, dim=1)
-            #             for batch in test_loader
-            #             for tensors in batch
-            #         ]
+            svds, vector_norms = {"u": None, "s": None, "v": None}, []
+            for operation, transform_tensor in transform.transformations:
+                if operation == "multiply":
+                    u, s, v = t.linalg.svd(transform_tensor)
+                    svds = {"u": u, "s": s, "v": v}
+                    vector_norms = [
+                        t.linalg.norm(tensors, dim=1)
+                        for batch in test_loader
+                        for tensors in batch
+                    ]
 
-            # # large_tensors = {"pca": pca, "verify_learning": verify_learning}
+            # large_tensors = {"pca": pca, "verify_learning": verify_learning}
 
-            # train_dataset, test_dataset = prepare_verify_datasets(
-            #     verify_learning=verify_learning,
-            #     batch_sizes=(train_batch_size, test_batch_size),
-            #     top_k=top_k,
-            #     top_k_selection_method=top_k_selection_method,
-            #     return_type="dataset",
-            # )
+            train_dataset, test_dataset = prepare_verify_datasets(
+                verify_learning=verify_learning,
+                batch_sizes=(train_batch_size, test_batch_size),
+                top_k=top_k,
+                top_k_selection_method=top_k_selection_method,
+                return_type="dataset",
+            )
 
-            # big_tensors = {
-            #     "train_dataset": train_dataset,
-            #     "test_dataset": test_dataset,
-            # }
+            big_tensors = {
+                "train_dataset": train_dataset,
+                "test_dataset": test_dataset,
+            }
 
-            # results["svds"] = svds
-            # results["vector_norms"] = vector_norms
-            # local_results.append(run_config | results | big_tensors)
+            results["svds"] = svds
+            results["vector_norms"] = vector_norms
+            local_results.append(run_config | results | big_tensors)
 
         run.stop()
 
@@ -349,4 +354,6 @@ def run_experiment(config_dict):
 # %%
 if __name__ == "__main__":
     # run_experiment(experiment_config)
-    run_experiment_parallel(experiment_config, num_workers)
+    run_experiment_parallel(experiment_config, num_workers=2)
+
+# %%

@@ -19,13 +19,9 @@ class IdentityTransform(nn.Module):
     leaving it unchanged. This can be useful as a placeholder or for testing purposes.
 
     Args:
-        d_model (int): The dimensionality of the model embeddings. This argument is
-        kept for interface consistency but is not used.
-        device (Optional[Union[str, t.device]]): The device on which the module
-        should be initialized. Not used.
-
-    Attributes:
-        None.
+        d_model: The dimensionality of the model embeddings. This argument is
+            kept for interface consistency but is not used.
+        device: The device on which the module should be initialized. Not used.
     """
 
     def __init__(
@@ -39,9 +35,8 @@ class IdentityTransform(nn.Module):
         to initialize.
 
         Args:
-            d_model (int): The dimensionality of the model embeddings. Not used.
-            device (Optional[Union[str, t.device]]): The device on which the module
-            should be initialized. Not used.
+            d_model: The dimensionality of the model embeddings. Not used.
+            device: The device on which the module should be initialized. Not used.
         """
         super().__init__()
         self.d_model = d_model
@@ -54,10 +49,10 @@ class IdentityTransform(nn.Module):
         is returned as is.
 
         Args:
-            x (Tensor): The input tensor.
+            x: The input tensor.
 
         Returns:
-            Tensor: The unchanged input tensor.
+            The unchanged input tensor.
         """
         return x
 
@@ -69,13 +64,12 @@ class LinearTransform(nn.Module):
     integration into models that require modular transformation components.
 
     Args:
-        d_model (int): The dimensionality of the model embeddings.
-        bias (bool): Whether the linear transformation includes a bias term.
-        device (Optional[Union[str, t.device]]): The device on which the module
-        should be initialized.
+        d_model: The dimensionality of the model embeddings.
+        bias: Whether the linear transformation includes a bias term.
+        device: The device on which the module should be initialized.
 
     Attributes:
-        linear (t.nn.Linear): The linear transformation.
+        linear: The linear transformation.
     """
 
     def __init__(
@@ -89,10 +83,9 @@ class LinearTransform(nn.Module):
         bias option. The module is initialized on the specified device.
 
         Args:
-            d_model (int): The dimensionality of the model embeddings.
-            bias (bool): Whether to include a bias term in the transformation.
-            device (Optional[Union[str, t.device]]): The device on which the module
-            should be initialized.
+            d_model: The dimensionality of the model embeddings.
+            bias: Whether to include a bias term in the transformation.
+            device: The device on which the module should be initialized.
         """
         super().__init__()
         self.linear = t.nn.Linear(d_model, d_model, bias=bias).to(device)
@@ -105,7 +98,7 @@ class LinearTransform(nn.Module):
         Applies the linear transformation to the input tensor.
 
         Args:
-            x (Tensor): The input tensor.
+            x: The input tensor.
 
         Returns:
             Tensor: The transformed tensor.
@@ -119,12 +112,11 @@ class TranslationTransform(nn.Module):
     A nn.Module that applies a translation transformation to the input tensor.
 
     Args:
-        d_model (int): The dimensionality of the model embeddings.
-        device (Optional[Union[str, t.device]]): The device on which the module
-        should be initialized.
+        d_model: The dimensionality of the model embeddings.
+        device: The device on which the module should be initialized.
 
     Attributes:
-        translation (t.nn.Parameter): The translation vector.
+        translation: The translation vector.
     """
 
     def __init__(
@@ -145,7 +137,7 @@ class TranslationTransform(nn.Module):
         Applies the translation transformation to the input tensor.
 
         Args:
-            x (Tensor): The input tensor.
+            x: The input tensor.
 
         Returns:
             Tensor: The transformed tensor.
@@ -155,19 +147,16 @@ class TranslationTransform(nn.Module):
 
 
 class UncenteredLinearMapTransform(nn.Module):
-    """
-    A nn.Module that applies an uncentered linear map transformation to the input
-    tensor.
+    """Applies an uncentered linear map transformation to the input tensor.
 
     Args:
-        d_model (int): The dimensionality of the model embeddings.
-        bias (bool): Whether to include a bias term.
-        device (Optional[Union[str, t.device]]): The device on which the module should
-        be initialised on.
+        d_model: The dimensionality of the model embeddings.
+        bias: Whether to include a bias term.
+        device: The device on which the module should be initialized.
 
     Attributes:
-        linear_map (t.nn.Linear): The linear map matrix.
-        center (t.nn.Parameter): A learned "center".
+        linear_map: The linear map matrix.
+        center: A learned "center".
     """
 
     def __init__(
@@ -187,11 +176,10 @@ class UncenteredLinearMapTransform(nn.Module):
     def forward(
         self, x: Float[Tensor, "batch d_model"]
     ) -> Float[Tensor, "batch d_model"]:
-        """
-        Applies the uncentered linear map transformation to the input tensor.
+        """Applies the uncentered linear map transformation to the input tensor.
 
         Args:
-            x (Tensor): The input tensor.
+            x: The input tensor.
 
         Returns:
             Tensor: The transformed tensor.
@@ -205,12 +193,11 @@ class RotationTransform(nn.Module):
     A nn.Module that applies a rotation transformation to the input tensor.
 
     Args:
-        d_model (int): The dimensionality of the model embeddings.
-        device (Optional[Union[str, t.device]]): The device on which module should be
-        initialised on.
+        d_model: The dimensionality of the model embeddings.
+        device: The device on which the module should be initialized.
 
     Attributes:
-        rotation (t.nn.Linear): The rotation matrix.
+        rotation: The rotation matrix.
     """
 
     def __init__(
@@ -241,10 +228,10 @@ class RotationTransform(nn.Module):
         Applies the rotation transformation to the input tensor.
 
         Args:
-            x (Tensor): The input tensor.
+            x: The input tensor.
 
         Returns:
-            Tensor: The transformed tensor.
+            The transformed tensor.
         """
         x = self.rotation(x)
         return x
@@ -252,12 +239,11 @@ class RotationTransform(nn.Module):
 
 class BiasedRotationTransform(nn.Module):
     """
-    A nn.Module that applies an rotation transformation plus a bias to the input tensor.
+    A nn.Module that applies a rotation transformation plus a bias to the input tensor.
 
     Args:
-        d_model (int): The dimensionality of the model embeddings.
-        device (Optional[Union[str, t.device]]): The device on which the module should
-        be initialised on.
+        d_model: The dimensionality of the model embeddings.
+        device: The device on which the module should be initialized.
 
     Attributes:
         rotation (t.nn.Linear): The rotation matrix.
@@ -288,7 +274,7 @@ class BiasedRotationTransform(nn.Module):
         Applies the offset rotation transformation to the input tensor.
 
         Args:
-            x (Tensor): The input tensor.
+            x: The input tensor.
 
         Returns:
             Tensor: The transformed tensor.
@@ -305,13 +291,12 @@ class UncenteredRotationTransform(nn.Module):
     result.
 
     Args:
-        d_model (int): The dimensionality of the model embeddings.
-        device (Optional[Union[str, t.device]]): The device on which module should be
-        initialised on.
+        d_model: The dimensionality of the model embeddings.
+        device: The device on which the module should be initialized.
 
     Attributes:
-        rotation (t.nn.Linear): The rotation matrix.
-        translation (t.nn.Parameter): The translation vector.
+        rotation: The rotation matrix.
+        center: The translation vector.
     """
 
     def __init__(
@@ -338,7 +323,7 @@ class UncenteredRotationTransform(nn.Module):
         Applies the uncentered rotation transformation to the input tensor.
 
         Args:
-            x (Tensor): The input tensor.
+            x: The input tensor.
 
         Returns:
             Tensor: The transformed tensor.
@@ -354,9 +339,9 @@ class ManualTransformModule(nn.Module):
     addition ('add'), supporting a broad range of affine transformations.
 
     Args:
-        transformations (List[Tuple[str, torch.Tensor]]): A list of tuples where
-            the first element is a string indicating the operation ('multiply' or 'add')
-            and the second element is a tensor representing the transformation.
+        transformations: A list of tuples where the first element is a string indicating
+            the operation ('multiply' or 'add') and the second element is a tensor
+            representing the transformation.
     """
 
     def __init__(self, transformations):
@@ -370,7 +355,7 @@ class ManualTransformModule(nn.Module):
         Applies the sequence of affine transformations to the input tensor.
 
         Args:
-            x (torch.Tensor): The input tensor to be transformed.
+            x: The input tensor to be transformed.
 
         Returns:
             torch.Tensor: The transformed tensor.
@@ -400,16 +385,14 @@ class Embed(nn.Module):
     to the embedded output.
 
     Args:
-        d_model (int): The dimensionality of the model embeddings.
-        apply_ln (bool, optional): If True, applies layer normalization to the embeddings.
+        d_model: The dimensionality of the model embeddings.
+        apply_ln: If True, applies layer normalization to the embeddings.
             Defaults to True.
-        device (Optional[Union[str, t.device]]): The device on which the module should
-            be initialized.
+        device: The device on which the module should be initialized.
 
     Attributes:
-        W_E (nn.Parameter): The weight matrix for embeddings.
-        embed_ln (nn.LayerNorm, optional): The layer normalization module, initialized
-            if apply_ln is True.
+        W_E: The weight matrix for embeddings.
+        embed_ln: The layer normalization module, initialized if apply_ln is True.
     """
 
     def __init__(
@@ -453,18 +436,16 @@ class Unembed(nn.Module):
     before the linear transformation.
 
     Args:
-        d_model (int): The dimensionality of the embedding space.
-        d_vocab (int): The dimensionality of the output vocabulary space.
-        apply_ln (bool, optional): If True, applies layer normalization to the
-            embeddings before unembedding. Defaults to False.
-        device (Optional[Union[str, t.device]]): The device on which the module should
-            be initialized.
+        d_model: The dimensionality of the embedding space.
+        d_vocab: The dimensionality of the output vocabulary space.
+        apply_ln: If True, applies layer normalization to the embeddings before
+            unembedding. Defaults to False.
+        device: The device on which the module should be initialized.
 
     Attributes:
-        W_U (nn.Parameter): The weight matrix for unembedding.
-        b_U (nn.Parameter): The bias vector for unembedding.
-        ln_final (nn.LayerNorm, optional): The layer normalization applied before
-        unembedding if apply_ln is True.
+        W_U: The weight matrix for unembedding.
+        b_U: The bias vector for unembedding.
+        ln_final: Layer normalization applied before unembedding if apply_ln is True.
     """
 
     def __init__(
@@ -491,7 +472,7 @@ class Unembed(nn.Module):
         converting embeddings back to the vocabulary space.
 
         Args:
-            x (Tensor): Input tensor containing embeddings.
+            x: Input tensor containing embeddings.
 
         Returns:
             Tensor: The unembedded tensor, transformed to the vocabulary space.

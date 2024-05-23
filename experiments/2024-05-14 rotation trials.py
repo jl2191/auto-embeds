@@ -285,9 +285,6 @@ df = (
     # .query(
     #     "transformation == 'linear_map' or transformation == 'analytical_linear_map'"
     # )
-    # .query(
-    #     "transformation == 'translation' or transformation == 'analytical_translation'"
-    # )
 )
 df_mse = df.query("loss_function == 'mse_loss'")
 fig_mse = px.scatter(

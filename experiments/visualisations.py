@@ -206,7 +206,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.decomposition import PCA
 
-# Assuming the Bloom model and tokenizer are initialized similarly to your existing setup
 model_name = "bigscience/bloom-560m"
 model.eval()  # Set the model to evaluation mode
 

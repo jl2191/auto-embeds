@@ -1,6 +1,5 @@
 # %%
 import os
-from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy
 
 from auto_embeds.data import filter_word_pairs, tokenize_word_pairs
 
@@ -11,12 +10,13 @@ import numpy as np
 import pytest
 import torch as t
 import torch.testing as tt
-from torch.utils.data import DataLoader, TensorDataset, random_split
-import transformer_lens as tl
+from torch.utils.data import DataLoader, TensorDataset
+from transformers import AutoTokenizer
 
+from auto_embeds.data import get_cached_weights
 from auto_embeds.embed_utils import (
-    initialize_transform_and_optim,
     initialize_loss,
+    initialize_transform_and_optim,
     train_transform,
 )
 
@@ -24,11 +24,11 @@ np.random.seed(1)
 t.manual_seed(1)
 t.cuda.manual_seed(1)
 
-model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
-d_model = model.cfg.d_model
-device = model.cfg.device
+tokenizer = AutoTokenizer.from_pretrained("bigscience/bloom-560m")
+model_weights = get_cached_weights("bigscience/bloom-560m", "default")
+d_model = model_weights["W_E"].shape[1]
+device = t.device("cuda" if t.cuda.is_available() else "cpu")
 batch = 10
-
 
 
 # %%
@@ -49,7 +49,9 @@ batch = 10
 def test_initialize_transform_and_optim_types_general(
     transformation, expected_optim_type
 ):
-    transform_module, optim = initialize_transform_and_optim(d_model, transformation)
+    transform_module, optim = initialize_transform_and_optim(
+        d_model, transformation, optim_kwargs={}
+    )
     assert_msg = f"Failed to initialize transform for {transformation}"
     assert transform_module is not None, assert_msg
 
@@ -67,7 +69,7 @@ def test_initialize_transform_and_optim_types_general(
 def test_initialize_transform_and_optim_types_mean_diff():
     mean_diff = t.rand(d_model) - t.rand(d_model)
     transform_module, optim = initialize_transform_and_optim(
-        d_model, "mean_translation", mean_diff=mean_diff
+        d_model, "mean_translation", mean_diff=mean_diff, optim_kwargs={}
     )
     assert_msg = "Failed to initialize transform for mean_translation"
     assert transform_module is not None, assert_msg
@@ -75,7 +77,9 @@ def test_initialize_transform_and_optim_types_mean_diff():
 
 
 def test_identity_transformation():
-    identity_transform, _ = initialize_transform_and_optim(d_model, "identity")
+    identity_transform, _ = initialize_transform_and_optim(
+        d_model, "identity", optim_kwargs={}
+    )
     input = t.rand((d_model), device=device)
     actual = identity_transform(input)
     # The identity transformation should not change the input tensor
@@ -84,8 +88,10 @@ def test_identity_transformation():
 
 
 def test_translation_transformation():
-    translation_transform, _ = initialize_transform_and_optim(d_model, "translation")
     # Test translation transformation by adding a vector of ones to input tensor.
+    translation_transform, _ = initialize_transform_and_optim(
+        d_model, "translation", optim_kwargs={}
+    )
     translation_transform.translation.data = t.ones(d_model, device=device)
     input = t.randn((batch, d_model), device=device)
     expected = input + t.ones_like(input)
@@ -95,8 +101,10 @@ def test_translation_transformation():
 
 
 def test_linear_map_transformation():
-    linear_map_transformation, _ = initialize_transform_and_optim(d_model, "linear_map")
     # Test the linear map transformation by doubling the input tensor values.
+    linear_map_transformation, _ = initialize_transform_and_optim(
+        d_model, "linear_map", optim_kwargs={}
+    )
     linear_map_transformation.weight.data = t.eye(d_model, device=device) * 2
     input = t.rand((batch, d_model), device=device)
     expected = input * 2
@@ -109,7 +117,7 @@ def test_uncentered_linear_map_transformation():
     # input, doubling it and taking away a tensor of ones and seeing if the results
     # match the module.
     uncentered_linear_map_transformation, _ = initialize_transform_and_optim(
-        d_model, "uncentered_linear_map"
+        d_model, "uncentered_linear_map", optim_kwargs={}
     )
     # Setting the linear transformation to double the input and translation to ones
     uncentered_linear_map_transformation.linear_map.weight.data = (
@@ -130,7 +138,7 @@ def test_biased_uncentered_linear_map_transformation():
     # results match the module. As this has a bias, the linear map consists of a
     # doubling and adding of ones
     biased_uncentered_linear_map_transformation, _ = initialize_transform_and_optim(
-        d_model, "biased_uncentered_linear_map"
+        d_model, "biased_uncentered_linear_map", optim_kwargs={}
     )
     # Setting the linear transformation to double the input and center to ones
     biased_uncentered_linear_map_transformation.linear_map.weight.data = (
@@ -151,8 +159,10 @@ def test_biased_uncentered_linear_map_transformation():
 
 
 def test_rotation_transformation():
-    rotation_transformation, _ = initialize_transform_and_optim(d_model, "rotation")
     # Initialize rotation as identity for testing
+    rotation_transformation, _ = initialize_transform_and_optim(
+        d_model, "rotation", optim_kwargs={}
+    )
     rotation_transformation.rotation.weight = t.eye(d_model, device=device)
     data = t.rand((batch, d_model), device=device)
     # Since rotation is identity, the expected output is the input itself
@@ -188,12 +198,9 @@ def test_rotation_transformation():
     expected = t.tensor([[0, 1] + [0] * (d_model - 2)], dtype=t.float, device=device)
     actual = rotation_transformation(data)
     tt.assert_close(actual, expected)
-
     # Test that norm is preserved during rotation.
-    transform, _ = initialize_transform_and_optim(d_model, "rotation")
-    data = t.arange(d_model, dtype=t.float, device=device).unsqueeze(
-        0
-    )  # Add batch dimension
+    transform, _ = initialize_transform_and_optim(d_model, "rotation", optim_kwargs={})
+    data = t.arange(d_model, dtype=t.float, device=device).unsqueeze(0)
     expected = t.norm(data, p=2, dim=-1)
     actual = t.norm(transform(data), p=2, dim=-1)
     tt.assert_close(actual, expected)
@@ -206,6 +213,7 @@ def test_mean_translation_transformation():
         d_model,
         "mean_translation",
         mean_diff=mean_diff,
+        optim_kwargs={},
     )
     input = t.rand((batch, d_model), device=device)
     expected = input + mean_diff
@@ -286,12 +294,10 @@ def test_train_transform():
     trained_transforms = {}
     for transformation_name in transformation_names:
 
-        transform = None
-        optim = None
-
         transform, optim = initialize_transform_and_optim(
             d_model,
             transformation=transformation_name,
+            optim_kwargs={},
         )
 
         loss_module = initialize_loss("cosine_similarity")
@@ -306,6 +312,7 @@ def test_train_transform():
                 loss_module=loss_module,
                 n_epochs=5,
                 plot_fig=False,
+                unembed_module=None,
             )
             trained_transforms[transformation_name] = transform
 
@@ -320,5 +327,6 @@ def test_train_transform():
                 actual = t.det(transform(t.eye(d_model, device=device)))
                 expected = t.tensor(1.0, device=device)
                 tt.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+
 
 test_train_transform()

@@ -13,7 +13,15 @@ def calculate_translation(
     train_src_embeds: Float[Tensor, "batch pos d_model"],
     train_tgt_embeds: Float[Tensor, "batch pos d_model"],
 ) -> Float[Tensor, "pos d_model"]:
-    """Calculates translation vector for source to target language embeddings."""
+    """Calculates translation vector for source to target language embeddings.
+
+    Args:
+        train_src_embeds: Source language embeddings of shape.
+        train_tgt_embeds: Target language embeddings of shape.
+
+    Returns:
+        Translation vector of shape (pos, d_model).
+    """
     X = train_src_embeds.detach().clone().squeeze()
     Y = train_tgt_embeds.detach().clone().squeeze()
     T = t.mean(Y - X, dim=0)
@@ -24,6 +32,17 @@ def calculate_procrustes_roma(
     train_src_embeds: Float[Tensor, "batch pos d_model"],
     train_tgt_embeds: Float[Tensor, "batch pos d_model"],
 ) -> Tuple[Float[Tensor, "d_model d_model"], Float[Tensor, ""]]:
+    """Calculates the Procrustes rotation matrix and scale using ROMA.
+
+    Args:
+        train_src_embeds: Source language embeddings.
+        train_tgt_embeds: Target language embeddings.
+
+    Returns:
+        A tuple containing:
+            - Rotation matrix of shape (d_model, d_model).
+            - Scale factor.
+    """
     A = train_src_embeds.detach().clone().squeeze()
     B = train_tgt_embeds.detach().clone().squeeze()
     R, scale = rigid_vectors_registration(A, B, compute_scaling=True)
@@ -35,6 +54,18 @@ def calculate_orthogonal_procrustes(
     train_tgt_embeds: Float[Tensor, "batch pos d_model"],
     ensure_rotation: bool = False,
 ) -> Tuple[Float[Tensor, "d_model d_model"], Float[Tensor, ""]]:
+    """Calculates the orthogonal Procrustes rotation matrix and scale.
+
+    Args:
+        train_src_embeds: Source language embeddings.
+        train_tgt_embeds: Target language embeddings.
+        ensure_rotation: If True, ensures the resulting matrix is a proper rotation.
+
+    Returns:
+        A tuple containing:
+            - Rotation matrix of shape (d_model, d_model).
+            - Scale factor.
+    """
     A = train_src_embeds.detach().clone().squeeze()
     B = train_tgt_embeds.detach().clone().squeeze()
     M = t.matmul(B.T, A)
@@ -51,7 +82,15 @@ def calculate_linear_map(
     train_src_embeds: Float[Tensor, "batch pos d_model"],
     train_tgt_embeds: Float[Tensor, "batch pos d_model"],
 ) -> Float[Tensor, "d_model d_model"]:
-    """Calculates the best linear map matrix for source to target language embeddings."""
+    """Calculates the best linear map matrix for source to target language embeddings.
+
+    Args:
+        train_src_embeds: Source language embeddings.
+        train_tgt_embeds: Target language embeddings.
+
+    Returns:
+        Linear map matrix of shape (d_model, d_model).
+    """
     A = train_src_embeds.detach().clone().squeeze()
     B = train_tgt_embeds.detach().clone().squeeze()
     # A and B after squeezing is [batch d_model] and as we are following the convention
@@ -79,7 +118,8 @@ def initialize_manual_transform(
     """Initializes a ManualTransformModule.
 
     Initializes a ManualTransformModule with transformations derived analytically from
-    the training data. Also calculates expected metrics for the transformation.
+    the training data. Also returns expected metrics for the transformation if
+    applicable.
 
     Args:
         transform_name: The name of the transformation to apply. Supported names
@@ -88,7 +128,7 @@ def initialize_manual_transform(
             calculate the transformation weights.
 
     Returns:
-        tuple: A tuple containing the ManualTransformModule and a metrics dictionary.
+        tuple: A tuple containing the ManualTransformModule and a dictionary of metrics.
     """
     transformations = []
     metrics = {}
@@ -137,16 +177,16 @@ def initialize_manual_transform(
     elif transform_name == "analytical_translation":
         translation_vector = calculate_translation(train_src_embeds, train_tgt_embeds)
         transformations.append(("add", translation_vector))
-        metrics[
-            "expected_translation_magnitude"
-        ] = 0.0  # Placeholder metric calculation
+        metrics["expected_translation_magnitude"] = (
+            0.0  # Placeholder metric calculation
+        )
 
     elif transform_name == "analytical_linear_map":
         linear_map_matrix = calculate_linear_map(train_src_embeds, train_tgt_embeds)
         transformations.append(("multiply", linear_map_matrix))
-        metrics[
-            "expected_linear_map_accuracy"
-        ] = 0.0  # Placeholder for expected metric calculation
+        metrics["expected_linear_map_accuracy"] = (
+            0.0  # Placeholder for expected metric calculation
+        )
 
     else:
         raise ValueError(f"Unknown transformation name: {transform_name}")

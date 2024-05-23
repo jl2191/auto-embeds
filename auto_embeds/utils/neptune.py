@@ -1,4 +1,5 @@
 import json
+import os
 from typing import List, Tuple
 
 import neptune
@@ -66,6 +67,7 @@ def fetch_neptune_runs_df(
                 with_id=run_id,
                 mode="read-only",
             )
+            os.makedirs("neptune_artifact_downloads", exist_ok=True)
             for artifact in artifact_types:
                 artifacts_data[f"results/{artifact}"].append(
                     download_artifact(run, run_id, artifact)

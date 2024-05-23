@@ -143,7 +143,8 @@ tokens = [original_tokens[i] for i in filtered_indices]
 
 def print_top_k_similar_embeddings(embedding, k=10, print_results=True):
     """
-    Prints the top k embeddings closest to the given embedding in terms of cosine similarity.
+    Prints the top k embeddings closest to the given embedding in terms of cosine
+    similarity.
     """
     # Normalize the given embedding
     embedding_normed = embedding / t.norm(embedding, dim=-1, keepdim=True)
@@ -161,7 +162,8 @@ def print_top_k_similar_embeddings(embedding, k=10, print_results=True):
         # Print the top k tokens and their cosine similarities
         for idx in range(len(top_k_indices)):
             print(
-                f"Token: {top_k_tokens[idx]}, Cosine Similarity: {cos_sims[0, top_k_indices[idx]].item()}"
+                f"Token: {top_k_tokens[idx]}, Cosine Similarity: "
+                f"{cos_sims[0, top_k_indices[idx]].item()}"
             )
     return top_k_indices.tolist()
 

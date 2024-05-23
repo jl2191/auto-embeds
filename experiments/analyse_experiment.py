@@ -23,7 +23,7 @@ tags = experiment_config["neptune"]["tags"]
 if visualise_all_run_groups:
     tags = [tag for tag in tags if tag != "run group"]
 
-fetch_neptune_runs_df.clear_cache()
+# fetch_neptune_runs_df.clear_cache()
 original_df = fetch_neptune_runs_df(
     project_name=project_name,
     tags=tags,
@@ -116,6 +116,10 @@ df = (
     #     "transformation == 'roma_scale_analytical' or "
     #     "transformation == 'roma_analytical'"
     # )
+    .query(
+        "transformation == 'roma_analytical' or "
+        "transformation == 'analytical_rotation'"
+    )
 )
 sort_by = "mark_translation_acc"
 # sort_by = "mse_test_loss"

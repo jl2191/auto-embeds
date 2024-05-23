@@ -200,7 +200,7 @@ for fig in softmax_figures:
     fig.show()
 
 # %%
-# calculate histogram of l1 weight distrobution
+# calculate histogram of l1 weight distribution
 
 
 # %%

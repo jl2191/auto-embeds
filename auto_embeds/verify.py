@@ -1,5 +1,5 @@
 import random
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union, overload
 
 import numpy as np
 import pandas as pd
@@ -22,7 +22,10 @@ from auto_embeds.data import (
     tokenize_word_pairs,
 )
 from auto_embeds.utils.logging import logger
-from auto_embeds.utils.misc import calculate_gradient_color, default_device
+from auto_embeds.utils.misc import (
+    calculate_gradient_color,
+    default_device,
+)
 
 
 def verify_transform(
@@ -41,19 +44,19 @@ def verify_transform(
     Args:
         tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
         transformation: The transformation module applied to source language embeddings.
-        test_loader: DataLoader for the test dataset with source and
-                     target language embeddings tuples.
+        test_loader: DataLoader for the test dataset with source and target language
+            embeddings tuples.
         unembed_module: The module used for unembedding.
 
     Returns:
-        Dict[str, Any]: A dictionary with keys:
-                        - 'cos_sims': Cosine similarities between source and target
-                                      language embeddings.
-                        - 'euc_dists': Euclidean distances between source and target
-                                       language embeddings.
-                        - 'en_strs': Strings for source language tokens.
-                        - 'fr_strs': Strings for target language tokens.
-                        - 'top_pred_strs': Strings for top predicted tokens.
+        A dictionary with the following keys:
+            - 'cos_sims': Cosine similarities between source and target language
+                embeddings.
+            - 'euc_dists': Euclidean distances between source and target language
+                embeddings.
+            - 'en_strs': Strings for source language tokens.
+            - 'fr_strs': Strings for target language tokens.
+            - 'top_pred_strs': Strings for top predicted tokens.
     """
 
     # creates a dict for the source language tokens in a test dataset that is created
@@ -550,6 +553,7 @@ def test_cos_sim_difference(
     }
 
 
+@t.no_grad()
 def prepare_verify_analysis(
     tokenizer: PreTrainedTokenizerFast,
     embed_module: nn.Module,
@@ -664,14 +668,43 @@ def prepare_verify_analysis(
     )
 
 
+@overload
 def prepare_verify_datasets(
     verify_learning,
-    batch_sizes=(64, 256),
-    top_k=200,
-    seed=None,
-    top_k_selection_method="src_and_src",
-    return_type="loader",
-):
+    batch_sizes: Tuple[int, int] = (64, 256),
+    top_k: int = 200,
+    seed: Optional[int] = None,
+    top_k_selection_method: Literal[
+        "src_and_src", "tgt_and_tgt", "top_src", "top_tgt"
+    ] = "src_and_src",
+    return_type: Literal["dataloader"] = "dataloader",
+) -> Tuple[DataLoader, DataLoader]: ...
+
+
+@overload
+def prepare_verify_datasets(
+    verify_learning,
+    batch_sizes: Tuple[int, int] = (64, 256),
+    top_k: int = 200,
+    seed: Optional[int] = None,
+    top_k_selection_method: Literal[
+        "src_and_src", "tgt_and_tgt", "top_src", "top_tgt"
+    ] = "src_and_src",
+    return_type: Literal["dataset"] = "dataset",
+) -> Tuple[TensorDataset, TensorDataset]: ...
+
+
+@t.no_grad()
+def prepare_verify_datasets(
+    verify_learning,
+    batch_sizes: Tuple[int, int] = (64, 256),
+    top_k: int = 200,
+    seed: Optional[int] = None,
+    top_k_selection_method: Literal[
+        "src_and_src", "tgt_and_tgt", "top_src", "top_tgt"
+    ] = "src_and_src",
+    return_type: Literal["dataloader", "dataset"] = "dataloader",
+) -> Union[Tuple[DataLoader, DataLoader], Tuple[TensorDataset, TensorDataset]]:
     """Prepares training and testing datasets.
 
     Prepares training and testing datasets from embeddings, selecting top-k
@@ -704,7 +737,7 @@ def prepare_verify_datasets(
         generator.manual_seed(seed)
 
     # This function initializes the random seeds for worker processes in DataLoader
-    def seed_worker(worker_seed):
+    def seed_worker(worker_seed: int):
         worker_seed = t.initial_seed() % 2**32
         np.random.seed(worker_seed)
         random.seed(worker_seed)
@@ -743,13 +776,15 @@ def prepare_verify_datasets(
             random_embed, src_embeds, dim=-1
         )
         logger.debug(
-            f"random_embed_w_src_embeds_cos_sims shape: {random_embed_w_src_embeds_cos_sims.shape}"
+            "random_embed_w_src_embeds_cos_sims shape: "
+            f"{random_embed_w_src_embeds_cos_sims.shape}"
         )
         random_embed_w_tgt_embeds_cos_sims = t.cosine_similarity(
             random_embed, tgt_embeds, dim=-1
         )
         logger.debug(
-            f"random_embed_w_tgt_embeds_cos_sims shape: {random_embed_w_tgt_embeds_cos_sims.shape}"
+            "random_embed_w_tgt_embeds_cos_sims shape: "
+            f"{random_embed_w_tgt_embeds_cos_sims.shape}"
         )
         random_embed_w_all_embeds_cos_sims = t.cat(
             (random_embed_w_src_embeds_cos_sims, random_embed_w_tgt_embeds_cos_sims)
@@ -826,7 +861,7 @@ def prepare_verify_datasets(
 
     if return_type == "dataset":
         return train_dataset, test_dataset
-    elif return_type == "loader":
+    elif return_type == "dataloader":
         train_loader = DataLoader(
             train_dataset,
             batch_size=batch_sizes[0],

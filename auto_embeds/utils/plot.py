@@ -34,7 +34,7 @@ def create_parallel_categories_plot(
         labels (dict, optional): A mapping of column names to display labels.
             Defaults to a predefined dictionary.
         difference (bool, optional): If True, use a diverging colour scale and set scale
-            midpoint to 0 to highlight differences between postive and negative values.
+            midpoint to 0 to highlight differences between positive and negative values.
         invert_colors (bool, optional): If True, invert the color scale.
     """
 

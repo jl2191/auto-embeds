@@ -531,8 +531,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoTensors:
-    ...
+) -> TwoTensors: ...
 
 
 @overload
@@ -547,8 +546,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> FourTensors:
-    ...
+) -> FourTensors: ...
 
 
 @overload
@@ -563,8 +561,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TensorDataset:
-    ...
+) -> TensorDataset: ...
 
 
 @overload
@@ -579,8 +576,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoDatasets:
-    ...
+) -> TwoDatasets: ...
 
 
 @overload
@@ -595,8 +591,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> DataLoader:
-    ...
+) -> DataLoader: ...
 
 
 @overload
@@ -611,8 +606,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoDataLoaders:
-    ...
+) -> TwoDataLoaders: ...
 
 
 def prepare_data(
@@ -826,18 +820,27 @@ def get_cached_weights(model_name: str, processing: bool = True) -> Dict[str, t.
         model = tl.HookedTransformer.from_pretrained(model_name)
     else:
         model = tl.HookedTransformer.from_pretrained_no_processing(model_name)
-    model_weights = {
-        "W_E": model.W_E.detach().clone(),
-        "embed.ln.w": (
-            model.embed.ln.w.detach().clone() if hasattr(model.embed, "ln") else None
-        ),
-        "embed.ln.b": (
-            model.embed.ln.b.detach().clone() if hasattr(model.embed, "ln") else None
-        ),
-        "ln_final.w": model.ln_final.w.detach().clone(),
-        "ln_final.b": model.ln_final.b.detach().clone(),
-        "W_U": model.W_U.detach().clone(),
-        "b_U": model.b_U.detach().clone(),
-    }
+    if "bloom" in model_name:
+        model_weights = {
+            "W_E": model.W_E.detach().clone(),
+            "embed.ln.w": (model.embed.ln.w.detach().clone()),
+            "embed.ln.b": (model.embed.ln.b.detach().clone()),
+            "ln_final.w": model.ln_final.w.detach().clone(),
+            "ln_final.b": model.ln_final.b.detach().clone(),
+            "W_U": model.W_U.detach().clone(),
+            "b_U": model.b_U.detach().clone(),
+        }
+    elif "gpt" in model_name:
+        model_weights = {
+            "W_E": model.W_E.detach().clone(),
+            "embed.ln.w": None,
+            "embed.ln.b": None,
+            "ln_final.w": model.ln_final.w.detach().clone(),
+            "ln_final.b": model.ln_final.b.detach().clone(),
+            "W_U": model.W_U.detach().clone(),
+            "b_U": model.b_U.detach().clone(),
+        }
+    else:
+        raise ValueError(f"Unsupported model: {model_name}")
     del model
     return model_weights

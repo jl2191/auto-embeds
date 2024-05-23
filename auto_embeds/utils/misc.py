@@ -4,11 +4,13 @@ from contextlib import contextmanager
 from datetime import datetime
 from functools import reduce
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Set
+from typing import Any, Dict, Iterator, List, Optional, Set, Union
 
 import torch as t
 from icecream import install
 from torch.utils.hooks import RemovableHandle
+
+from auto_embeds.utils.logging import logger
 
 install()
 
@@ -270,3 +272,10 @@ def setup_arg_parser():
         help="Optional: Worker ID to use for running the experiment.",
     )
     return parser
+
+
+def print_gpu_memory_usage(device: Union[str, t.device] = default_device) -> None:
+    gpu_memory_allocated = t.cuda.memory_allocated(device)
+    gpu_memory_reserved = t.cuda.memory_reserved(device)
+    logger.info(f"GPU memory allocated: {gpu_memory_allocated / (1024 ** 3):.2f} GB")
+    logger.info(f"GPU memory reserved: {gpu_memory_reserved / (1024 ** 3):.2f} GB")

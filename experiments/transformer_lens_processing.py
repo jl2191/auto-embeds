@@ -424,7 +424,7 @@ else:
     ) * 100
     print(
         f"Unembedding results do not match: max difference: {max_diff_unembed}, "
-        f"Mismatched elements: {mismatched_elements_unembed} / {total_elements_unembed} "
+        f"Mismatched elements: {mismatched_elements_unembed}/{total_elements_unembed} "
         f"({mismatch_percentage_unembed:.1f}%)"
     )
 
