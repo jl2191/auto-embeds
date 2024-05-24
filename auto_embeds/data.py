@@ -815,6 +815,7 @@ def get_most_similar_embeddings(
 
 
 @auto_embeds_cache
+@t.no_grad()
 def get_cached_weights(model_name: str, processing: bool = True) -> Dict[str, t.Tensor]:
     if processing:
         model = tl.HookedTransformer.from_pretrained(model_name)

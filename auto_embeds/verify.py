@@ -442,7 +442,7 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
 
     # Determine dot colors based on word match
     dot_colors = [
-        "lightgreen" if target == pred else "lightcoral"
+        "lightgreen" if target.strip().lower() == pred.strip().lower() else "lightcoral"
         for target, pred in zip(target_words, predicted_words)
     ]
 
@@ -518,7 +518,7 @@ def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
 
 def test_cos_sim_difference(
     verify_results: Dict[str, t.Tensor], n: int = 25
-) -> Dict[str, Union[float, bool, int]]:
+) -> Dict[str, Union[float, bool, int, float]]:
     """Tests for difference in cosine similarity.
 
     Tests for difference in cosine similarity between first and last n entries.
@@ -532,10 +532,12 @@ def test_cos_sim_difference(
         n: The number of entries from the start and end to compare. Default is 25.
 
     Returns:
-        A dictionary with keys "t-statistic", "P-value", "significant_difference"
-        and "n" where "significant_difference" is a boolean indicating whether the
-        difference is statistically significant, and "n" is the number of entries
-        compared from each end.
+        A dictionary with keys "t-statistic", "P-value", "significant_difference",
+        "correlation_coefficient", and "n" where "significant_difference" is a
+        boolean indicating whether the difference is statistically significant,
+        "correlation_coefficient" is the Pearson correlation coefficient between
+        the first and last n entries, and "n" is the number of entries compared
+        from each end.
     """
     cos_sims = verify_results["cos_sims"]
     first_n_cos_sims = cos_sims[:n].cpu()
@@ -545,10 +547,14 @@ def test_cos_sim_difference(
     t_stat, p_value = stats.ttest_ind(first_n_cos_sims, last_n_cos_sims)
     significant_difference = p_value < 0.05
 
+    # Calculate the Pearson correlation coefficient
+    correlation_coefficient = stats.pearsonr(first_n_cos_sims, last_n_cos_sims)[0]
+
     return {
         "t-statistic": t_stat,
         "p-value": p_value,
         "significant_difference": significant_difference,
+        "correlation_coefficient": correlation_coefficient,
         "n": n,
     }
 

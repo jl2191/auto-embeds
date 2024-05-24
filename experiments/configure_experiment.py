@@ -1,6 +1,5 @@
 # %%
 import itertools
-from datetime import datetime
 from typing import Dict, Generator, List
 
 from auto_embeds.utils.logging import logger
@@ -11,19 +10,19 @@ num_workers = 2
 experiment_config = {
     "neptune": {
         "tags": [
-            f"{datetime.now():%Y-%m-%d}",
-            f"{datetime.now():%Y-%m-%d} sweep",
-            "experiment 8",
-            "run group 1",
+            # f"{datetime.now():%Y-%m-%d}",
+            # f"{datetime.now():%Y-%m-%d} big run",
+            "experiment 94",
+            # "run group 3",
         ],
     },
-    "description": ["new"],
+    "description": ["printing to check ln is gucci"],
     "models": [
-        "bigscience/bloom-560m",
+        # "bigscience/bloom-560m",
         # "bigscience/bloom-1b1",
         "bigscience/bloom-3b",
-        "gpt2",
-        "gpt2-medium",
+        # "gpt2",
+        # "gpt2-medium",
         # "gpt2-large",
     ],
     "processings": [
@@ -76,11 +75,11 @@ experiment_config = {
         # "uncentered_linear_map",
         # "biased_uncentered_linear_map",
         "analytical_linear_map",
-        # "analytical_translation",
-        # "analytical_rotation",
+        "analytical_translation",
+        "analytical_rotation",
         # "analytical_rotation_and_reflection",
-        # "roma_analytical",
-        # "roma_scale_analytical",
+        "roma_analytical",
+        "roma_scale_analytical",
     ],
     "train_batch_sizes": [128],
     "test_batch_sizes": [256],
@@ -91,7 +90,8 @@ experiment_config = {
         # "top_src",
         "top_tgt",
     ],
-    "seeds": [1],
+    "seeds": [2, 3],
+    # "seeds": [1],
     # "loss_functions": ["cosine_similarity", "mse_loss"],
     "loss_functions": ["cosine_similarity"],
     "embed_weight": ["model_weights"],
@@ -122,6 +122,8 @@ def generate_configurations(
         config = dict(zip(config_keys, config_tuple))
         if "gpt2" in config["models"]:
             if config["embed_ln_weights"] != "no_ln":
+                continue
+            if config["datasets"]["name"] == "cc_cedict_zh_en_extracted":
                 continue
         yield tuple(config.values())
 

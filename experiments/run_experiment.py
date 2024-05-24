@@ -23,7 +23,11 @@ from auto_embeds.embed_utils import (
     initialize_transform_and_optim,
     train_transform,
 )
-from auto_embeds.metrics import evaluate_accuracy, mark_translation
+from auto_embeds.metrics import (
+    calc_pred_same_as_input,
+    evaluate_accuracy,
+    mark_translation,
+)
 from auto_embeds.utils.custom_tqdm import tqdm
 from auto_embeds.utils.logging import logger
 from auto_embeds.utils.misc import get_experiment_worker_config
@@ -77,8 +81,8 @@ def run_experiment(config_dict):
     neptune_config = config_dict["neptune"]
     config_dict = {k: v for k, v in config_dict.items() if k != "neptune"}
     config_list = get_config_list(config_dict)
-    for config in config_list:
-        print(config)
+    last_model_config = None
+    model_weights = None
 
     for (
         description,
@@ -142,10 +146,12 @@ def run_experiment(config_dict):
         )  # type: ignore
 
         # Model weights setup
-        model_weights = get_cached_weights(model_name, processing)
+        current_model_config = (model_name, processing)
+        if model_weights is None or current_model_config != last_model_config:
+            model_weights = get_cached_weights(model_name, processing)
+            last_model_config = current_model_config
         d_model = model_weights["W_E"].shape[1]
 
-        # Initialize embed and unembed modules
         embed_module, unembed_module = initialize_embed_and_unembed(
             tokenizer=tokenizer,
             model_weights=model_weights,
@@ -156,8 +162,6 @@ def run_experiment(config_dict):
             unembed_ln=unembed_ln,
             unembed_ln_weights=unembed_ln_weights,
         )
-
-        del model_weights
 
         # Dataset filtering
         dataset_name = dataset_config["name"]
@@ -251,6 +255,7 @@ def run_experiment(config_dict):
             exact_match=False,
             print_results=False,
             print_top_preds=False,
+            print_acc=False,
         )
 
         if azure_translations_path is None:
@@ -264,6 +269,7 @@ def run_experiment(config_dict):
                 azure_translations_path=azure_translations_path,
                 print_results=False,
             )
+            logger.info(f"mark translation accuracy: {mark_translation_acc}")
 
         verify_results_dict = verify_transform(
             tokenizer=tokenizer,
@@ -286,17 +292,24 @@ def run_experiment(config_dict):
                 for k, v in test_cos_sim_difference(verify_results_dict).items()
             }
         )
+        pred_same_as_input = calc_pred_same_as_input(
+            tokenizer=tokenizer,
+            test_loader=test_loader,
+            transformation=transform,
+            unembed_module=unembed_module,
+        )
 
         results = {
             "expected_metrics": expected_metrics,
             "test_accuracy": test_accuracy,
             "mark_translation_acc": mark_translation_acc,
-            "cos_sims_trend_plot": cos_sims_trend_plot,
             "cosine_similarity_test_loss": cosine_similarity_test_loss,
             "mse_test_loss": mse_test_loss,
+            "pred_same_as_input": pred_same_as_input,
         }
 
         run["results"] = results
+        run["results/cos_sims_trend_plot"].upload(cos_sims_trend_plot)
         run["results/json/verify_results"].upload(
             File.from_content(verify_results_json)
         )
@@ -353,7 +366,19 @@ def run_experiment(config_dict):
 
 # %%
 if __name__ == "__main__":
+    # profiler = LineProfiler()
+    # profiler.add_function(run_experiment)
+    # profiler.enable_by_count()
+    # # profiler.run('run_experiment(experiment_config)')
     # run_experiment(experiment_config)
+    # profiler.print_stats(output_unit=1e-3)
     run_experiment_parallel(experiment_config, num_workers=2)
+
+    # profiler = cProfile.Profile()
+    # profiler.enable()
+    # run_experiment(experiment_config)
+    # profiler.disable()
+    # stats = pstats.Stats(profiler).sort_stats("cumtime")
+    # stats.print_stats()
 
 # %%

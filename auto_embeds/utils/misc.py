@@ -116,6 +116,8 @@ def calculate_gradient_color(
         A string representing the hex color code for the gradient.
     """
     # Normalize value to a range between 0 and 1
+    if max_value == min_value:
+        return "#808080"  # Gray color for zero division
     normalized = (value - min_value) / (max_value - min_value)
     if reverse:
         normalized = 1 - normalized

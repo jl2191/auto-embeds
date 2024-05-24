@@ -15,6 +15,7 @@ def create_parallel_categories_plot(
     labels=None,
     difference=None,
     invert_colors=False,
+    parcat_kwargs=None,
 ):
     """
     Creates and displays a parallel categories plot based on the provided parameters,
@@ -36,6 +37,8 @@ def create_parallel_categories_plot(
         difference (bool, optional): If True, use a diverging colour scale and set scale
             midpoint to 0 to highlight differences between positive and negative values.
         invert_colors (bool, optional): If True, invert the color scale.
+        parcat_kwargs (dict, optional): Additional keyword arguments for
+            px.parallel_categories.
     """
 
     # Apply query if provided
@@ -67,6 +70,7 @@ def create_parallel_categories_plot(
             title=title,
             color_continuous_scale=color_scale,
             color_continuous_midpoint=0 if difference else None,
+            **(parcat_kwargs or {}),
         )
         .update_traces(arrangement="freeform")
         .add_annotation(
@@ -79,7 +83,7 @@ def create_parallel_categories_plot(
             y=-0.25,
             font=dict(size=13),
         )
-        .update_layout(autosize=True)
+        .update_layout(autosize=True, height=800)
     )
 
     return fig

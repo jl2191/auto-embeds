@@ -404,7 +404,7 @@ class Embed(nn.Module):
     ):
         super().__init__()
         self.W_E: Float[Tensor, "d_vocab d_model"] = nn.Parameter(
-            t.empty(d_vocab, d_model, device=device)
+            t.empty(d_vocab, d_model, device=device, requires_grad=False)
         )
         self.embed_ln = nn.LayerNorm(d_model, device=device) if apply_ln else None
 
@@ -457,10 +457,10 @@ class Unembed(nn.Module):
     ):
         super().__init__()
         self.W_U: Float[Tensor, "d_model d_vocab"] = nn.Parameter(
-            t.empty(d_model, d_vocab, device=device)
+            t.empty(d_model, d_vocab, device=device, requires_grad=False)
         )
         self.b_U: Float[Tensor, "d_vocab"] = nn.Parameter(
-            t.zeros(d_vocab, device=device)
+            t.zeros(d_vocab, device=device, requires_grad=False)
         )
         self.ln_final = nn.LayerNorm(d_model, device=device) if apply_ln else None
 

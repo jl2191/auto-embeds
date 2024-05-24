@@ -321,3 +321,34 @@ def calc_canonical_angles(A: t.Tensor, B: t.Tensor) -> t.Tensor:
     U, Sigma, Vt = t.linalg.svd(QA.T @ QB)
 
     return Sigma
+
+
+def calc_pred_same_as_input(
+    tokenizer: PreTrainedTokenizerFast,
+    test_loader: DataLoader[Tuple[Tensor, ...]],
+    transformation: nn.Module,
+    unembed_module: nn.Module,
+    device: Optional[Union[str, t.device]] = default_device,
+) -> float:
+    with t.no_grad():
+        same_count = 0
+        total_count = 0
+        for batch in test_loader:
+            en_embeds, _ = batch
+            en_logits = unembed_module(en_embeds)
+            en_strs: List[str] = tokenizer.batch_decode(en_logits.argmax(dim=-1))
+            with t.no_grad():
+                pred = transformation(en_embeds)
+            pred_logits = unembed_module(pred)
+            pred_top_strs = tokenizer.batch_decode(pred_logits.argmax(dim=-1))
+            pred_top_strs = [
+                item if isinstance(item, str) else item[0] for item in pred_top_strs
+            ]
+            assert all(isinstance(item, str) for item in pred_top_strs)
+            for i, pred_top_str in enumerate(pred_top_strs):
+                en_str = en_strs[i]
+                same = en_str.strip().lower() == pred_top_str.strip().lower()
+                same_count += same
+            total_count += len(en_embeds)
+        proportion_same = same_count / total_count
+    return proportion_same

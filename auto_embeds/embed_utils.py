@@ -155,6 +155,7 @@ def initialize_transform_and_optim(
     return transform, optim
 
 
+@t.no_grad()
 def initialize_embed_and_unembed(
     tokenizer: PreTrainedTokenizerFast,
     model_weights: Dict[str, Tensor],
@@ -191,17 +192,18 @@ def initialize_embed_and_unembed(
         A tuple containing instances of Embed and Unembed.
     """
 
-    def initialize_weights(param, weight_type, model_weights, weight_key):
-        if weight_type == "model_weights":
-            param.data = model_weights[weight_key].detach().clone()
-        elif weight_type == "random_normal":
+    def initialize_weights(param, init_method, model_weights, weight_key):
+        if init_method == "model_weights":
+            # param.data = model_weights[weight_key].detach().clone()
+            param.copy_(model_weights[weight_key].detach())
+        elif init_method == "random_normal":
             t.nn.init.normal_(param.data, mean=0, std=1)
-        elif weight_type == "random_uniform":
+        elif init_method == "random_uniform":
             t.nn.init.uniform_(param.data, -1, 1)
-        elif weight_type == "default_weights":
+        elif init_method == "default_weights":
             pass
         else:
-            raise ValueError(f"Unsupported initialization method: {weight_type}")
+            raise ValueError(f"Unsupported initialization method: {init_method}")
 
     d_model = model_weights["W_E"].shape[1]
     d_vocab = model_weights["W_E"].shape[0]
@@ -211,7 +213,7 @@ def initialize_embed_and_unembed(
     if embed_ln:
         assert embed_module.embed_ln is not None
         initialize_weights(
-            embed_module.embed_ln,
+            embed_module.embed_ln.weight,
             embed_ln_weights,
             model_weights,
             "embed.ln.w",
@@ -230,7 +232,7 @@ def initialize_embed_and_unembed(
     if unembed_ln:
         assert unembed_module.ln_final is not None
         initialize_weights(
-            unembed_module.ln_final,
+            unembed_module.ln_final.weight,
             unembed_ln_weights,
             model_weights,
             "ln_final.w",
