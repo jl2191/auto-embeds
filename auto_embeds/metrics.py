@@ -352,3 +352,49 @@ def calc_pred_same_as_input(
             total_count += len(en_embeds)
         proportion_same = same_count / total_count
     return proportion_same
+
+
+def calc_expected_metrics(
+    transform_module: nn.Module,
+    data_loader: DataLoader[Tuple[Tensor, Tensor]],
+) -> Dict[str, List[float]]:
+    """Calculates the expected metrics for the transformation on the train dataset.
+
+    Args:
+        transform_module: The transformation module to apply.
+        data_loader: DataLoader providing batches of source and target embeddings.
+
+    Returns:
+        A dictionary containing the MSE, cosine similarity, and singular values.
+    """
+    mse_loss_total = 0.0
+    cosine_similarity_total = 0.0
+    singular_values_list = []
+    total_batches = 0
+
+    with t.no_grad():
+        for src_embeds, tgt_embeds in data_loader:
+            transformed_src_embeds = transform_module(src_embeds)
+
+            mse_loss_total += t.nn.functional.mse_loss(
+                transformed_src_embeds, tgt_embeds, reduction="sum"
+            ).item()
+            cosine_similarity_total += (
+                t.nn.functional.cosine_similarity(
+                    transformed_src_embeds, tgt_embeds, dim=-1
+                )
+                .sum()
+                .item()
+            )
+            u, s, v = t.svd(transformed_src_embeds)
+            singular_values_list.extend(s.tolist())
+            total_batches += src_embeds.size(0)
+
+    mse_loss = mse_loss_total / total_batches
+    cosine_similarity = cosine_similarity_total / total_batches
+
+    return {
+        "mse_loss": [mse_loss],
+        "cosine_similarity": [cosine_similarity],
+        "singular_values": singular_values_list,
+    }

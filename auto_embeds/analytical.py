@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Tuple
 
 import torch as t
 from jaxtyping import Float
@@ -7,9 +7,10 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 
 from auto_embeds.modules import ManualTransformModule
+from auto_embeds.utils.logging import logger
 
 
-def calculate_translation(
+def calc_translation(
     train_src_embeds: Float[Tensor, "batch pos d_model"],
     train_tgt_embeds: Float[Tensor, "batch pos d_model"],
 ) -> Float[Tensor, "pos d_model"]:
@@ -28,7 +29,7 @@ def calculate_translation(
     return T
 
 
-def calculate_procrustes_roma(
+def calc_procrustes_roma(
     train_src_embeds: Float[Tensor, "batch pos d_model"],
     train_tgt_embeds: Float[Tensor, "batch pos d_model"],
 ) -> Tuple[Float[Tensor, "d_model d_model"], Float[Tensor, ""]]:
@@ -49,7 +50,7 @@ def calculate_procrustes_roma(
     return R, scale
 
 
-def calculate_orthogonal_procrustes(
+def calc_orthogonal_procrustes(
     train_src_embeds: Float[Tensor, "batch pos d_model"],
     train_tgt_embeds: Float[Tensor, "batch pos d_model"],
     ensure_rotation: bool = False,
@@ -78,10 +79,10 @@ def calculate_orthogonal_procrustes(
     return R, scale
 
 
-def calculate_linear_map(
+def calc_linear_map(
     train_src_embeds: Float[Tensor, "batch pos d_model"],
     train_tgt_embeds: Float[Tensor, "batch pos d_model"],
-) -> Float[Tensor, "d_model d_model"]:
+) -> Tuple[Float[Tensor, "d_model d_model"], Float[Tensor, "1"]]:
     """Calculates the best linear map matrix for source to target language embeddings.
 
     Args:
@@ -89,7 +90,9 @@ def calculate_linear_map(
         train_tgt_embeds: Target language embeddings.
 
     Returns:
-        Linear map matrix of shape (d_model, d_model).
+        A tuple containing:
+            - Linear map matrix of shape (d_model, d_model).
+            - Residual of the least squares solution.
     """
     A = train_src_embeds.detach().clone().squeeze()
     B = train_tgt_embeds.detach().clone().squeeze()
@@ -109,17 +112,17 @@ def calculate_linear_map(
     # to get X.
     result = t.linalg.lstsq(A, B)
     X = result.solution.T
-    return X
+    residual = result.residual
+    return X, residual
 
 
 def initialize_manual_transform(
     transform_name: str, train_loader: DataLoader
-) -> Tuple[ManualTransformModule, Dict[str, Any]]:
+) -> ManualTransformModule:
     """Initializes a ManualTransformModule.
 
     Initializes a ManualTransformModule with transformations derived analytically from
-    the training data. Also returns expected metrics for the transformation if
-    applicable.
+    the training data.
 
     Args:
         transform_name: The name of the transformation to apply. Supported names
@@ -128,10 +131,9 @@ def initialize_manual_transform(
             calculate the transformation weights.
 
     Returns:
-        tuple: A tuple containing the ManualTransformModule and a dictionary of metrics.
+        A ManualTransformModule initialized with the specified transformation.
     """
     transformations = []
-    metrics = {}
 
     # Initialize placeholders for embeddings
     train_src_embeds, train_tgt_embeds = [], []
@@ -149,48 +151,37 @@ def initialize_manual_transform(
     train_src_embeds = t.cat(train_src_embeds, dim=0)
     train_tgt_embeds = t.cat(train_tgt_embeds, dim=0)
 
-    if transform_name == "roma_analytical":
-        rotation_matrix, scale = calculate_procrustes_roma(
-            train_src_embeds, train_tgt_embeds
-        )
-        transformations.append(("multiply", rotation_matrix))
-
-    elif transform_name == "roma_scale_analytical":
-        rotation_matrix, scale = calculate_procrustes_roma(
-            train_src_embeds, train_tgt_embeds
-        )
-        transformations.append(("multiply", rotation_matrix))
-        transformations.append(("scale", scale))
-
-    elif transform_name == "analytical_rotation":
-        rotation_matrix, scale = calculate_orthogonal_procrustes(
-            train_src_embeds, train_tgt_embeds, ensure_rotation=True
-        )
-        transformations.append(("multiply", rotation_matrix))
-
-    elif transform_name == "analytical_rotation_and_reflection":
-        rotation_matrix, scale = calculate_orthogonal_procrustes(
-            train_src_embeds, train_tgt_embeds
-        )
-        transformations.append(("multiply", rotation_matrix))
-
-    elif transform_name == "analytical_translation":
-        translation_vector = calculate_translation(train_src_embeds, train_tgt_embeds)
+    if transform_name == "analytical_translation":
+        translation_vector = calc_translation(train_src_embeds, train_tgt_embeds)
         transformations.append(("add", translation_vector))
-        metrics[
-            "expected_translation_magnitude"
-        ] = 0.0  # Placeholder metric calculation
+
+    elif transform_name in {"roma_analytical", "roma_scale_analytical"}:
+        rotation_matrix, scale = calc_procrustes_roma(
+            train_src_embeds, train_tgt_embeds
+        )
+        transformations.append(("multiply", rotation_matrix))
+        if transform_name == "roma_scale_analytical":
+            transformations.append(("scale", scale))
+
+    elif transform_name in {
+        "analytical_rotation",
+        "analytical_rotation_and_reflection",
+    }:
+        rotation_matrix, scale = calc_orthogonal_procrustes(
+            train_src_embeds,
+            train_tgt_embeds,
+            ensure_rotation=(transform_name == "analytical_rotation"),
+        )
+        transformations.append(("multiply", rotation_matrix))
 
     elif transform_name == "analytical_linear_map":
-        linear_map_matrix = calculate_linear_map(train_src_embeds, train_tgt_embeds)
+        linear_map_matrix = calc_linear_map(train_src_embeds, train_tgt_embeds)
         transformations.append(("multiply", linear_map_matrix))
-        metrics[
-            "expected_linear_map_accuracy"
-        ] = 0.0  # Placeholder for expected metric calculation
 
     else:
+        logger.error(f"Unknown transformation name: {transform_name}")
         raise ValueError(f"Unknown transformation name: {transform_name}")
 
     transform_module = ManualTransformModule(transformations)
 
-    return transform_module, metrics
+    return transform_module

@@ -24,6 +24,7 @@ from auto_embeds.embed_utils import (
     train_transform,
 )
 from auto_embeds.metrics import (
+    calc_expected_metrics,
     calc_pred_same_as_input,
     evaluate_accuracy,
     mark_translation,
@@ -204,7 +205,7 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
 
         # Initialize transformation and optimizer
         if "analytical" in transformation:
-            transform, expected_metrics = initialize_manual_transform(
+            transform = initialize_manual_transform(
                 transform_name=transformation,
                 train_loader=train_loader,
             )
@@ -235,6 +236,12 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
             )
 
         # Evaluate and log results
+
+        expected_metrics = calc_expected_metrics(
+            transform_module=transform,
+            data_loader=train_loader,
+        )
+
         cosine_similarity_test_loss = calculate_test_loss(
             test_loader=test_loader,
             transform=transform,
