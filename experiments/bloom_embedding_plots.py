@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import torch as t
 import transformer_lens as tl
-from transformers import AutoTokenizer, PreTrainedTokenizerFast
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from auto_embeds.data import get_cached_weights
 from auto_embeds.embed_utils import initialize_embed_and_unembed
@@ -13,9 +13,6 @@ from auto_embeds.utils.logging import logger
 
 # %%
 pio.renderers
-
-# %%
-pio.renderers.default = "browser"
 
 # %%
 print(
@@ -26,7 +23,7 @@ print(
 )
 
 # %%
-tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(
+tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
     "bigscience/bloom-560m"
 )  # type: ignore
 model_weights = get_cached_weights("bigscience/bloom-560m", False)
@@ -170,7 +167,9 @@ for (
         )
     )
     logits_fig.update_layout(
-        title=f"Token Embedding Logits with {embed_ln_weights} and {unembed_ln_weights}",
+        title=(
+            f"Token Embedding Logits with {embed_ln_weights} and {unembed_ln_weights}"
+        ),
         xaxis_title="Token ID",
         yaxis_title="Embedding Value",
     )
@@ -186,7 +185,10 @@ for (
         )
     )
     softmax_fig.update_layout(
-        title=f"Token Embedding Values after Softmax with {embed_ln_weights} and {unembed_ln_weights}",
+        title=(
+            f"Token Embedding Values after Softmax with {embed_ln_weights} and "
+            f"{unembed_ln_weights}"
+        ),
         xaxis_title="Token ID",
         yaxis_title="Softmax Embedding Value",
     )

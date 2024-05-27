@@ -12,7 +12,7 @@ import torch as t
 from IPython.core.getipython import get_ipython
 from neptune.types import File
 from neptune.utils import stringify_unsupported
-from transformers import AutoTokenizer, PreTrainedTokenizerFast
+from transformers import AutoTokenizer
 
 from auto_embeds.analytical import initialize_manual_transform
 from auto_embeds.data import filter_word_pairs, get_cached_weights, get_dataset_path
@@ -74,11 +74,12 @@ def run_worker(worker_id, experiment_config, split_parameter="datasets", n_split
     return run_experiment(config_to_use)
 
 
-def run_experiment(config_dict):
+def run_experiment(config_dict, return_local_results=False, use_neptune=False):
     local_results = []
     # extracting 'neptune' configuration and generating all combinations of configs
     # as a list of lists
-    neptune_config = config_dict["neptune"]
+    run = None
+    neptune_config = config_dict.get("neptune", {})
     config_dict = {k: v for k, v in config_dict.items() if k != "neptune"}
     config_list = get_config_list(config_dict)
     last_model_config = None
@@ -134,16 +135,15 @@ def run_experiment(config_dict):
         logger.info(f"Running experiment with config: {run_config}")
 
         # neptune run init
-        run = neptune.init_run(
-            project="mars/language-transformations",
-            tags=neptune_config["tags"],
-        )
-        run["config"] = stringify_unsupported(run_config)
+        if use_neptune:
+            run = neptune.init_run(
+                project="mars/language-transformations",
+                tags=neptune_config.get("tags", []),
+            )
+            run["config"] = stringify_unsupported(run_config)
 
         # Tokenizer setup
-        tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(
-            model_name
-        )  # type: ignore
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
 
         # Model weights setup
         current_model_config = (model_name, processing)
@@ -230,7 +230,7 @@ def run_experiment(config_dict):
                 loss_module=loss_module,
                 n_epochs=n_epoch,
                 plot_fig=False,
-                neptune_run=run,
+                neptune_run=run if use_neptune else None,
                 azure_translations_path=azure_translations_path,
             )
 
@@ -308,19 +308,20 @@ def run_experiment(config_dict):
             "pred_same_as_input": pred_same_as_input,
         }
 
-        run["results"] = results
-        run["results/cos_sims_trend_plot"].upload(cos_sims_trend_plot)
-        run["results/json/verify_results"].upload(
-            File.from_content(verify_results_json)
-        )
-        run["results/json/cos_sims_trend_plot"].upload(
-            File.from_content(str(pio.to_json(cos_sims_trend_plot)))
-        )
-        run["results/json/test_cos_sim_diff"].upload(
-            File.from_content(test_cos_sim_diff)
-        )
+        if use_neptune:
+            run["results"] = results
+            run["results/cos_sims_trend_plot"].upload(cos_sims_trend_plot)
+            run["results/json/verify_results"].upload(
+                File.from_content(verify_results_json)
+            )
+            run["results/json/cos_sims_trend_plot"].upload(
+                File.from_content(str(pio.to_json(cos_sims_trend_plot)))
+            )
+            run["results/json/test_cos_sim_diff"].upload(
+                File.from_content(test_cos_sim_diff)
+            )
 
-        if local_results:
+        if return_local_results:
             pca = t.pca_lowrank(transform.transformations[0][1], q=2)
             principal_components = pca[0]
             results["principal_components"] = principal_components.tolist()
@@ -355,7 +356,8 @@ def run_experiment(config_dict):
             results["vector_norms"] = vector_norms
             local_results.append(run_config | results | big_tensors)
 
-        run.stop()
+        if use_neptune:
+            run.stop()
 
         # returning results that we are not uploading for local analysis
         # transform_weights = transform.state_dict()
@@ -372,7 +374,7 @@ if __name__ == "__main__":
     # # profiler.run('run_experiment(experiment_config)')
     # run_experiment(experiment_config)
     # profiler.print_stats(output_unit=1e-3)
-    run_experiment_parallel(experiment_config, num_workers=2)
+    run_experiment_parallel(experiment_config, num_workers=1)
 
     # profiler = cProfile.Profile()
     # profiler.enable()

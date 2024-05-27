@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch import Tensor
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
-from transformers import PreTrainedTokenizerFast
+from transformers import PreTrainedTokenizerBase
 
 from auto_embeds.metrics import mark_translation
 from auto_embeds.modules import (
@@ -157,7 +157,7 @@ def initialize_transform_and_optim(
 
 @t.no_grad()
 def initialize_embed_and_unembed(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     model_weights: Dict[str, Tensor],
     embed_weight: str = "model_weights",
     embed_ln: bool = True,
@@ -248,7 +248,7 @@ def initialize_embed_and_unembed(
 
 
 def train_transform(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     train_loader: DataLoader[Tuple[Tensor, ...]],
     test_loader: DataLoader[Tuple[Tensor, ...]],
     transform: nn.Module,
@@ -303,7 +303,6 @@ def train_transform(
     for epoch in (epoch_pbar := tqdm(range(n_epochs + 1))):
         for en_embed, fr_embed in train_loader:
             optim.zero_grad()
-            # TODO: what happens when i move zero_grad elsewhere?
             pred = transform(en_embed)
             train_loss = loss_module(pred.squeeze(), fr_embed.squeeze())
             info_dict = {
@@ -316,7 +315,7 @@ def train_transform(
                 neptune_run["train"].append(info_dict, step=step_count)
             train_loss.backward()
             optim.step()
-            epoch_pbar.set_description(f"train loss: {train_loss.item():.3f}")
+        epoch_pbar.set_description(f"train loss: {train_loss.item():.3f}")
         # Calculate and log test loss at the end of each epoch divisible by 10
         if epoch % 10 == 0:
             with t.no_grad():

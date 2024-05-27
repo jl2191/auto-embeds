@@ -78,6 +78,14 @@ Install the git hook with:
 ``` bash
 pre-commit install
 ```
+To execute tests labeled as slow, run:
+``` bash
+pytest --run-slow
+```
+To execute tests marked as slow and are benchmarked, run:
+``` bash
+pytest --run-slow --benchmark-only
+```
 
 ## Licensing
 This project utilizes and modifies dictionary files for its experiments, adhering to their respective licenses. Below is a list of the sources and their licenses:

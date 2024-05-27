@@ -2,6 +2,7 @@
 import os
 
 from auto_embeds.data import filter_word_pairs, tokenize_word_pairs
+from auto_embeds.embed_utils import initialize_embed_and_unembed
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -10,25 +11,46 @@ import numpy as np
 import pytest
 import torch as t
 import torch.testing as tt
-from torch.utils.data import DataLoader, TensorDataset
 from transformers import AutoTokenizer
 
 from auto_embeds.data import get_cached_weights
 from auto_embeds.embed_utils import (
-    initialize_loss,
     initialize_transform_and_optim,
-    train_transform,
 )
+from auto_embeds.utils.logging import logger
 
 np.random.seed(1)
 t.manual_seed(1)
 t.cuda.manual_seed(1)
 
 tokenizer = AutoTokenizer.from_pretrained("bigscience/bloom-560m")
-model_weights = get_cached_weights("bigscience/bloom-560m", "default")
+model_weights = get_cached_weights("bigscience/bloom-560m")
 d_model = model_weights["W_E"].shape[1]
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
+embed_module, unembed_module = initialize_embed_and_unembed(
+    tokenizer=tokenizer,
+    model_weights=model_weights,
+    embed_ln_weights="model_weights",
+    unembed_ln_weights="model_weights",
+    device=device,
+)
 batch = 10
+
+# %%
+en_fr_pairs = [["hospital", "hôpital"], ["electronic", "électronique"]]
+filtered_word_pairs = filter_word_pairs(
+    tokenizer,
+    en_fr_pairs,
+    discard_if_same=False,
+    capture_diff_case=True,
+    min_length=3,
+    space_configurations=[
+        {"en": "space", "fr": "space"},
+    ],
+)
+en_toks, fr_toks, _, _ = tokenize_word_pairs(
+    tokenizer=tokenizer, word_pairs=filtered_word_pairs
+)
 
 
 # %%
@@ -66,25 +88,15 @@ def test_initialize_transform_and_optim_types_general(
         assert isinstance(optim, expected_optim_type), assert_msg
 
 
-def test_initialize_transform_and_optim_types_mean_diff():
-    mean_diff = t.rand(d_model) - t.rand(d_model)
-    transform_module, optim = initialize_transform_and_optim(
-        d_model, "mean_translation", mean_diff=mean_diff, optim_kwargs={}
-    )
-    assert_msg = "Failed to initialize transform for mean_translation"
-    assert transform_module is not None, assert_msg
-    assert optim is None, "Expected no optimizer for mean_translation"
-
-
 def test_identity_transformation():
     identity_transform, _ = initialize_transform_and_optim(
         d_model, "identity", optim_kwargs={}
     )
-    input = t.rand((d_model), device=device)
-    actual = identity_transform(input)
+    data = t.rand((d_model), device=device)
+    actual = identity_transform(data)
     # The identity transformation should not change the input tensor
-    tt.assert_close(input, actual)
-    assert t.allclose(input, actual)
+    tt.assert_close(data, actual)
+    assert t.allclose(data, actual)
 
 
 def test_translation_transformation():
@@ -93,9 +105,9 @@ def test_translation_transformation():
         d_model, "translation", optim_kwargs={}
     )
     translation_transform.translation.data = t.ones(d_model, device=device)
-    input = t.randn((batch, d_model), device=device)
-    expected = input + t.ones_like(input)
-    actual = translation_transform(input)
+    data = t.randn((batch, d_model), device=device)
+    expected = data + t.ones_like(data)
+    actual = translation_transform(data)
     assert t.allclose(expected, actual)
     tt.assert_close(actual, expected)
 
@@ -105,10 +117,10 @@ def test_linear_map_transformation():
     linear_map_transformation, _ = initialize_transform_and_optim(
         d_model, "linear_map", optim_kwargs={}
     )
-    linear_map_transformation.weight.data = t.eye(d_model, device=device) * 2
-    input = t.rand((batch, d_model), device=device)
-    expected = input * 2
-    actual = linear_map_transformation(input)
+    linear_map_transformation.linear.weight.data = t.eye(d_model, device=device) * 2
+    data = t.rand((batch, d_model), device=device)
+    expected = data * 2
+    actual = linear_map_transformation(data)
     tt.assert_close(actual, expected)
 
 
@@ -124,11 +136,11 @@ def test_uncentered_linear_map_transformation():
         t.eye(d_model, device=device) * 2
     )
     uncentered_linear_map_transformation.center.data = t.ones(d_model, device=device)
-    input = t.rand((batch, d_model), device=device)
-    expected = (input + t.ones(d_model, device=device)) * 2 - t.ones(
+    data = t.rand((batch, d_model), device=device)
+    expected = (data + t.ones(d_model, device=device)) * 2 - t.ones(
         d_model, device=device
     )
-    actual = uncentered_linear_map_transformation(input)
+    actual = uncentered_linear_map_transformation(data)
     tt.assert_close(expected, actual)
 
 
@@ -150,11 +162,11 @@ def test_biased_uncentered_linear_map_transformation():
     biased_uncentered_linear_map_transformation.center.data = t.ones(
         d_model, device=device
     )
-    input = t.rand((batch, d_model), device=device)
+    data = t.rand((batch, d_model), device=device)
     expected = (
-        (input + t.ones(d_model, device=device)) * 2 + t.ones(d_model, device=device)
+        (data + t.ones(d_model, device=device)) * 2 + t.ones(d_model, device=device)
     ) - t.ones(d_model, device=device)
-    actual = biased_uncentered_linear_map_transformation(input)
+    actual = biased_uncentered_linear_map_transformation(data)
     tt.assert_close(expected, actual)
 
 
@@ -206,48 +218,30 @@ def test_rotation_transformation():
     tt.assert_close(actual, expected)
 
 
-def test_mean_translation_transformation():
-    # Test mean translation transformation by adding a mean difference vector to input.
-    mean_diff = t.rand(d_model, device=device)
-    mean_translation_transform, _ = initialize_transform_and_optim(
-        d_model,
-        "mean_translation",
-        mean_diff=mean_diff,
-        optim_kwargs={},
-    )
-    input = t.rand((batch, d_model), device=device)
-    expected = input + mean_diff
-    actual = mean_translation_transform(input)
-    tt.assert_close(actual, expected)
-
-
-def test_tokenize_texts():
-    en_fr_pairs = [["hospital", "hôpital"], ["electronic", "électronique"]]
+def test_filter_word_pairs():
+    input_word_pairs = [["hospital", "hôpital"], ["electronic", "électronique"]]
+    expected_filtered_word_pairs = [
+        [" hospital", " hôpital"],
+        [" Hospital", " hôpital"],
+        [" electronic", " électronique"],
+        [" Electronic", " électronique"],
+    ]
     filtered_word_pairs = filter_word_pairs(
-        model,
-        en_fr_pairs,
+        tokenizer,
+        input_word_pairs,
         discard_if_same=False,
         capture_diff_case=True,
         min_length=3,
-        capture_space=True,
-        capture_no_space=True,
+        space_configurations=[
+            {"en": "space", "fr": "space"},
+        ],
     )
-    actual_en_toks, actual_fr_toks, _, _ = tokenize_word_pairs(
-        model, filtered_word_pairs
-    )
-
-    expected_en_toks = [" hospital", " Hospital", " electronic", " Electronic"]
-    expected_fr_toks = [" hôpital", " hôpital", " électronique", " électronique"]
-
-    assert model.to_string(actual_en_toks) == expected_en_toks
-    assert model.to_string(actual_fr_toks) == expected_fr_toks
+    logger.info(filtered_word_pairs)
+    assert filtered_word_pairs == expected_filtered_word_pairs
 
 
+@pytest.mark.slow
 def test_train_transform():
-
-    device = model.cfg.device
-    d_model = model.cfg.d_model
-    n_toks = model.cfg.d_vocab_out
 
     en_fr_pairs = [
         ["hospital", "hôpital"],
@@ -257,27 +251,26 @@ def test_train_transform():
     ]
 
     filtered_word_pairs = filter_word_pairs(
-        model,
+        tokenizer,
         en_fr_pairs,
         discard_if_same=False,
         capture_diff_case=True,
         min_length=3,
-        capture_space=True,
-        capture_no_space=True,
+        space_configurations=[
+            {"en": "space", "fr": "space"},
+        ],
     )
-    print(filtered_word_pairs)
 
-    en_toks, fr_toks, _, _ = tokenize_word_pairs(model, filtered_word_pairs)
+    en_toks, fr_toks, _, _ = tokenize_word_pairs(tokenizer, filtered_word_pairs)
 
-    print(en_toks.shape)
-
-    en_embeds = model.embed.W_E[en_toks].detach().clone()
-    fr_embeds = model.embed.W_E[fr_toks].detach().clone()
+    en_embeds = embed_module(en_toks)
+    print(en_embeds.shape)
+    fr_embeds = embed_module(fr_toks)
 
     train_dataset = TensorDataset(en_embeds[:2], fr_embeds[:2])
     test_dataset = TensorDataset(en_embeds[2:], fr_embeds[2:])
-    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=2, shuffle=True)
 
     transformation_names = [
         "identity",
@@ -304,15 +297,15 @@ def test_train_transform():
 
         if optim is not None:
             transform, loss_history = train_transform(
-                model=model,
+                tokenizer=tokenizer,
                 train_loader=train_loader,
                 test_loader=test_loader,
                 transform=transform,
                 optim=optim,
+                unembed_module=unembed_module,
                 loss_module=loss_module,
                 n_epochs=5,
                 plot_fig=False,
-                unembed_module=None,
             )
             trained_transforms[transformation_name] = transform
 
@@ -329,4 +322,31 @@ def test_train_transform():
                 tt.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
 
 
-test_train_transform()
+@t.no_grad()
+def test_initialize_embed_and_unembed_each_give_different_results():
+    tokenizer = AutoTokenizer.from_pretrained("bigscience/bloom-560m")
+    model_weights = get_cached_weights("bigscience/bloom-560m")
+    device = t.device("cuda" if t.cuda.is_available() else "cpu")
+
+    embed_module_model, unembed_module_model = initialize_embed_and_unembed(
+        tokenizer=tokenizer,
+        model_weights=model_weights,
+        embed_ln_weights="model_weights",
+        unembed_ln_weights="model_weights",
+        device=device,
+    )
+    embed_module_default, unembed_module_default = initialize_embed_and_unembed(
+        tokenizer=tokenizer,
+        model_weights=model_weights,
+        embed_ln_weights="default_weights",
+        unembed_ln_weights="default_weights",
+        device=device,
+    )
+
+    embed_result_model = embed_module_model(en_toks)
+    embed_result_default = embed_module_default(en_toks)
+    unembed_result_model = unembed_module_model(embed_result_model)
+    unembed_result_default = unembed_module_default(embed_result_default)
+
+    assert not t.equal(embed_result_model, embed_result_default)
+    assert not t.equal(unembed_result_model, unembed_result_default)

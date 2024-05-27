@@ -12,7 +12,7 @@ from einops import repeat
 from Levenshtein import distance as levenshtein_distance
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
-from transformers import PreTrainedTokenizerFast
+from transformers import PreTrainedTokenizerBase
 from word2word import Word2word
 
 from auto_embeds.utils.cache import auto_embeds_cache
@@ -155,7 +155,7 @@ def get_dataset_path(name: str) -> Path:
 
 
 def generate_tokens(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     n_toks: int,
     device: Union[str, t.device] = default_device,
 ) -> Tuple[Tensor, Tensor]:
@@ -200,7 +200,7 @@ def generate_tokens(
 
 @auto_embeds_cache
 def filter_word_pairs(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     word_pairs: List[List[str]],
     max_token_id: Optional[int] = None,
     discard_if_same: bool = False,
@@ -221,7 +221,7 @@ def filter_word_pairs(
     single-token outputs upon tokenization.
 
     Args:
-        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
+        tokenizer: A PreTrainedTokenizerBase instance used for tokenizing texts.
         word_pairs: A list containing pairs of words to be tokenized.
         max_token_id: Filters out words with a tokenized ID above this threshold.
         discard_if_same: Exclude word pairs that are identical.
@@ -247,7 +247,7 @@ def filter_word_pairs(
         A list of filtered word pairs that tokenize into single tokens.
     """
     if max_token_id is None:
-        max_token_id = tokenizer.vocab_size
+        max_token_id = len(tokenizer)
 
     if discard_if_same:
         word_pairs = [pair for pair in word_pairs if pair[0].lower() != pair[1].lower()]
@@ -474,7 +474,7 @@ def filter_word_pairs(
 
 
 def tokenize_word_pairs(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     word_pairs: List[List[str]],
     device: Union[str, t.device] = default_device,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
@@ -521,7 +521,7 @@ TwoDatasets: TypeAlias = Tuple[TensorDataset, TensorDataset]
 
 @overload
 def prepare_data(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["tensor"],
@@ -531,12 +531,13 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoTensors: ...
+) -> TwoTensors:
+    ...
 
 
 @overload
 def prepare_data(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["tensor"],
@@ -546,12 +547,13 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> FourTensors: ...
+) -> FourTensors:
+    ...
 
 
 @overload
 def prepare_data(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataset"],
@@ -561,12 +563,13 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TensorDataset: ...
+) -> TensorDataset:
+    ...
 
 
 @overload
 def prepare_data(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataset"],
@@ -576,12 +579,13 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoDatasets: ...
+) -> TwoDatasets:
+    ...
 
 
 @overload
 def prepare_data(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataloader"],
@@ -591,12 +595,13 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> DataLoader: ...
+) -> DataLoader:
+    ...
 
 
 @overload
 def prepare_data(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: Literal["dataloader"],
@@ -606,11 +611,12 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoDataLoaders: ...
+) -> TwoDataLoaders:
+    ...
 
 
 def prepare_data(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     embed_module: t.nn.Module,
     dataset_name: str,
     return_type: str = "dataset",
@@ -748,7 +754,7 @@ def print_most_similar_embeddings_dict(
 
 
 def get_most_similar_embeddings(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     out: t.Tensor,
     answer: Optional[List[str]] = None,
     top_k: int = 10,
@@ -816,7 +822,34 @@ def get_most_similar_embeddings(
 
 @auto_embeds_cache
 @t.no_grad()
-def get_cached_weights(model_name: str, processing: bool = True) -> Dict[str, t.Tensor]:
+def get_cached_weights(
+    model_name: str, processing: bool = False
+) -> Dict[str, t.Tensor]:
+    """Fetches and caches model weights for a specified transformer model.
+
+    This function retrieves the weights of a transformer model, either with or without
+    processing, and caches them for future use. The function supports different model
+    architectures and handles them accordingly. The weights include embedding-related
+    weights such as W_E, embed.ln.w, embed.ln.b (if applicable), ln_final.w, ln_final.b,
+    W_U, and b_U.
+
+    Args:
+        model_name: The name of the transformer model to load.
+        processing: Whether to load the model with processing. Defaults to False.
+
+    Returns:
+        A dictionary containing the model weights as tensors, including:
+            - W_E: Embedding weights.
+            - embed.ln.w: Embedding layer normalization weights (if applicable).
+            - embed.ln.b: Embedding layer normalization biases (if applicable).
+            - ln_final.w: Final layer normalization weights.
+            - ln_final.b: Final layer normalization biases.
+            - W_U: Unembedding weights.
+            - b_U: Unembedding biases.
+
+    Raises:
+        ValueError: If the model name is not supported.
+    """
     if processing:
         model = tl.HookedTransformer.from_pretrained(model_name)
     else:

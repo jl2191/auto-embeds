@@ -177,16 +177,16 @@ def initialize_manual_transform(
     elif transform_name == "analytical_translation":
         translation_vector = calculate_translation(train_src_embeds, train_tgt_embeds)
         transformations.append(("add", translation_vector))
-        metrics["expected_translation_magnitude"] = (
-            0.0  # Placeholder metric calculation
-        )
+        metrics[
+            "expected_translation_magnitude"
+        ] = 0.0  # Placeholder metric calculation
 
     elif transform_name == "analytical_linear_map":
         linear_map_matrix = calculate_linear_map(train_src_embeds, train_tgt_embeds)
         transformations.append(("multiply", linear_map_matrix))
-        metrics["expected_linear_map_accuracy"] = (
-            0.0  # Placeholder for expected metric calculation
-        )
+        metrics[
+            "expected_linear_map_accuracy"
+        ] = 0.0  # Placeholder for expected metric calculation
 
     else:
         raise ValueError(f"Unknown transformation name: {transform_name}")

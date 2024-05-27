@@ -104,7 +104,8 @@ fig.show()
 # %%
 # import statsmodels.api as sm
 
-# Adding a constant to the bloom_str_tokens_flat for the intercept in the regression model
+# Adding a constant to the bloom_str_tokens_flat for the intercept in the regression
+# model
 # X = sm.add_constant(bloom_str_tokens_flat)
 # y = gpt2_str_tokens_flat
 

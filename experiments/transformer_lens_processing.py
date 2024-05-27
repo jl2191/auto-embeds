@@ -173,7 +173,6 @@ for model_name, model in models:
 okay so it seems that as a result of processing, as we are folding the value biases,
 Check if all elements in no_processing.b_U are zeros and print the result
 """
-processing = model.embed()
 b_U_zero_check_no_processing = t.all(no_processing.b_U == 0)
 print(
     f"b_U for no processing contains only zero elements: {b_U_zero_check_no_processing}"

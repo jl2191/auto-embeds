@@ -170,8 +170,8 @@ def display_top_runs_table(
         top_n: Number of top runs to display. If None, displays all runs.
         record_console: Whether to record the console output.
         metric_interpretation: Optional dictionary mapping metrics to 'higher_better'
-                               or 'lower_better' for gradient colouring. Defaults to
-                               None.
+            or 'lower_better' for gradient colouring. Defaults to
+            None.
         ascending: Boolean to control the sorting order. Defaults to False.
 
     Returns:
@@ -190,13 +190,13 @@ def display_top_runs_table(
     top_runs_df.reset_index(inplace=True, drop=True)
 
     # Setup console for output
-    console = Console(record=record_console, width=900)
+    console = Console(record=record_console, width=600)
     table = Table(show_header=True, header_style="bold")
     for column in top_runs_df.columns:
         if column in metrics:
-            table.add_column(column, justify="center", width=8, max_width=12)
+            table.add_column(column, justify="center", min_width=4, max_width=12)
         else:
-            table.add_column(column, justify="left", width=18, max_width=24)
+            table.add_column(column, justify="left", min_width=10, max_width=20)
 
     # Prepare data for display with color coding
     min_values = top_runs_df.min(numeric_only=True)

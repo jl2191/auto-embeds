@@ -12,7 +12,7 @@ from rich.table import Table
 from scipy import stats
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
-from transformers import PreTrainedTokenizerFast
+from transformers import PreTrainedTokenizerBase
 
 from auto_embeds.data import (
     ExtendedWordData,
@@ -29,7 +29,7 @@ from auto_embeds.utils.misc import (
 
 
 def verify_transform(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     transformation: nn.Module,
     test_loader: DataLoader[Tuple[Tensor, ...]],
     unembed_module: nn.Module,
@@ -42,7 +42,7 @@ def verify_transform(
     Euclidean distance, and strings for source, target, and predicted tokens.
 
     Args:
-        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
+        tokenizer: A PreTrainedTokenizerBase instance used for tokenizing texts.
         transformation: The transformation module applied to source language embeddings.
         test_loader: DataLoader for the test dataset with source and target language
             embeddings tuples.
@@ -191,7 +191,7 @@ def verify_transform_table_from_dict(verify_results: Dict[str, Any]) -> Table:
 
 
 def calc_tgt_is_closest_embed(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     all_word_pairs: List[List[str]],
     embed_module: nn.Module,
     device: Union[str, t.device] = default_device,
@@ -202,7 +202,7 @@ def calc_tgt_is_closest_embed(
     the top 1 and top 5 closest tokens in terms of cosine similarity.
 
     Args:
-        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
+        tokenizer: A PreTrainedTokenizerBase instance used for tokenizing texts.
         all_word_pairs: A list of tuples containing source and target word pairs.
         embed_module: The embedding module used to get embeddings of tokens.
         device: The device on which to allocate tensors. If None, defaults to
@@ -292,7 +292,7 @@ def calc_tgt_is_closest_embed(
 
 
 def generate_top_word_pairs_table(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     word_category_data: WordCategory,
     sort_by: str = "cos_sim",
     display_limit: int = 50,
@@ -308,7 +308,7 @@ def generate_top_word_pairs_table(
     the selected word to ensure more meaningful comparisons.
 
     Args:
-        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
+        tokenizer: A PreTrainedTokenizerBase instance used for tokenizing texts.
         word_category_data: Data for the selected word including other words to compare.
         sort_by: Criterion for sorting the tokens ('cos_sim' or 'euc_dist').
         display_limit: Number of entries to display in the table.
@@ -561,7 +561,7 @@ def test_cos_sim_difference(
 
 @t.no_grad()
 def prepare_verify_analysis(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     embed_module: nn.Module,
     all_word_pairs: List[List[str]],
     seed: int = 1,
@@ -577,7 +577,7 @@ def prepare_verify_analysis(
     src_other_toks will include the tgt_tok and vice versa.
 
     Args:
-        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
+        tokenizer: A PreTrainedTokenizerBase instance used for tokenizing texts.
         embed_module: The module used for embedding.
         all_word_pairs: A collection of word pairs to be analyzed.
         seed: An integer used to seed the random number generator.
@@ -684,7 +684,8 @@ def prepare_verify_datasets(
         "src_and_src", "tgt_and_tgt", "top_src", "top_tgt"
     ] = "src_and_src",
     return_type: Literal["dataloader"] = "dataloader",
-) -> Tuple[DataLoader, DataLoader]: ...
+) -> Tuple[DataLoader, DataLoader]:
+    ...
 
 
 @overload
@@ -697,7 +698,8 @@ def prepare_verify_datasets(
         "src_and_src", "tgt_and_tgt", "top_src", "top_tgt"
     ] = "src_and_src",
     return_type: Literal["dataset"] = "dataset",
-) -> Tuple[TensorDataset, TensorDataset]: ...
+) -> Tuple[TensorDataset, TensorDataset]:
+    ...
 
 
 @t.no_grad()
@@ -809,7 +811,7 @@ def prepare_verify_datasets(
         ]
         test_indices = t.tensor(indices)
         test_indices = t.unique_consecutive(test_indices)[:top_k]
-        # TODO: finish off top_src_and_tgt
+    #     # TODO: finish off top_src_and_tgt
     # elif top_k_selection_method == "top_src_and_tgt":
     #     cos_sims_src = t.cosine_similarity(src_embed, src_embeds, dim=-1)
     #     cos_sims_tgt = t.cosine_similarity(tgt_embed, tgt_embeds, dim=-1)
@@ -827,16 +829,19 @@ def prepare_verify_datasets(
     #         if index < src_offset and index.item() not in src_indices_used:
     #             selected_indices.append(index)
     #             src_indices_used.add(index.item())
-    #         elif index >= src_offset and (index - src_offset).item() not in tgt_indices_used:
+    #         elif (
+    #             index >= src_offset
+    #             and (index - src_offset).item() not in tgt_indices_used
+    #         ):
     #             selected_indices.append(index - src_offset)
     #             tgt_indices_used.add((index - src_offset).item())
 
     #     test_indices = t.tensor(selected_indices, dtype=t.long)
-    else:
-        raise ValueError(
-            "Invalid top_k_selection_method value. Accepted values are 'src_and_src', \
-                'tgt_and_tgt', 'top_src', 'top_tgt'."
-        )
+    # else:
+    #     raise ValueError(
+    #         "Invalid top_k_selection_method value. Accepted values are 'src_and_src',"
+    #         "'tgt_and_tgt', 'top_src', 'top_tgt'."
+    #     )
 
     # Index into src and tgt embeds with these top-k indices to get test embeddings
     src_embeds_with_top_k_cos_sims = src_embeds[test_indices]

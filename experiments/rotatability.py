@@ -7,7 +7,7 @@ import plotly.express as px
 import torch as t
 from fancy_einsum import einsum
 from rich.console import Console
-from transformers import AutoTokenizer, PreTrainedTokenizerFast
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from auto_embeds.data import get_cached_weights
 
@@ -17,7 +17,7 @@ console = Console()
 weights = get_cached_weights("bloom-560m", processing=False)
 # weights = get_cached_weights("bloom-3b", processing=False)
 
-tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(
+tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
     "bigscience/bloom-560m"
 )  # type: ignore
 

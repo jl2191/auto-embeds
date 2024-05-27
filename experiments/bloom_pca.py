@@ -3,9 +3,10 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import torch as t
+from hanziconv import HanziConv
 from rich.console import Console
 from sklearn.decomposition import PCA
-from transformers import AutoTokenizer, PreTrainedTokenizerFast
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from auto_embeds.data import get_cached_weights
 
@@ -16,15 +17,15 @@ bloom_560m = get_cached_weights("bloom-560m", processing=False)
 we = bloom_560m["W_E"]
 d_vocab = we.shape[0]
 
-tokenizer: PreTrainedTokenizerFast = AutoTokenizer.from_pretrained(
+tokenizer: PreTrainedTokenizerBase = AutoTokenizer.from_pretrained(
     "bigscience/bloom-560m"
 )  # type: ignore
 
 
 # %%
 u, s, v = t.pca_lowrank(we, q=2)
-pca_result = t.matmul(we, v[:, :2])
-pca_df = pd.DataFrame(pca_result.cpu(), columns=["PC1", "PC2"])
+pca_result = t.matmul(we, v[:, :2]).cpu().numpy()
+pca_df = pd.DataFrame(pca_result, columns=["PC1", "PC2"])
 tokens = tokenizer.batch_decode(list(range(d_vocab)))
 # %%
 pca_df["token"] = tokens
@@ -108,7 +109,8 @@ def filter_chinese_words(df, column):
 def print_side_by_side_table(title1, examples1, title2, examples2):
     print(f"{title1:<40} {title2}")
     print(
-        f"{'token ID':>10} {'token':>10} {'PC2':>10}    {'token ID':>10} {'token':>10} {'PC2':>10}"
+        f"{'token ID':>10} {'token':>10} {'PC2':>10}    "
+        f"{'token ID':>10} {'token':>10} {'PC2':>10}"
     )
     for (idx1, row1), (idx2, row2) in zip(examples1.iterrows(), examples2.iterrows()):
         print(
@@ -130,6 +132,7 @@ print_side_by_side_table(
     bottom_pc2_tokens,
 )
 
+# %%
 # ##
 we_tensor = t.tensor(we)
 norms = t.norm(we_tensor, dim=1)
@@ -165,7 +168,7 @@ plot_index += 1
 
 # %%
 # perform PCA
-pca = PCA(n_components=100).fit(we)
+pca = PCA(n_components=100).fit(we.cpu().numpy())
 
 # create a scree plot
 explained_variance = pca.explained_variance_ratio_
@@ -174,9 +177,7 @@ fig = px.scatter(
     y=explained_variance,
     labels={"x": "Principal Component", "y": "Explained Variance Ratio"},
     title="Scree Plot",
-    mode="lines+markers",
-)
-
+).update_traces(mode="lines+markers")
 if should_show_plot(plot_index):
     fig.show(responsive=True)
 plot_index += 1
@@ -247,29 +248,8 @@ plot_index += 1
 # %%
 # the second PCA component in chinese seems to represent something like an official /
 # political tone. i wonder what this distribution looks like when we apply various types
-# of layernorm. to test this, let's take a sample of 10000 tokens and apply various types
-# of layernorm to the second PCA component and see how the distribution changes.
-
-
-from hanziconv import HanziConv
-
-
-def filter_chinese_words(df, column):
-    return df[
-        df[column].apply(lambda x: any("\u4e00" <= char <= "\u9fff" for char in x))
-    ]
-
-
-def print_side_by_side_table(title1, examples1, title2, examples2):
-    print(f"{title1:<40} {title2}")
-    print(
-        f"{'token ID':>10} {'token':>10} {'PC2':>10}    {'token ID':>10} {'token':>10} {'PC2':>10}"
-    )
-    for (idx1, row1), (idx2, row2) in zip(examples1.iterrows(), examples2.iterrows()):
-        print(
-            f"{str(idx1):>10} {str(row1['token']):>10} {str(row1['PC2']):>10}    "
-            f"{str(idx2):>10} {str(row2['token']):>10} {str(row2['PC2']):>10}"
-        )
+# of layernorm. to test this, let's take a sample of 10000 tokens and apply various
+# types of layernorm to the second PCA component and see how the distribution changes.
 
 
 filtered_pca_df = filter_chinese_words(pca_df, "token").sample(n=10000, random_state=0)

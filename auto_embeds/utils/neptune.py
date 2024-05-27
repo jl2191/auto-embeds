@@ -56,8 +56,8 @@ def fetch_neptune_runs_df(
     df = project.fetch_runs_table(tag=tags).to_pandas()
     df = df.filter(regex="|".join(["sys/id", "config", "results"]))
 
+    artifact_types = ["cos_sims_trend_plot", "test_cos_sim_diff", "verify_results"]
     if get_artifacts:
-        artifact_types = ["cos_sims_trend_plot", "test_cos_sim_diff", "verify_results"]
         artifacts_data = {f"results/{artifact}": [] for artifact in artifact_types}
 
         pbar = tqdm(df["sys/id"].to_list(), desc="Downloading artifacts", unit="run")
@@ -73,6 +73,11 @@ def fetch_neptune_runs_df(
                     download_artifact(run, run_id, artifact)
                 )
             pbar.set_description(f"Downloading artifacts for run ID: {run_id}")
+        df = df.assign(**artifacts_data)
+    else:
+        artifacts_data = {
+            f"results/{artifact}": [None] * len(df) for artifact in artifact_types
+        }
         df = df.assign(**artifacts_data)
 
     return df
@@ -135,10 +140,17 @@ def process_neptune_runs_df(
         "results/test_cos_sim_diff",
         "results/verify_results",
     ]
+    missing_artifacts = df[columns_to_deserialize].isnull().any(axis=1).sum()
+    total_runs = len(df)
+    logger.info(f"Runs with missing artifacts: {missing_artifacts}/{total_runs}")
+
     for col in columns_to_deserialize:
-        df = df.join(
-            pd.json_normalize(df[col].apply(json.loads)).add_prefix(f"{col}.")
-        ).drop(columns=[col])
+        if col in df.columns:
+            df = df.join(
+                pd.json_normalize(df[col].dropna().apply(json.loads)).add_prefix(
+                    f"{col}."
+                )
+            ).drop(columns=[col])
 
     # extract config and result columns before renaming for further use
     config_columns = [col for col in df.columns if col.startswith("config/")]

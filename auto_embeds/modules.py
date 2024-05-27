@@ -4,7 +4,7 @@ from typing import Optional, Union
 import torch as t
 import torch.nn as nn
 from fancy_einsum import einsum
-from jaxtyping import Float
+from jaxtyping import Float, Int
 from torch import Tensor
 
 from auto_embeds.utils.logging import logger
@@ -41,9 +41,7 @@ class IdentityTransform(nn.Module):
         super().__init__()
         self.d_model = d_model
 
-    def forward(
-        self, x: Float[Tensor, "batch d_model"]
-    ) -> Float[Tensor, "batch d_model"]:
+    def forward(self, x: Float[Tensor, "... d_model"]) -> Float[Tensor, "... d_model"]:
         """
         Applies the identity transformation to the input tensor, which means the input
         is returned as is.
@@ -91,9 +89,7 @@ class LinearTransform(nn.Module):
         self.linear = t.nn.Linear(d_model, d_model, bias=bias).to(device)
         self.d_model = d_model
 
-    def forward(
-        self, x: Float[Tensor, "batch d_model"]
-    ) -> Float[Tensor, "batch d_model"]:
+    def forward(self, x: Float[Tensor, "... d_model"]) -> Float[Tensor, "... d_model"]:
         """
         Applies the linear transformation to the input tensor.
 
@@ -130,9 +126,7 @@ class TranslationTransform(nn.Module):
         )
         self.d_model = d_model
 
-    def forward(
-        self, x: Float[Tensor, "batch pos d_model"]
-    ) -> Float[Tensor, "batch pos d_model"]:
+    def forward(self, x: Float[Tensor, "... d_model"]) -> Float[Tensor, "... d_model"]:
         """
         Applies the translation transformation to the input tensor.
 
@@ -173,9 +167,7 @@ class UncenteredLinearMapTransform(nn.Module):
         nn.init.uniform_(self.center, -bound, bound)
         self.d_model = d_model
 
-    def forward(
-        self, x: Float[Tensor, "batch d_model"]
-    ) -> Float[Tensor, "batch d_model"]:
+    def forward(self, x: Float[Tensor, "... d_model"]) -> Float[Tensor, "... d_model"]:
         """Applies the uncentered linear map transformation to the input tensor.
 
         Args:
@@ -267,9 +259,7 @@ class BiasedRotationTransform(nn.Module):
         nn.init.uniform_(self.bias, -bound, bound)
         self.d_model = d_model
 
-    def forward(
-        this, x: Float[Tensor, "batch d_model"]
-    ) -> Float[Tensor, "batch d_model"]:
+    def forward(self, x: Float[Tensor, "... d_model"]) -> Float[Tensor, "... d_model"]:
         """
         Applies the offset rotation transformation to the input tensor.
 
@@ -316,9 +306,7 @@ class UncenteredRotationTransform(nn.Module):
         nn.init.uniform_(self.center, -bound, bound)
         self.d_model = d_model
 
-    def forward(
-        self, x: Float[Tensor, "batch d_model"]
-    ) -> Float[Tensor, "batch d_model"]:
+    def forward(self, x: Float[Tensor, "... d_model"]) -> Float[Tensor, "... d_model"]:
         """
         Applies the uncentered rotation transformation to the input tensor.
 
@@ -363,7 +351,10 @@ class ManualTransformModule(nn.Module):
         for operation, transform_tensor in self.transformations:
             if operation == "multiply":
                 x = einsum(
-                    "d_model_row d_model_col, batch pos d_model_col-> batch pos d_model_row",
+                    (
+                        "d_model_row d_model_col, batch pos d_model_col -> "
+                        "batch pos d_model_row"
+                    ),
                     transform_tensor,
                     x,
                 )
@@ -409,7 +400,7 @@ class Embed(nn.Module):
         self.embed_ln = nn.LayerNorm(d_model, device=device) if apply_ln else None
 
     def forward(
-        self, tokens: Float[Tensor, "batch pos"]
+        self, tokens: Int[Tensor, "batch pos"]
     ) -> Float[Tensor, "batch pos d_model"]:
         """
         Applies embeds the input tokens and optionally applies layer normalization
@@ -495,9 +486,9 @@ class Unembed(nn.Module):
 class CosineSimilarityLoss(nn.Module):
     def forward(
         self,
-        predictions: Float[Tensor, "batch pos d_model"],
-        targets: Float[Tensor, "batch pos d_model"],
-    ) -> Float[Tensor, "batch pos"]:
+        predictions: Float[Tensor, "... d_model"],
+        targets: Float[Tensor, "... d_model"],
+    ) -> Float[Tensor, "..."]:
         return -nn.functional.cosine_similarity(predictions, targets, dim=-1).mean()
 
 

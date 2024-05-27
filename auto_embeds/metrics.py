@@ -6,7 +6,7 @@ import torch as t
 import torch.nn as nn
 from torch import Tensor
 from torch.utils.data import DataLoader
-from transformers import PreTrainedTokenizerFast
+from transformers import PreTrainedTokenizerBase
 
 from auto_embeds.data import (
     get_most_similar_embeddings,
@@ -75,7 +75,7 @@ def mean_vec(train_en_resids: t.Tensor, train_fr_resids: t.Tensor) -> t.Tensor:
 
 
 def evaluate_accuracy(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     test_loader: DataLoader[Tuple[Tensor, ...]],
     transformation: nn.Module,
     unembed_module: nn.Module,
@@ -91,7 +91,7 @@ def evaluate_accuracy(
     It supports requiring exact matches or allowing for case-insensitive comparisons.
 
     Args:
-        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
+        tokenizer: A PreTrainedTokenizerBase instance used for tokenizing texts.
         test_loader: DataLoader for test dataset.
         transformation: Transformation module to be evaluated.
         exact_match: If True, requires exact matches between predicted and actual
@@ -158,7 +158,7 @@ def evaluate_accuracy(
 
 
 def mark_translation(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     transformation: nn.Module,
     unembed_module: nn.Module,
     test_loader: DataLoader[Tuple[Tensor, ...]],
@@ -174,7 +174,7 @@ def mark_translation(
     `translations_dict` must be provided.
 
     Args:
-        tokenizer: A PreTrainedTokenizerFast instance used for tokenizing texts.
+        tokenizer: A PreTrainedTokenizerBase instance used for tokenizing texts.
         transformation: The transformation module to evaluate.
         unembed_module: The module used for unembedding.
         test_loader: DataLoader for the test dataset.
@@ -324,7 +324,7 @@ def calc_canonical_angles(A: t.Tensor, B: t.Tensor) -> t.Tensor:
 
 
 def calc_pred_same_as_input(
-    tokenizer: PreTrainedTokenizerFast,
+    tokenizer: PreTrainedTokenizerBase,
     test_loader: DataLoader[Tuple[Tensor, ...]],
     transformation: nn.Module,
     unembed_module: nn.Module,
