@@ -97,6 +97,4 @@ venv = ".venv"
 testpaths = ["tests"]
 addopts = [
     "--jaxtyping-packages=auto_embeds,beartype.beartype",
-    "--benchmark-autosave",
-    "--benchmark-min-rounds=2"
 ]
