@@ -11,11 +11,14 @@ import numpy as np
 import pytest
 import torch as t
 import torch.testing as tt
+from torch.utils.data import DataLoader, TensorDataset
 from transformers import AutoTokenizer
 
 from auto_embeds.data import get_cached_weights
 from auto_embeds.embed_utils import (
+    initialize_loss,
     initialize_transform_and_optim,
+    train_transform,
 )
 from auto_embeds.utils.logging import logger
 

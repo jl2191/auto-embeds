@@ -109,7 +109,7 @@ def plot_difference(
         df: DataFrame containing the data.
         configs_that_change_names: List of configuration names that change.
         comparison_name: The name of the configuration parameter to compare.
-        comparison_values: A tuple containing the values of the configurations to compare.
+        comparison_values: A tuple containing the values of the configs to compare.
         metric: The metric for which the differences are plotted.
         annotation_text: Text to annotate the plot with. Defaults to an empty string.
         invert_colors: A boolean flag to invert colors in the plot.

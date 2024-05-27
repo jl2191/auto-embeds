@@ -187,7 +187,7 @@ def calculate_linear_map(
     src_embed: Float[Tensor, "batch pos d_model"],
     tgt_embed: Float[Tensor, "batch pos d_model"],
 ) -> Float[Tensor, "d_model d_model"]:
-    """Calculates the best linear map matrix for source to target language embeddings."""
+    """Calculate the best linear map matrix for source to target language embeddings."""
     A = src_embed.detach().clone().squeeze()
     B = tgt_embed.detach().clone().squeeze()
     result = t.linalg.lstsq(A, B)
@@ -210,7 +210,8 @@ target_token = tokenizer.batch_decode(unembed(tgt_other_embeds).argmax(dim=-1))
 predicted_target_token = tokenizer.batch_decode(
     unembed(predicted_tgt_embed).argmax(dim=-1)
 )
-# add a new column with green tick emoji if predicted token matches original target token
+# add a new column with green tick emoji if the predicted token matches original
+# target token
 correct = [
     "✅" if pred == target else "❌"
     for pred, target in zip(predicted_target_token, target_token)

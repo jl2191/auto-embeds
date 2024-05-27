@@ -259,7 +259,7 @@ ln_bias_processing = processing.state_dict()["embed.ln.b"].data
 ln_weights_no_processing = no_processing.state_dict()["embed.ln.w"].data
 ln_bias_no_processing = no_processing.state_dict()["embed.ln.b"].data
 
-# Check if layer norm weights and biases are the same between processing and no_processing
+# Check if LN weights and biases are the same between processing and no_processing
 weights_match = t.allclose(ln_weights_processing, ln_weights_no_processing, atol=1e-6)
 biases_match = t.allclose(ln_bias_processing, ln_bias_no_processing, atol=1e-6)
 
@@ -323,7 +323,8 @@ for model, name in [(processing, "processing"), (no_processing, "no_processing")
             mismatched_elements = t.ne(embedded_method, comparison_embed).sum().item()
             mismatch_percentage = (mismatched_elements / total_elements) * 100
             print(
-                f"Embedding comparison for {comparison_name}: False, max difference: {max_diff}, "
+                f"Embedding comparison for {comparison_name}: False, "
+                f"max difference: {max_diff}, "
                 f"Mismatched elements: {mismatched_elements} / {total_elements} "
                 f"({mismatch_percentage:.1f}%)"
             )
@@ -383,7 +384,7 @@ else:
     ) * 100
     print(
         f"Unembedding results do not match: max difference: {max_diff_unembed}, "
-        f"Mismatched elements: {mismatched_elements_unembed} / {total_elements_unembed} "
+        f"Mismatched elems: {mismatched_elements_unembed} / {total_elements_unembed} "
         f"({mismatch_percentage_unembed:.1f}%)"
     )
 
