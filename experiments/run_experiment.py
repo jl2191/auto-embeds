@@ -72,7 +72,7 @@ def run_worker(worker_id, experiment_config, split_parameter="datasets", n_split
         worker_id=worker_id,
     )
     print(f"Running experiment for worker ID = {worker_id}")
-    return run_experiment(config_to_use)
+    return run_experiment(config_to_use, use_neptune=True)
 
 
 def run_experiment(config_dict, return_local_results=False, use_neptune=False):
@@ -216,7 +216,6 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
                 transformation=transformation,
                 optim_kwargs={"lr": lr, "weight_decay": weight_decay},
             )
-            expected_metrics = None
 
         loss_module = initialize_loss(loss_function)
 
@@ -375,19 +374,5 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
 
 # %%
 if __name__ == "__main__":
-    # profiler = LineProfiler()
-    # profiler.add_function(run_experiment)
-    # profiler.enable_by_count()
-    # # profiler.run('run_experiment(experiment_config)')
-    # run_experiment(experiment_config)
-    # profiler.print_stats(output_unit=1e-3)
-    run_experiment_parallel(experiment_config, num_workers=1)
-
-    # profiler = cProfile.Profile()
-    # profiler.enable()
-    # run_experiment(experiment_config)
-    # profiler.disable()
-    # stats = pstats.Stats(profiler).sort_stats("cumtime")
-    # stats.print_stats()
-
-# %%
+    # run_experiment(experiment_config, use_neptune=True)
+    run_experiment_parallel(experiment_config, num_workers=2)

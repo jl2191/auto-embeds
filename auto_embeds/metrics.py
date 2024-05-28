@@ -354,6 +354,7 @@ def calc_pred_same_as_input(
     return proportion_same
 
 
+@t.no_grad()
 def calc_expected_metrics(
     transform_module: nn.Module,
     data_loader: DataLoader[Tuple[Tensor, Tensor]],
@@ -368,33 +369,29 @@ def calc_expected_metrics(
         A dictionary containing the MSE, cosine similarity, and singular values.
     """
     mse_loss_total = 0.0
-    cosine_similarity_total = 0.0
-    singular_values_list = []
+    cos_sim_total = 0.0
     total_batches = 0
 
-    with t.no_grad():
-        for src_embeds, tgt_embeds in data_loader:
-            transformed_src_embeds = transform_module(src_embeds)
+    for batch in data_loader:
+        src_embeds, tgt_embeds = batch
+        transformed_src_embeds = transform_module(src_embeds)
 
-            mse_loss_total += t.nn.functional.mse_loss(
-                transformed_src_embeds, tgt_embeds, reduction="sum"
-            ).item()
-            cosine_similarity_total += (
-                t.nn.functional.cosine_similarity(
-                    transformed_src_embeds, tgt_embeds, dim=-1
-                )
-                .sum()
-                .item()
+        mse_loss_total += t.nn.functional.mse_loss(
+            transformed_src_embeds, tgt_embeds, reduction="sum"
+        ).item()
+        cos_sim_total += (
+            t.nn.functional.cosine_similarity(
+                transformed_src_embeds, tgt_embeds, dim=-1
             )
-            u, s, v = t.svd(transformed_src_embeds)
-            singular_values_list.extend(s.tolist())
-            total_batches += src_embeds.size(0)
+            .sum()
+            .item()
+        )
+        total_batches += src_embeds.size(0)
 
     mse_loss = mse_loss_total / total_batches
-    cosine_similarity = cosine_similarity_total / total_batches
+    cos_sim = cos_sim_total / total_batches
 
     return {
         "mse_loss": [mse_loss],
-        "cosine_similarity": [cosine_similarity],
-        "singular_values": singular_values_list,
+        "cos_sim": [cos_sim],
     }

@@ -82,7 +82,7 @@ def calc_orthogonal_procrustes(
 def calc_linear_map(
     train_src_embeds: Float[Tensor, "batch pos d_model"],
     train_tgt_embeds: Float[Tensor, "batch pos d_model"],
-) -> Tuple[Float[Tensor, "d_model d_model"], Float[Tensor, "1"]]:
+) -> Float[Tensor, "d_model d_model"]:
     """Calculates the best linear map matrix for source to target language embeddings.
 
     Args:
@@ -112,8 +112,7 @@ def calc_linear_map(
     # to get X.
     result = t.linalg.lstsq(A, B)
     X = result.solution.T
-    residual = result.residual
-    return X, residual
+    return X
 
 
 def initialize_manual_transform(
@@ -140,10 +139,7 @@ def initialize_manual_transform(
 
     # Extract embeddings from the train_loader
     for batch in train_loader:
-        (
-            src_embeds,
-            tgt_embeds,
-        ) = batch  # Assuming each batch is a tuple (src_embeds, tgt_embeds)
+        src_embeds, tgt_embeds = batch
         train_src_embeds.append(src_embeds)
         train_tgt_embeds.append(tgt_embeds)
 
