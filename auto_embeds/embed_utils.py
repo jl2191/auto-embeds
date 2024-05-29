@@ -192,57 +192,73 @@ def initialize_embed_and_unembed(
         A tuple containing instances of Embed and Unembed.
     """
 
-    def initialize_weights(param, init_method, model_weights, weight_key):
-        if init_method == "model_weights":
-            # param.data = model_weights[weight_key].detach().clone()
-            param.copy_(model_weights[weight_key].detach())
-        elif init_method == "random_normal":
-            t.nn.init.normal_(param.data, mean=0, std=1)
-        elif init_method == "random_uniform":
-            t.nn.init.uniform_(param.data, -1, 1)
-        elif init_method == "default_weights":
-            pass
-        else:
-            raise ValueError(f"Unsupported initialization method: {init_method}")
-
     d_model = model_weights["W_E"].shape[1]
     d_vocab = model_weights["W_E"].shape[0]
 
-    embed_module = Embed(d_model, d_vocab, apply_ln=embed_ln, device=device)
-    initialize_weights(embed_module.W_E, embed_weight, model_weights, "W_E")
-    if embed_ln:
-        assert embed_module.embed_ln is not None
-        initialize_weights(
-            embed_module.embed_ln.weight,
-            embed_ln_weights,
-            model_weights,
-            "embed.ln.w",
+    if embed_weight == "model_weights":
+        W_E = model_weights["W_E"].detach()
+    elif embed_weight == "random_normal":
+        W_E = t.nn.init.normal_(
+            t.empty((d_vocab, d_model), device=device), mean=0, std=1
         )
-        initialize_weights(
-            embed_module.embed_ln.bias,
-            embed_ln_weights,
-            model_weights,
-            "embed.ln.b",
-        )
+    elif embed_weight == "random_uniform":
+        W_E = t.nn.init.uniform_(t.empty((d_vocab, d_model), device=device), -1, 1)
+    else:
+        raise ValueError(f"Unsupported initialization method: {embed_weight}")
 
-    # Initialize Unembed
-    unembed_module = Unembed(d_model, d_vocab, apply_ln=unembed_ln, device=device)
-    initialize_weights(unembed_module.W_U, unembed_weight, model_weights, "W_U")
-    initialize_weights(unembed_module.b_U, unembed_weight, model_weights, "b_U")
+    if unembed_weight == "model_weights":
+        W_U = model_weights["W_U"].detach()
+        b_U = model_weights["b_U"].detach()
+    elif unembed_weight == "random_normal":
+        W_U = t.nn.init.normal_(
+            t.empty((d_model, d_vocab), device=device), mean=0, std=1
+        )
+        b_U = t.nn.init.normal_(t.empty((d_vocab,), device=device), mean=0, std=1)
+    elif unembed_weight == "random_uniform":
+        W_U = t.nn.init.uniform_(t.empty((d_model, d_vocab), device=device), -1, 1)
+        b_U = t.nn.init.uniform_(t.empty((d_vocab,), device=device), -1, 1)
+    else:
+        raise ValueError(f"Unsupported initialization method: {unembed_weight}")
+
+    if embed_ln:
+        if embed_ln_weights == "model_weights":
+            embed_ln_weight = model_weights["embed.ln.w"].detach()
+            embed_ln_bias = model_weights["embed.ln.b"].detach()
+        elif embed_ln_weights == "default_weights":
+            embed_ln_weight = None
+            embed_ln_bias = None
+        else:
+            raise ValueError(f"Unsupported initialization method: {embed_ln_weights}")
+    else:
+        embed_ln_weight = None
+        embed_ln_bias = None
+
     if unembed_ln:
-        assert unembed_module.ln_final is not None
-        initialize_weights(
-            unembed_module.ln_final.weight,
-            unembed_ln_weights,
-            model_weights,
-            "ln_final.w",
-        )
-        initialize_weights(
-            unembed_module.ln_final.bias,
-            unembed_ln_weights,
-            model_weights,
-            "ln_final.b",
-        )
+        if unembed_ln_weights == "model_weights":
+            unembed_ln_weight = model_weights["ln_final.w"].detach()
+            unembed_ln_bias = model_weights["ln_final.b"].detach()
+        elif unembed_ln_weights == "default_weights":
+            unembed_ln_weight = None
+            unembed_ln_bias = None
+        else:
+            raise ValueError(f"Unsupported initialization method: {unembed_ln_weights}")
+    else:
+        unembed_ln_weight = None
+        unembed_ln_bias = None
+
+    embed_module = Embed(
+        d_model, d_vocab, W_E, embed_ln, embed_ln_weight, embed_ln_bias, device
+    )
+    unembed_module = Unembed(
+        d_model,
+        d_vocab,
+        W_U,
+        b_U,
+        unembed_ln,
+        unembed_ln_weight,
+        unembed_ln_bias,
+        device,
+    )
 
     return embed_module, unembed_module
 

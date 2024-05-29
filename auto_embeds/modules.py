@@ -377,27 +377,35 @@ class Embed(nn.Module):
 
     Args:
         d_model: The dimensionality of the model embeddings.
+        d_vocab: The dimensionality of the vocabulary.
+        W_E: The weight matrix for embeddings.
         apply_ln: If True, applies layer normalization to the embeddings.
             Defaults to True.
+        ln_weight: The weight for layer normalization.
+        ln_bias: The bias for layer normalization.
         device: The device on which the module should be initialized.
-
-    Attributes:
-        W_E: The weight matrix for embeddings.
-        embed_ln: The layer normalization module, initialized if apply_ln is True.
     """
 
     def __init__(
         self,
         d_model: int,
         d_vocab: int,
+        W_E: Tensor,
         apply_ln: bool = False,
+        ln_weight: Optional[Tensor] = None,
+        ln_bias: Optional[Tensor] = None,
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
-        self.W_E: Float[Tensor, "d_vocab d_model"] = nn.Parameter(
-            t.empty(d_vocab, d_model, device=device, requires_grad=False)
-        )
+        self.W_E = nn.Parameter(W_E, requires_grad=False)
         self.embed_ln = nn.LayerNorm(d_model, device=device) if apply_ln else None
+        if self.embed_ln is not None:
+            self.embed_ln.weight.requires_grad = False
+            self.embed_ln.bias.requires_grad = False
+            if ln_weight is not None:
+                self.embed_ln.weight.data.copy_(ln_weight)
+            if ln_bias is not None:
+                self.embed_ln.bias.data.copy_(ln_bias)
 
     def forward(
         self, tokens: Int[Tensor, "batch pos"]
@@ -429,31 +437,37 @@ class Unembed(nn.Module):
     Args:
         d_model: The dimensionality of the embedding space.
         d_vocab: The dimensionality of the output vocabulary space.
-        apply_ln: If True, applies layer normalization to the embeddings before
-            unembedding. Defaults to False.
-        device: The device on which the module should be initialized.
-
-    Attributes:
         W_U: The weight matrix for unembedding.
         b_U: The bias vector for unembedding.
-        ln_final: Layer normalization applied before unembedding if apply_ln is True.
+        apply_ln: If True, applies layer normalization to the embeddings before
+            unembedding. Defaults to False.
+        ln_weight: The weight for layer normalization.
+        ln_bias: The bias for layer normalization.
+        device: The device on which the module should be initialized.
     """
 
     def __init__(
         self,
         d_model: int,
         d_vocab: int,
+        W_U: Tensor,
+        b_U: Tensor,
         apply_ln: bool = False,
+        ln_weight: Optional[Tensor] = None,
+        ln_bias: Optional[Tensor] = None,
         device: Optional[Union[str, t.device]] = default_device,
     ):
         super().__init__()
-        self.W_U: Float[Tensor, "d_model d_vocab"] = nn.Parameter(
-            t.empty(d_model, d_vocab, device=device, requires_grad=False)
-        )
-        self.b_U: Float[Tensor, "d_vocab"] = nn.Parameter(
-            t.zeros(d_vocab, device=device, requires_grad=False)
-        )
+        self.W_U = nn.Parameter(W_U, requires_grad=False)
+        self.b_U = nn.Parameter(b_U, requires_grad=False)
         self.ln_final = nn.LayerNorm(d_model, device=device) if apply_ln else None
+        if self.ln_final is not None:
+            self.ln_final.weight.requires_grad = False
+            self.ln_final.bias.requires_grad = False
+            if ln_weight is not None:
+                self.ln_final.weight.data.copy_(ln_weight)
+            if ln_bias is not None:
+                self.ln_final.bias.data.copy_(ln_bias)
 
     def forward(
         self, x: Float[Tensor, "batch pos d_model"]

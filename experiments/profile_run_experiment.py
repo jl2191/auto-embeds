@@ -4,6 +4,7 @@ import multiprocessing as mp
 import os
 
 os.environ["AUTOEMBEDS_CACHING"] = "TRUE"
+os.environ["GPU_DEBUG"] = "0"
 
 import neptune
 import numpy as np
@@ -39,7 +40,7 @@ from auto_embeds.verify import (
     test_cos_sim_difference,
     verify_transform,
 )
-from experiments.configure_experiment import (
+from experiments.profile_configure_experiment import (
     experiment_config,
     get_config_list,
     total_runs,
@@ -140,6 +141,7 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
             run = neptune.init_run(
                 project="mars/language-transformations",
                 tags=neptune_config.get("tags", []),
+                mode=neptune_config.get("mode", "offline"),
             )
             run["config"] = stringify_unsupported(run_config)
 
@@ -314,7 +316,7 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
             "pred_same_as_input": pred_same_as_input,
         }
 
-        if use_neptune:
+        if use_neptune and run is not None:
             run["results"] = results
             run["results/cos_sims_trend_plot"].upload(cos_sims_trend_plot)
             run["results/json/verify_results"].upload(
@@ -362,7 +364,7 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
             results["vector_norms"] = vector_norms
             local_results.append(run_config | results | big_tensors)
 
-        if use_neptune:
+        if use_neptune and run is not None:
             run.stop()
 
         # returning results that we are not uploading for local analysis
@@ -374,6 +376,6 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
 
 # %%
 if __name__ == "__main__":
-    # run_experiment(experiment_config, use_neptune=False)
-    run_experiment(experiment_config, use_neptune=True)
-    # run_experiment_parallel(experiment_config, num_workers=3)
+    # sys.settrace(gpu_profile)
+    run_experiment(experiment_config, use_neptune=False)
+    # run_experiment(experiment_config)
