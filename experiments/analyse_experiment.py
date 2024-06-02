@@ -32,7 +32,7 @@ if visualise_all_run_groups:
 original_df = fetch_neptune_runs_df(
     project_name=project_name,
     tags=tags,
-    get_artifacts=False,
+    get_artifacts=True,
 )
 
 # %%
@@ -45,23 +45,16 @@ original_df = fetch_neptune_runs_df(
 excluded_substrings = ["dataset/"]
 excluded_exact_matches = ["embed_ln", "unembed_ln"]
 
-runs_df["test_cos_sim"] = -runs_df["cos_sim_test_loss"]
-runs_df.drop(columns=["cos_sim_test_loss"], inplace=True)
+runs_df["test/cos_sim"] = -runs_df["test/cos_sim_loss"]
+runs_df.drop(columns=["test/cos_sim_loss"], inplace=True)
 result_column_names = [
-    col.replace("cos_sim_test_loss", "test_cos_sim") for col in result_column_names
+    col.replace("test/cos_sim_loss", "test/cos_sim") for col in result_column_names
 ]
 
-runs_df["train_cos_sim"] = runs_df["train_metrics/cos_sim"]
-runs_df.drop(columns=["train_metrics/cos_sim"], inplace=True)
+runs_df["train/cos_sim"] = runs_df["train/cos_sim_loss"]
+runs_df.drop(columns=["train/cos_sim_loss"], inplace=True)
 result_column_names = [
-    col.replace("train_metrics/cos_sim", "train_cos_sim") for col in result_column_names
-]
-
-runs_df["train_mse_loss"] = runs_df["train_metrics/mse_loss"]
-runs_df.drop(columns=["train_metrics/mse_loss"], inplace=True)
-result_column_names = [
-    col.replace("train_metrics/mse_loss", "train_mse_loss")
-    for col in result_column_names
+    col.replace("train/cos_sim_loss", "train/cos_sim") for col in result_column_names
 ]
 
 config_column_names = [
@@ -116,9 +109,9 @@ runs_df["transformation"] = runs_df["transformation"].apply(
 )
 
 metrics_interpretation = {
-    "mark_translation_acc": "higher_better",
-    "test_cos_sim": "higher_better",
-    "mse_test_loss": "lower_better",
+    "test/mark_translation_acc": "higher_better",
+    "test/cos_sim": "higher_better",
+    "test/mse_loss": "lower_better",
     "expected_metrics/expected_kabsch_rmsd": "lower_better",
     "pred_same_as_input": "lower_better",
 }
@@ -137,24 +130,24 @@ def should_show_plot(plot_index):
 
 plot_index = 1
 
-show_tables = False
+show_tables = True
 
 # %%
 df = runs_df
-# sort_by = "mark_translation_acc"
+# sort_by = "test/mark_translation_acc"
 # sort_by = "mse_test_loss"
-sort_by = "test_cos_sim"
+sort_by = "test/cos_sim"
 # ascending = True
 ascending = False
 if show_tables:
     display_top_runs_table(
         df=df,
         metrics=[
-            "test_accuracy",
-            "test_cos_sim",
-            "mse_test_loss",
-            "mark_translation_acc",
-            "pred_same_as_input",
+            "test/accuracy",
+            "test/cos_sim",
+            "test/mse_loss",
+            "test/mark_translation_acc",
+            "test/pred_same_as_input",
             # "test_cos_sim_diff.p-value",
             # "test_cos_sim_diff.correlation_coefficient",
         ],
@@ -166,20 +159,20 @@ if show_tables:
 
 # %%
 df = runs_df
-# sort_by = "mark_translation_acc"
+# sort_by = "test/mark_translation_acc"
 # sort_by = "mse_test_loss"
-sort_by = "test_cos_sim"
+sort_by = "test/cos_sim"
 # ascending = True
 ascending = False
 if show_tables:
     display_top_runs_table(
         df=df,
         metrics=[
-            "test_accuracy",
-            "test_cos_sim",
-            "mse_test_loss",
-            "mark_translation_acc",
-            "pred_same_as_input",
+            "test/accuracy",
+            "test/cos_sim",
+            "test/mse_loss",
+            "test/mark_translation_acc",
+            "test/pred_same_as_input",
             # "test_cos_sim_diff.p-value",
             # "test_cos_sim_diff.correlation_coefficient",
         ],
@@ -188,14 +181,6 @@ if show_tables:
         metric_interpretation=metrics_interpretation,
         ascending=ascending,
     )
-
-# %%
-# TODO: okay so seems like we are indeed overfutting? although actually, some of them
-# have a negative test_cos_sim_diff.correlation_coefficient. which are the runs that
-# have this?
-
-# %%
-# TODO: unsure how to handle seeds
 
 # %%
 title = "bar chart of mean mark_translation_acc by model, transformation and dataset"
@@ -203,8 +188,8 @@ model_order = ["bloom-560m", "bloom-1b1", "bloom-3b", "gpt-2", "gpt-2 medium"]
 df = (
     runs_df.groupby(["transformation", "dataset", "model_name"], as_index=False)
     .agg(
-        mean_mark_translation_acc=("mark_translation_acc", "mean"),
-        std_mark_translation_acc=("mark_translation_acc", "std"),
+        test_mean_mark_translation_acc=("test/mark_translation_acc", "mean"),
+        test_std_mark_translation_acc=("test/mark_translation_acc", "std"),
     )
     .sort_values(
         by="model_name",
@@ -215,11 +200,11 @@ df = (
 fig = px.bar(
     df,
     x="transformation",
-    y="mean_mark_translation_acc",
+    y="test_mean_mark_translation_acc",
     color="dataset",
-    error_y="std_mark_translation_acc",
+    error_y="test_std_mark_translation_acc",
     title=title,
-    labels={"mean_mark_translation_acc": "mean mark translation accuracy"},
+    labels={"test_mean_mark_translation_acc": "mean mark translation accuracy"},
     barmode="group",
     facet_col="model_name",
 )
@@ -235,11 +220,11 @@ model_order = ["bloom-560m", "bloom-1b1", "bloom-3b", "gpt-2", "gpt-2 medium"]
 df = (
     runs_df.groupby(["transformation", "dataset", "model_name"], as_index=False)
     .agg(
-        mean_test_cos_sim=(
-            "test_cos_sim",
+        test_mean_cos_sim=(
+            "test/cos_sim",
             "mean",
         ),
-        std_test_cos_sim=("test_cos_sim", "std"),
+        test_std_cos_sim=("test/cos_sim", "std"),
     )
     .sort_values(
         by="model_name",
@@ -250,11 +235,11 @@ df = (
 fig = px.bar(
     df,
     x="transformation",
-    y="mean_test_cos_sim",
+    y="test_mean_cos_sim",
     color="dataset",
-    error_y="std_test_cos_sim",
+    error_y="test_std_cos_sim",
     title=title,
-    labels={"mean_test_cos_sim": "mean test cosine similarity"},
+    labels={"test_mean_cos_sim": "mean test cosine similarity"},
     barmode="group",
     facet_col="model_name",
 )
@@ -269,8 +254,8 @@ model_order = ["bloom-560m", "bloom-1b1", "bloom-3b", "gpt-2", "gpt-2 medium"]
 df = (
     runs_df.groupby(["transformation", "dataset", "model_name"], as_index=False)
     .agg(
-        mean_test_accuracy=("test_accuracy", "mean"),
-        std_test_accuracy=("test_accuracy", "std"),
+        test_mean_accuracy=("test/accuracy", "mean"),
+        test_std_accuracy=("test/accuracy", "std"),
     )
     .sort_values(
         by="model_name",
@@ -281,11 +266,11 @@ df = (
 fig = px.bar(
     df,
     x="transformation",
-    y="mean_test_accuracy",
+    y="test_mean_accuracy",
     color="dataset",
-    error_y="std_test_accuracy",
+    error_y="test_std_accuracy",
     title=title,
-    labels={"mean_test_accuracy": "mean test accuracy"},
+    labels={"test_mean_accuracy": "mean test accuracy"},
     barmode="group",
     facet_col="model_name",
 )
@@ -303,8 +288,8 @@ model_order = ["bloom-560m", "bloom-1b1", "bloom-3b", "gpt-2", "gpt-2 medium"]
 df = (
     runs_df.groupby(["transformation", "dataset", "model_name"], as_index=False)
     .agg(
-        mean_train_cos_sim=("train_cos_sim", "mean"),
-        std_train_cos_sim=("train_cos_sim", "std"),
+        train_mean_cos_sim=("train/cos_sim", "mean"),
+        train_std_cos_sim=("train/cos_sim", "std"),
     )
     .sort_values(
         by="model_name",
@@ -315,11 +300,11 @@ df = (
 fig = px.bar(
     df,
     x="transformation",
-    y="mean_train_cos_sim",
+    y="train_mean_cos_sim",
     color="dataset",
-    error_y="std_train_cos_sim",
+    error_y="train_std_cos_sim",
     title=title,
-    labels={"mean_train_cos_sim": "mean train cosine similarity"},
+    labels={"train_mean_cos_sim": "mean train cosine similarity"},
     barmode="group",
     facet_col="model_name",
 )
@@ -334,8 +319,8 @@ model_order = ["bloom-560m", "bloom-1b1", "bloom-3b", "gpt-2", "gpt-2 medium"]
 df = (
     runs_df.groupby(["transformation", "dataset", "model_name"], as_index=False)
     .agg(
-        mean_train_mse_loss=("train_mse_loss", "mean"),
-        std_train_mse_loss=("train_mse_loss", "std"),
+        train_mean_mse_loss=("train/mse_loss", "mean"),
+        train_std_mse_loss=("train/mse_loss", "std"),
     )
     .sort_values(
         by="model_name",
@@ -346,11 +331,11 @@ df = (
 fig = px.bar(
     df,
     x="transformation",
-    y="mean_train_mse_loss",
+    y="train_mean_mse_loss",
     color="dataset",
-    error_y="std_train_mse_loss",
+    error_y="train_std_mse_loss",
     title=title,
-    labels={"mean_train_mse_loss": "mean train mse loss"},
+    labels={"train_mean_mse_loss": "mean train mse loss"},
     barmode="group",
     facet_col="model_name",
 )
@@ -419,17 +404,17 @@ df = (
         ["transformation", "embed_ln_weights", "unembed_ln_weights"], as_index=False
     )
     .agg(
-        mean_mark_translation_acc=("mark_translation_acc", "mean"),
-        std_mark_translation_acc=("mark_translation_acc", "std"),
+        test_mean_mark_translation_acc=("test/mark_translation_acc", "mean"),
+        test_std_mark_translation_acc=("test/mark_translation_acc", "std"),
     )
 )
 
 fig = px.bar(
     df,
     x="transformation",
-    y="mean_mark_translation_acc",
+    y="test_mean_mark_translation_acc",
     color="transformation",
-    error_y="std_mark_translation_acc",
+    error_y="test_std_mark_translation_acc",
     title=title,
     labels={"mean_mark_translation_acc": "mean mark translation accuracy"},
     barmode="group",
@@ -453,19 +438,19 @@ df = (
         ["transformation", "embed_ln_weights", "unembed_ln_weights"], as_index=False
     )
     .agg(
-        mean_mark_translation_acc=("mark_translation_acc", "mean"),
-        std_mark_translation_acc=("mark_translation_acc", "std"),
+        test_mean_mark_translation_acc=("test/mark_translation_acc", "mean"),
+        test_std_mark_translation_acc=("test/mark_translation_acc", "std"),
     )
 )
 
 fig = px.bar(
     df,
     x="transformation",
-    y="mean_mark_translation_acc",
+    y="test_mean_mark_translation_acc",
     color="transformation",
-    error_y="std_mark_translation_acc",
+    error_y="test_std_mark_translation_acc",
     title=title,
-    labels={"mean_mark_translation_acc": "mean mark translation accuracy"},
+    labels={"test_mean_mark_translation_acc": "mean mark translation accuracy"},
     barmode="group",
     facet_col="embed_ln_weights",
     facet_row="unembed_ln_weights",
@@ -488,19 +473,19 @@ df = (
         ["transformation", "embed_ln_weights", "unembed_ln_weights"], as_index=False
     )
     .agg(
-        mean_test_cos_sim=("test_cos_sim", lambda x: x.mean()),
-        std_test_cos_sim=("test_cos_sim", lambda x: x.std()),
+        test_mean_cos_sim=("test/cos_sim", lambda x: x.mean()),
+        test_std_cos_sim=("test/cos_sim", lambda x: x.std()),
     )
 )
 
 fig = px.bar(
     df,
     x="transformation",
-    y="mean_test_cos_sim",
+    y="test_mean_cos_sim",
     color="transformation",
-    error_y="std_test_cos_sim",
+    error_y="test_std_cos_sim",
     title=title,
-    labels={"mean_test_cos_sim": "mean test cosine similarity"},
+    labels={"test_mean_cos_sim": "mean test cosine similarity"},
     barmode="group",
     facet_col="embed_ln_weights",
     facet_row="unembed_ln_weights",
@@ -555,7 +540,7 @@ df = (
     # .pipe(lambda x: (print(x), x)[1])
     .mean().reset_index()
 )
-sort_by = "mark_translation_acc"
+sort_by = "test/mark_translation_acc"
 # sort_by = "mse_test_loss"
 # sort_by = "cos_sim_test_loss"
 # ascending = True
@@ -564,11 +549,11 @@ if show_tables:
     display_top_runs_table(
         df=df,
         metrics=[
-            "test_cos_sim",
-            "mark_translation_acc",
-            "mse_test_loss",
-            "pred_same_as_input",
-            "test_accuracy",
+            "test/cos_sim",
+            "test/mark_translation_acc",
+            "test/mse_loss",
+            "test/pred_same_as_input",
+            "test/accuracy",
             # "test_cos_sim_diff.p-value",
             # "test_cos_sim_diff.correlation_coefficient",
         ],
@@ -585,12 +570,12 @@ title = "parallel categories plot for mark_translation_acc. chinese dataset only
 annotation_text = """
 """
 df = runs_df.query("dataset == 'cc_cedict_zh_en_extracted'")[
-    changed_configs_column_names + ["mark_translation_acc"]
+    changed_configs_column_names + ["test/mark_translation_acc"]
 ]
 fig = create_parallel_categories_plot(
     df,
     dimensions=changed_configs_column_names,
-    color="mark_translation_acc",
+    color="test/mark_translation_acc",
     title=title,
     annotation_text=annotation_text,
     invert_colors=True,
@@ -605,12 +590,12 @@ title = "parallel categories plot for test_cos_sim. chinese dataset only"
 annotation_text = """
 """
 df = runs_df.query("dataset == 'cc_cedict_zh_en_extracted'")[
-    changed_configs_column_names + ["test_cos_sim"]
+    changed_configs_column_names + ["test/cos_sim"]
 ]
 fig = create_parallel_categories_plot(
     df,
     dimensions=changed_configs_column_names,
-    color="test_cos_sim",
+    color="test/cos_sim",
     title=title,
     annotation_text=annotation_text,
     invert_colors=True,
@@ -624,11 +609,11 @@ plot_index += 1
 title = "parallel categories plot for test_cos_sim"
 annotation_text = """
 """
-df = runs_df[changed_configs_column_names + ["test_cos_sim"]]
+df = runs_df[changed_configs_column_names + ["test/cos_sim"]]
 fig = create_parallel_categories_plot(
     df,
     dimensions=changed_configs_column_names,
-    color="test_cos_sim",
+    color="test/cos_sim",
     title=title,
     annotation_text=annotation_text,
     invert_colors=True,
@@ -642,7 +627,7 @@ plot_index += 1
 # Prepare data
 X = runs_df[changed_configs_column_names]
 X = pd.get_dummies(X, prefix_sep=": ")
-y = runs_df["test_accuracy"]
+y = runs_df["test/accuracy"]
 
 # SHAP for Feature Importance
 model = RandomForestRegressor().fit(X, y)
@@ -658,7 +643,7 @@ annotation_text = """
 df = (
     runs_df[
         [col for col in changed_configs_column_names if col != "embed_ln_weights"]
-        + ["test_accuracy"]
+        + ["test/accuracy"]
     ]
     .query("dataset == 'wikdict_en_fr_extracted'")
     .query("model_name == 'gpt2' or model_name == 'gpt2-medium'")
@@ -668,7 +653,7 @@ fig = create_parallel_categories_plot(
     dimensions=[
         col for col in changed_configs_column_names if col != "embed_ln_weights"
     ],
-    color="test_accuracy",
+    color="test/accuracy",
     title=title,
     annotation_text=annotation_text,
     invert_colors=True,
@@ -683,14 +668,14 @@ title = "parallel categories plot for cos_sim. translation only."
 annotation_text = """
 """
 df = (
-    runs_df[changed_configs_column_names + ["test_cos_sim"]]
+    runs_df[changed_configs_column_names + ["test/cos_sim"]]
     .query("dataset == 'wikdict_en_fr_extracted'")
     .query("transformation == 'translation'")
 )
 fig = create_parallel_categories_plot(
     df,
     dimensions=changed_configs_column_names,
-    color="test_cos_sim",
+    color="test/cos_sim",
     title=title,
     annotation_text=annotation_text,
     invert_colors=True,

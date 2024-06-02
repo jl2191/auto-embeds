@@ -12,7 +12,7 @@ from auto_embeds.utils.logging import logger
 
 def download_artifact(run, run_id, artifact_name):
     destination = f"neptune_artifact_downloads/{run_id}-{artifact_name}"
-    run[f"results/json/{artifact_name}"].download(
+    run[f"results/test/json/{artifact_name}"].download(
         destination=destination,
         progress_bar=False,
     )
@@ -58,7 +58,9 @@ def fetch_neptune_runs_df(
 
     artifact_types = ["cos_sims_trend_plot", "test_cos_sim_diff", "verify_results"]
     if get_artifacts:
-        artifacts_data = {f"results/{artifact}": [] for artifact in artifact_types}
+        artifacts_data = {
+            f"results/test/json/{artifact}": [] for artifact in artifact_types
+        }
 
         pbar = tqdm(df["sys/id"].to_list(), desc="Downloading artifacts", unit="run")
         for run_id in pbar:
@@ -69,14 +71,15 @@ def fetch_neptune_runs_df(
             )
             os.makedirs("neptune_artifact_downloads", exist_ok=True)
             for artifact in artifact_types:
-                artifacts_data[f"results/{artifact}"].append(
+                artifacts_data[f"results/test/json/{artifact}"].append(
                     download_artifact(run, run_id, artifact)
                 )
             pbar.set_description(f"Downloading artifacts for run ID: {run_id}")
         df = df.assign(**artifacts_data)
     else:
         artifacts_data = {
-            f"results/{artifact}": [None] * len(df) for artifact in artifact_types
+            f"results/test/json/{artifact}": [None] * len(df)
+            for artifact in artifact_types
         }
         df = df.assign(**artifacts_data)
 
@@ -137,8 +140,8 @@ def process_neptune_runs_df(
 
     # deserialize and flatten the following columns
     columns_to_deserialize = [
-        "results/test_cos_sim_diff",
-        "results/verify_results",
+        "results/test/json/test_cos_sim_diff",
+        "results/test/json/verify_results",
     ]
     missing_artifacts = df[columns_to_deserialize].isnull().any(axis=1).sum()
     total_runs = len(df)

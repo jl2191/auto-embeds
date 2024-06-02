@@ -317,14 +317,14 @@ def run_experiment(config_dict, return_local_results=False):
         print(results)
 
         run["results"] = results
-        run["results/cos_sims_trend_plot"].upload(cos_sims_trend_plot)
-        run["results/json/verify_results"].upload(
+        run["results/test/cos_sims_trend_plot"].upload(cos_sims_trend_plot)
+        run["results/test/json/verify_results"].upload(
             File.from_content(verify_results_json)
         )
-        run["results/json/cos_sims_trend_plot"].upload(
+        run["results/test/json/cos_sims_trend_plot"].upload(
             File.from_content(str(pio.to_json(cos_sims_trend_plot)))
         )
-        run["results/json/test_cos_sim_diff"].upload(
+        run["results/test/json/test_cos_sim_diff"].upload(
             File.from_content(test_cos_sim_diff)
         )
 

@@ -12,8 +12,8 @@ experiment_config = {
     "neptune": {
         "tags": [
             f"{datetime.now():%Y-%m-%d}",
-            f"{datetime.now():%Y-%m-%d} new metrics sweep",
-            "experiment 8",
+            f"{datetime.now():%Y-%m-%d} dash example 4",
+            "experiment 1",
             "run group 1",
         ],
         # "mode": "offline",
@@ -22,36 +22,36 @@ experiment_config = {
     },
     "description": ["none"],
     "models": [
-        # "bigscience/bloom-560m",
+        "bigscience/bloom-560m",
         # "bigscience/bloom-1b1",
         "bigscience/bloom-3b",
         # "gpt2",
         # "gpt2-medium",
-        "gpt2-large",
+        # "gpt2-large",
     ],
     "processings": [
         False,
     ],
     "datasets": [
-        # {
-        #     "name": "wikdict_en_fr_extracted",
-        #     "min_length": 5,
-        #     "space_configurations": [{"en": "space", "fr": "space"}],
-        #     "mark_accuracy_path": "wikdict_en_fr_azure_validation",
-        # },
+        {
+            "name": "wikdict_en_fr_extracted",
+            "min_length": 5,
+            "space_configurations": [{"en": "space", "fr": "space"}],
+            "mark_accuracy_path": "wikdict_en_fr_azure_validation",
+        },
         # {
         #     "name": "random_word_pairs",
         #     "min_length": 2,
         #     "space_configurations": [{"en": "space", "fr": "space"}],
         # },
-        {
-            "name": "singular_plural_pairs",
-            "min_length": 2,
-            "space_configurations": [
-                {"en": "space", "fr": "space"},
-                # {"en": "no_space", "fr": "no_space"},
-            ],
-        },
+        # {
+        #     "name": "singular_plural_pairs",
+        #     "min_length": 2,
+        #     "space_configurations": [
+        #         {"en": "space", "fr": "space"},
+        #         # {"en": "no_space", "fr": "no_space"},
+        #     ],
+        # },
         # {
         #     "name": "muse_en_fr_extracted",
         #     "min_length": 5,
@@ -84,7 +84,7 @@ experiment_config = {
         "analytical_linear_map",
         "analytical_translation",
         "analytical_rotation",
-        "analytical_rotation_and_reflection",
+        # "analytical_rotation_and_reflection",
         # "roma_analytical",
         # "roma_scale_analytical",
     ],
@@ -103,14 +103,14 @@ experiment_config = {
     # "loss_functions": ["cos_sim", "mse_loss"],
     "loss_functions": ["cos_sim"],
     "embed_weight": ["model_weights"],
-    "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-    # "embed_ln_weights": ["no_ln", "model_weights"],
+    # "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    "embed_ln_weights": ["no_ln", "model_weights"],
     # "embed_ln_weights": ["default_weights"],
     # "embed_ln_weights": ["default_weights"],
     # "unembed_weight": ["model_weights"],
     "unembed_weight": ["model_weights"],
-    "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-    # "unembed_ln_weights": ["no_ln", "model_weights"],
+    # "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
+    "unembed_ln_weights": ["no_ln", "model_weights"],
     # "unembed_ln_weights": ["default_weights"],
     "n_epochs": [100],
     "weight_decay": [
