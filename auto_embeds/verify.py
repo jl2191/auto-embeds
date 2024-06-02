@@ -23,7 +23,7 @@ from auto_embeds.data import (
 )
 from auto_embeds.utils.logging import logger
 from auto_embeds.utils.misc import (
-    calculate_gradient_color,
+    calc_gradient_color,
     default_device,
 )
 
@@ -165,8 +165,8 @@ def verify_transform_table_from_dict(verify_results: Dict[str, Any]) -> Table:
         euc_dist = euc_dist.item()
 
         # Gradient color for cosine similarity
-        cos_sim_color = calculate_gradient_color(cos_sim, cos_sim_min, cos_sim_max)
-        euc_dist_color = calculate_gradient_color(
+        cos_sim_color = calc_gradient_color(cos_sim, cos_sim_min, cos_sim_max)
+        euc_dist_color = calc_gradient_color(
             euc_dist, euc_dist_min, euc_dist_max, reverse=True
         )
 
@@ -386,8 +386,8 @@ def generate_top_word_pairs_table(
             euc_dist = euc_dist.item()
 
             # Calculate gradient colors based on the value's magnitude
-            cos_sim_color = calculate_gradient_color(cos_sim, cos_sim_min, cos_sim_max)
-            euc_dist_color = calculate_gradient_color(
+            cos_sim_color = calc_gradient_color(cos_sim, cos_sim_min, cos_sim_max)
+            euc_dist_color = calc_gradient_color(
                 euc_dist, euc_dist_min, euc_dist_max, reverse=True
             )
 
@@ -398,7 +398,7 @@ def generate_top_word_pairs_table(
     return table
 
 
-def plot_cosine_similarity_trend(verify_results: Dict[str, Any]) -> Figure:
+def plot_cos_sim_trend(verify_results: Dict[str, Any]) -> Figure:
     """Plots the trend of cosine similarity across ranks.
 
     Plots the trend of cosine similarity across ranks with the ability to toggle
@@ -684,8 +684,7 @@ def prepare_verify_datasets(
         "src_and_src", "tgt_and_tgt", "top_src", "top_tgt"
     ] = "src_and_src",
     return_type: Literal["dataloader"] = "dataloader",
-) -> Tuple[DataLoader, DataLoader]:
-    ...
+) -> Tuple[DataLoader, DataLoader]: ...
 
 
 @overload
@@ -698,8 +697,7 @@ def prepare_verify_datasets(
         "src_and_src", "tgt_and_tgt", "top_src", "top_tgt"
     ] = "src_and_src",
     return_type: Literal["dataset"] = "dataset",
-) -> Tuple[TensorDataset, TensorDataset]:
-    ...
+) -> Tuple[TensorDataset, TensorDataset]: ...
 
 
 @t.no_grad()
@@ -935,7 +933,7 @@ def get_closest_embeds(word, embed_module, unembed_module, tokenizer, top_k):
         token_str_styled = f"[plum3 on grey30]{token_str}[/plum3 on grey30]"
         token_id = token_idx.item()
         token_id_styled = f"[turquoise2]{token_id}[/turquoise2]"
-        cos_sim_color = calculate_gradient_color(
+        cos_sim_color = calc_gradient_color(
             cos_sim.item(), top_k_values.min().item(), top_k_values.max().item()
         )
         cos_sim_styled = f"[{cos_sim_color}]{cos_sim.item():.4f}[/{cos_sim_color}]"

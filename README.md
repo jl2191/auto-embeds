@@ -80,11 +80,11 @@ pre-commit install
 ```
 To execute tests labeled as slow, run:
 ``` bash
-pytest --run-slow
+pytest --runslow
 ```
 To execute tests marked as slow and are benchmarked, run:
 ``` bash
-pytest --run-slow --benchmark-only
+pytest --runslow --benchmark-only
 ```
 
 ## Licensing

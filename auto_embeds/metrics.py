@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch as t
 import torch.nn as nn
@@ -12,22 +12,10 @@ from auto_embeds.data import (
     get_most_similar_embeddings,
     print_most_similar_embeddings_dict,
 )
+from auto_embeds.modules import CosineSimilarityLoss
 from auto_embeds.utils.misc import (
     default_device,
 )
-
-
-def word_distance_metric(a: t.Tensor, b: t.Tensor) -> t.Tensor:
-    """Computes the negative cosine similarity between two tensors.
-
-    Args:
-        a: The first tensor.
-        b: The second tensor.
-
-    Returns:
-        The negative cosine similarity between the input tensors.
-    """
-    return -nn.functional.cosine_similarity(a, b, -1)
 
 
 def calc_cos_sim_acc(
@@ -53,7 +41,7 @@ def calc_cos_sim_acc(
         fr_embed = fr_embed.to(device)
         with t.no_grad():
             pred = transform(en_embed)
-        cosine_sim = word_distance_metric(pred, fr_embed)
+        cosine_sim = -nn.functional.cosine_similarity(pred, fr_embed, -1)
         cosine_sims.append(cosine_sim)
     mean_cosine_sim = t.cat(cosine_sims).mean().item()
     if print_result:
@@ -74,7 +62,8 @@ def mean_vec(train_en_resids: t.Tensor, train_fr_resids: t.Tensor) -> t.Tensor:
     return train_en_resids.mean(dim=0) - train_fr_resids.mean(dim=0)
 
 
-def evaluate_accuracy(
+@t.no_grad()
+def calc_acc_detailed(
     tokenizer: PreTrainedTokenizerBase,
     test_loader: DataLoader[Tuple[Tensor, ...]],
     transformation: nn.Module,
@@ -106,54 +95,112 @@ def evaluate_accuracy(
     Returns:
         The accuracy of the learned transformation as a float.
     """
-    with t.no_grad():
-        correct_count = 0
-        total_count = 0
-        for batch in test_loader:
-            en_embeds, fr_embeds = batch
-            en_logits = unembed_module(en_embeds)
-            en_strs: List[str] = tokenizer.batch_decode(en_logits.argmax(dim=-1))
-            fr_logits = unembed_module(fr_embeds)
-            fr_strs: List[str] = tokenizer.batch_decode(fr_logits.argmax(dim=-1))
-            with t.no_grad():
-                pred = transformation(en_embeds)
-            pred_logits = unembed_module(pred)
-            pred_top_strs = tokenizer.batch_decode(pred_logits.argmax(dim=-1))
-            pred_top_strs = [
-                item if isinstance(item, str) else item[0] for item in pred_top_strs
-            ]
-            assert all(isinstance(item, str) for item in pred_top_strs)
-            most_similar_embeds = get_most_similar_embeddings(
-                tokenizer,
-                out=pred_logits,
-                top_k=4,
+    correct_count = 0
+    total_count = 0
+    for en_embeds, fr_embeds in test_loader:
+        en_logits = unembed_module(en_embeds)
+        en_strs: List[str] = tokenizer.batch_decode(en_logits.argmax(dim=-1))
+        fr_logits = unembed_module(fr_embeds)
+        fr_strs: List[str] = tokenizer.batch_decode(fr_logits.argmax(dim=-1))
+        pred = transformation(en_embeds)
+        pred_logits = unembed_module(pred)
+        pred_top_strs = tokenizer.batch_decode(pred_logits.argmax(dim=-1))
+        pred_top_strs = [
+            item if isinstance(item, str) else item[0] for item in pred_top_strs
+        ]
+        assert all(isinstance(item, str) for item in pred_top_strs)
+        most_similar_embeds = get_most_similar_embeddings(
+            tokenizer,
+            out=pred_logits,
+            top_k=4,
+        )
+        for i, pred_top_str in enumerate(pred_top_strs):
+            fr_str = fr_strs[i]
+            en_str = en_strs[i]
+            correct = (
+                (fr_str == pred_top_str)
+                if exact_match
+                else (fr_str.strip().lower() == pred_top_str.strip().lower())
             )
-            for i, pred_top_str in enumerate(pred_top_strs):
-                fr_str = fr_strs[i]
-                en_str = en_strs[i]
-                correct = (
-                    (fr_str == pred_top_str)
-                    if exact_match
-                    else (fr_str.strip().lower() == pred_top_str.strip().lower())
+            correct_count += correct
+            if print_results:
+                result_emoji = "✅" if correct else "❌"
+                print(
+                    f'English: "{en_str}"\n'
+                    f'French: "{fr_str}"\n'
+                    f'Predicted: "{pred_top_str}" {result_emoji}'
                 )
-                correct_count += correct
-                if print_results:
-                    result_emoji = "✅" if correct else "❌"
-                    print(
-                        f'English: "{en_str}"\n'
-                        f'French: "{fr_str}"\n'
-                        f'Predicted: "{pred_top_str}" {result_emoji}'
-                    )
-                    if print_top_preds:
-                        print("Top Predictions:")
-                        current_most_similar_embeds = {0: most_similar_embeds[i]}
-                        print_most_similar_embeddings_dict(current_most_similar_embeds)
-                    print()
-            total_count += len(en_embeds)
+                if print_top_preds:
+                    print("Top Predictions:")
+                    current_most_similar_embeds = {0: most_similar_embeds[i]}
+                    print_most_similar_embeddings_dict(current_most_similar_embeds)
+                print()
+        total_count += len(en_embeds)
 
-        accuracy = correct_count / total_count
-        if print_acc:
-            print(f"Correct Percentage: {accuracy * 100:.2f}%")
+    accuracy = correct_count / total_count
+    if print_acc:
+        print(f"Correct Percentage: {accuracy * 100:.2f}%")
+    return accuracy
+
+
+@t.no_grad()
+def calc_acc_fast(
+    tokenizer: PreTrainedTokenizerBase,
+    test_loader: DataLoader[Tuple[Tensor, ...]],
+    transformation: nn.Module,
+    unembed_module: nn.Module,
+    exact_match: bool,
+    device: Optional[Union[str, t.device]] = default_device,
+    print_results: bool = False,
+    print_top_preds: bool = True,
+    print_acc: bool = True,
+) -> float:
+    """Evaluates the accuracy of the learned transformation by comparing the predicted
+    embeddings to the actual French embeddings.
+
+    It supports requiring exact matches or allowing for case-insensitive comparisons.
+
+    Args:
+        tokenizer: A PreTrainedTokenizerBase instance used for tokenizing texts.
+        test_loader: DataLoader for test dataset.
+        transformation: Transformation module to be evaluated.
+        exact_match: If True, requires exact matches between predicted and actual
+            embeddings. If False, matches are correct if identical ignoring case
+            differences.
+        device: Model's device. Defaults to None.
+        print_results: If True, prints translation attempts/results. Defaults to False.
+        print_top_preds: If True and print_results=True, prints top predictions.
+            Defaults to True.
+        print_acc: If True, prints the correct percentage. Defaults to True.
+
+    Returns:
+        The accuracy of the learned transformation as a float.
+    """
+    correct_count = 0
+    total_count = 0
+    for en_embeds, fr_embeds in test_loader:
+        fr_logits = unembed_module(fr_embeds)
+        fr_strs: List[str] = tokenizer.batch_decode(fr_logits.argmax(dim=-1))
+        pred = transformation(en_embeds)
+        pred_logits = unembed_module(pred)
+        pred_top_strs = tokenizer.batch_decode(pred_logits.argmax(dim=-1))
+        pred_top_strs = [
+            item if isinstance(item, str) else item[0] for item in pred_top_strs
+        ]
+        assert all(isinstance(item, str) for item in pred_top_strs)
+        correct_count += sum(
+            (
+                fr_str == pred_top_str
+                if exact_match
+                else fr_str.strip().lower() == pred_top_str.strip().lower()
+            )
+            for fr_str, pred_top_str in zip(fr_strs, pred_top_strs)
+        )
+        total_count += len(en_embeds)
+
+    accuracy = correct_count / total_count
+    if print_acc:
+        print(f"Correct Percentage: {accuracy * 100:.2f}%")
     return accuracy
 
 
@@ -323,6 +370,7 @@ def calc_canonical_angles(A: t.Tensor, B: t.Tensor) -> t.Tensor:
     return Sigma
 
 
+@t.no_grad()
 def calc_pred_same_as_input(
     tokenizer: PreTrainedTokenizerBase,
     test_loader: DataLoader[Tuple[Tensor, ...]],
@@ -330,68 +378,142 @@ def calc_pred_same_as_input(
     unembed_module: nn.Module,
     device: Optional[Union[str, t.device]] = default_device,
 ) -> float:
-    with t.no_grad():
-        same_count = 0
-        total_count = 0
-        for batch in test_loader:
-            en_embeds, _ = batch
-            en_logits = unembed_module(en_embeds)
-            en_strs: List[str] = tokenizer.batch_decode(en_logits.argmax(dim=-1))
-            with t.no_grad():
-                pred = transformation(en_embeds)
-            pred_logits = unembed_module(pred)
-            pred_top_strs = tokenizer.batch_decode(pred_logits.argmax(dim=-1))
-            pred_top_strs = [
-                item if isinstance(item, str) else item[0] for item in pred_top_strs
-            ]
-            assert all(isinstance(item, str) for item in pred_top_strs)
-            for i, pred_top_str in enumerate(pred_top_strs):
-                en_str = en_strs[i]
-                same = en_str.strip().lower() == pred_top_str.strip().lower()
-                same_count += same
-            total_count += len(en_embeds)
-        proportion_same = same_count / total_count
+    same_count = 0
+    total_count = 0
+    for batch in test_loader:
+        en_embeds, _ = batch
+        en_logits = unembed_module(en_embeds)
+        en_strs: List[str] = tokenizer.batch_decode(en_logits.argmax(dim=-1))
+        pred = transformation(en_embeds)
+        pred_logits = unembed_module(pred)
+        pred_top_strs = tokenizer.batch_decode(pred_logits.argmax(dim=-1))
+        pred_top_strs = [
+            item if isinstance(item, str) else item[0] for item in pred_top_strs
+        ]
+        assert all(isinstance(item, str) for item in pred_top_strs)
+        same_count += sum(
+            en_str.strip().lower() == pred_top_str.strip().lower()
+            for en_str, pred_top_str in zip(en_strs, pred_top_strs)
+        )
+        total_count += len(en_embeds)
+    proportion_same = same_count / total_count
     return proportion_same
 
 
-@t.no_grad()
-def calc_expected_metrics(
-    transform_module: nn.Module,
-    data_loader: DataLoader[Tuple[Tensor, Tensor]],
-) -> Dict[str, List[float]]:
-    """Calculates the expected metrics for the transformation on the train dataset.
+def initialize_loss(loss: str, loss_kwargs: Dict[str, Any] = {}) -> nn.Module:
+    """Initializes a loss module.
+
+    Initializes a loss module based on the specified loss type and optional kwargs.
 
     Args:
-        transform_module: The transformation module to apply.
-        data_loader: DataLoader providing batches of source and target embeddings.
+        loss: The type of loss to initialize. Supported types
+            include 't_cos_sim', 't_l1_loss', 'mse_loss',
+            'cos_sim', 'l1_cos_sim', and 'l2_cos_sim'.
+        loss_kwargs: A dictionary of keyword arguments for the loss module.
 
     Returns:
-        A dictionary containing the MSE, cosine similarity, and singular values.
+        An instance of a loss module.
+
+    Raises:
+        ValueError: If an unsupported loss type is specified.
     """
-    mse_loss_total = 0.0
-    cos_sim_total = 0.0
-    total_batches = 0
+    if loss == "cosine_embedding_loss":
+        return nn.CosineEmbeddingLoss(**loss_kwargs)
+    elif loss == "l1_loss":
+        return nn.L1Loss(**loss_kwargs)
+    elif loss == "mse_loss":
+        return nn.MSELoss(**loss_kwargs)
+    elif loss == "cos_sim":
+        return CosineSimilarityLoss(**loss_kwargs)
+    elif loss == "l1_cos_sim":
+        return CosineSimilarityLoss(**loss_kwargs)
+    elif loss == "l2_cos_sim":
+        return CosineSimilarityLoss(**loss_kwargs)
+    else:
+        raise ValueError(f"Unsupported loss type: {loss}")
 
-    for batch in data_loader:
-        src_embeds, tgt_embeds = batch
-        transformed_src_embeds = transform_module(src_embeds)
 
-        mse_loss_total += t.nn.functional.mse_loss(
-            transformed_src_embeds, tgt_embeds, reduction="sum"
-        ).item()
-        cos_sim_total += (
-            t.nn.functional.cosine_similarity(
-                transformed_src_embeds, tgt_embeds, dim=-1
-            )
-            .sum()
-            .item()
+def calc_loss(
+    test_loader: DataLoader[Tuple[Tensor, ...]],
+    transform: nn.Module,
+    loss_module: nn.Module,
+) -> float:
+    """Calculate the average test loss over all batches in the test loader.
+
+    Args:
+        test_loader: DataLoader for the test dataset.
+        transform: The transformation module to be evaluated.
+        loss_module: The loss function used for evaluation.
+
+    Returns:
+        The average test loss as a float.
+    """
+    with t.no_grad():
+        total_test_loss = 0.0
+        for test_en_embed, test_fr_embed in test_loader:
+            test_pred = transform(test_en_embed)
+            test_loss = loss_module(test_pred.squeeze(), test_fr_embed.squeeze())
+            total_test_loss += test_loss.item()
+        avg_test_loss = total_test_loss / len(test_loader)
+        return avg_test_loss
+
+
+@t.no_grad()
+def calc_metrics(
+    loader: DataLoader[Tuple[Tensor, ...]],
+    transform: nn.Module,
+    tokenizer: Any,
+    unembed_module: nn.Module,
+    azure_translations_path: Optional[Path],
+) -> Dict[str, float]:
+    """Calculate various metrics for a given data loader.
+
+    Args:
+        loader: DataLoader for the dataset (train or test).
+        transform: The transformation module to be evaluated.
+        tokenizer: The tokenizer used for tokenization.
+        unembed_module: The module used for unembedding operations.
+        azure_translations_path: Path to Azure translations, if available.
+
+    Returns:
+        A dictionary containing calculated metrics.
+    """
+    metrics = {}
+    metrics["accuracy"] = calc_acc_fast(
+        tokenizer=tokenizer,
+        test_loader=loader,
+        transformation=transform,
+        unembed_module=unembed_module,
+        exact_match=False,
+        print_results=False,
+        print_top_preds=False,
+        print_acc=False,
+    )
+    metrics["cos_sim_loss"] = calc_loss(
+        test_loader=loader,
+        transform=transform,
+        loss_module=initialize_loss("cos_sim"),
+    )
+    metrics["mse_loss"] = calc_loss(
+        test_loader=loader,
+        transform=transform,
+        loss_module=initialize_loss("mse_loss"),
+    )
+    metrics["pred_same_as_input"] = calc_pred_same_as_input(
+        tokenizer=tokenizer,
+        test_loader=loader,
+        transformation=transform,
+        unembed_module=unembed_module,
+    )
+    if azure_translations_path:
+        metrics["mark_translation_acc"] = mark_translation(
+            tokenizer=tokenizer,
+            transformation=transform,
+            unembed_module=unembed_module,
+            test_loader=loader,
+            azure_translations_path=azure_translations_path,
+            print_results=False,
         )
-        total_batches += src_embeds.size(0)
-
-    mse_loss = mse_loss_total / total_batches
-    cos_sim = cos_sim_total / total_batches
-
-    return {
-        "mse_loss": [mse_loss],
-        "cos_sim": [cos_sim],
-    }
+    else:
+        metrics["mark_translation_acc"] = None
+    return metrics

@@ -502,7 +502,7 @@ class CosineSimilarityLoss(nn.Module):
         self,
         predictions: Float[Tensor, "... d_model"],
         targets: Float[Tensor, "... d_model"],
-    ) -> Float[Tensor, "..."]:
+    ) -> Float[Tensor, "1"]:
         return -nn.functional.cosine_similarity(predictions, targets, dim=-1).mean()
 
 

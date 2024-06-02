@@ -18,23 +18,22 @@ from transformers import AutoTokenizer
 from auto_embeds.analytical import initialize_manual_transform
 from auto_embeds.data import filter_word_pairs, get_cached_weights, get_dataset_path
 from auto_embeds.embed_utils import (
-    calculate_test_loss,
     initialize_embed_and_unembed,
-    initialize_loss,
     initialize_transform_and_optim,
     train_transform,
 )
 from auto_embeds.metrics import (
-    calc_expected_metrics,
+    calc_acc_detailed,
+    calc_loss,
     calc_pred_same_as_input,
-    evaluate_accuracy,
+    calc_train_metrics,
+    initialize_loss,
     mark_translation,
 )
 from auto_embeds.utils.custom_tqdm import tqdm
 from auto_embeds.utils.logging import logger
 from auto_embeds.utils.misc import get_experiment_worker_config
 from auto_embeds.verify import (
-    plot_cosine_similarity_trend,
     prepare_verify_analysis,
     prepare_verify_datasets,
     test_cos_sim_difference,
@@ -73,10 +72,10 @@ def run_worker(worker_id, experiment_config, split_parameter="datasets", n_split
         worker_id=worker_id,
     )
     print(f"Running experiment for worker ID = {worker_id}")
-    return run_experiment(config_to_use, use_neptune=True)
+    return run_experiment(config_to_use)
 
 
-def run_experiment(config_dict, return_local_results=False, use_neptune=False):
+def run_experiment(config_dict, return_local_results=False):
     local_results = []
     # extracting 'neptune' configuration and generating all combinations of configs
     # as a list of lists
@@ -137,13 +136,12 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
         logger.info(f"Running experiment with config: {run_config}")
 
         # neptune run init
-        if use_neptune:
-            run = neptune.init_run(
-                project="mars/language-transformations",
-                tags=neptune_config.get("tags", []),
-                mode=neptune_config.get("mode", "offline"),
-            )
-            run["config"] = stringify_unsupported(run_config)
+        run = neptune.init_run(
+            project="mars/language-transformations",
+            tags=neptune_config.get("tags", []),
+            mode=neptune_config.get("mode", "offline"),
+        )
+        run["config"] = stringify_unsupported(run_config)
 
         # Tokenizer setup
         tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -232,30 +230,30 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
                 loss_module=loss_module,
                 n_epochs=n_epoch,
                 plot_fig=False,
-                neptune_run=run if use_neptune else None,
+                neptune_run=run,
                 azure_translations_path=azure_translations_path,
             )
 
         # Evaluate and log results
 
-        expected_metrics = calc_expected_metrics(
+        train_metrics = calc_train_metrics(
             transform_module=transform,
             data_loader=train_loader,
         )
 
-        cosine_similarity_test_loss = calculate_test_loss(
+        cos_sim_test_loss = calc_loss(
             test_loader=test_loader,
             transform=transform,
-            loss_module=initialize_loss("cosine_similarity"),
+            loss_module=initialize_loss("cos_sim"),
         )
 
-        mse_test_loss = calculate_test_loss(
+        mse_test_loss = calc_loss(
             test_loader=test_loader,
             transform=transform,
             loss_module=initialize_loss("mse_loss"),
         )
 
-        test_accuracy = evaluate_accuracy(
+        test_accuracy = calc_acc_detailed(
             tokenizer=tokenizer,
             test_loader=test_loader,
             transformation=transform,
@@ -287,7 +285,7 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
         )
 
         # calculating and logging metrics
-        cos_sims_trend_plot = plot_cosine_similarity_trend(verify_results_dict)
+        cos_sims_trend_plot = plot_cos_sim_trend(verify_results_dict)
         verify_results_json = json.dumps(
             {
                 key: value.tolist() if isinstance(value, t.Tensor) else value
@@ -308,26 +306,27 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
         )
 
         results = {
-            "expected_metrics": expected_metrics,
+            "train_metrics": train_metrics,
             "test_accuracy": test_accuracy,
             "mark_translation_acc": mark_translation_acc,
-            "cosine_similarity_test_loss": cosine_similarity_test_loss,
+            "cos_sim_test_loss": cos_sim_test_loss,
             "mse_test_loss": mse_test_loss,
             "pred_same_as_input": pred_same_as_input,
         }
 
-        if use_neptune and run is not None:
-            run["results"] = results
-            run["results/cos_sims_trend_plot"].upload(cos_sims_trend_plot)
-            run["results/json/verify_results"].upload(
-                File.from_content(verify_results_json)
-            )
-            run["results/json/cos_sims_trend_plot"].upload(
-                File.from_content(str(pio.to_json(cos_sims_trend_plot)))
-            )
-            run["results/json/test_cos_sim_diff"].upload(
-                File.from_content(test_cos_sim_diff)
-            )
+        print(results)
+
+        run["results"] = results
+        run["results/cos_sims_trend_plot"].upload(cos_sims_trend_plot)
+        run["results/json/verify_results"].upload(
+            File.from_content(verify_results_json)
+        )
+        run["results/json/cos_sims_trend_plot"].upload(
+            File.from_content(str(pio.to_json(cos_sims_trend_plot)))
+        )
+        run["results/json/test_cos_sim_diff"].upload(
+            File.from_content(test_cos_sim_diff)
+        )
 
         if return_local_results:
             pca = t.pca_lowrank(transform.transformations[0][1], q=2)
@@ -364,8 +363,7 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
             results["vector_norms"] = vector_norms
             local_results.append(run_config | results | big_tensors)
 
-        if use_neptune and run is not None:
-            run.stop()
+        run.stop()
 
         # returning results that we are not uploading for local analysis
         # transform_weights = transform.state_dict()
@@ -374,8 +372,6 @@ def run_experiment(config_dict, return_local_results=False, use_neptune=False):
     return local_results
 
 
-# %%
 if __name__ == "__main__":
     # sys.settrace(gpu_profile)
-    run_experiment(experiment_config, use_neptune=False)
-    # run_experiment(experiment_config)
+    run_experiment(experiment_config)

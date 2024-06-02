@@ -10,7 +10,7 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
-from auto_embeds.utils.misc import calculate_gradient_color
+from auto_embeds.utils.misc import calc_gradient_color
 from auto_embeds.utils.plot import create_parallel_categories_plot
 
 
@@ -251,7 +251,7 @@ def format_row(
         elif isinstance(item, (int, float)):
             interpretation = metric_interpretation.get(column_name, "higher_better")
             reverse = interpretation == "lower_better"
-            color = calculate_gradient_color(
+            color = calc_gradient_color(
                 item, min_values[column_name], max_values[column_name], reverse
             )
             formatted_item = (

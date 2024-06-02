@@ -3,6 +3,7 @@ import os
 
 from auto_embeds.data import filter_word_pairs, tokenize_word_pairs
 from auto_embeds.embed_utils import initialize_embed_and_unembed
+from auto_embeds.metrics import initialize_loss
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -16,7 +17,6 @@ from transformers import AutoTokenizer
 
 from auto_embeds.data import get_cached_weights
 from auto_embeds.embed_utils import (
-    initialize_loss,
     initialize_transform_and_optim,
     train_transform,
 )
@@ -296,7 +296,7 @@ def test_train_transform():
             optim_kwargs={},
         )
 
-        loss_module = initialize_loss("cosine_similarity")
+        loss_module = initialize_loss("cos_sim")
 
         if optim is not None:
             transform, loss_history = train_transform(

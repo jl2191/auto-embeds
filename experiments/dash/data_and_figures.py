@@ -245,7 +245,7 @@ def generate_parallel_categories_plot(
 
 
 original_df = fetch_neptune_runs_df(
-    project_name="jl2191/language-transformations",
+    project_name="mars/language-transformations",
     tags=["actual", "2024-04-29 analytical and ln", "experiment 3"],
     get_artifacts=True,
 )

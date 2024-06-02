@@ -1,7 +1,7 @@
 # %%
 import pytest
 
-from experiments.run_experiment import run_experiment
+from experiments.profile_run_experiment import run_experiment
 
 
 @pytest.fixture
@@ -11,11 +11,12 @@ def config_dict():
             "tags": [
                 # f"{datetime.now():%Y-%m-%d}",
                 # f"{datetime.now():%Y-%m-%d} big run",
-                "experiment 94",
+                # "experiment 94",
                 "run group 5",
             ],
+            "mode": "debug",
         },
-        "description": ["printing to check ln is gucci"],
+        "description": "none",
         "models": [
             "bigscience/bloom-560m",
             # "bigscience/bloom-1b1",
@@ -94,8 +95,8 @@ def config_dict():
         ],
         # "seeds": [1, 2, 3, 4, 5],
         "seeds": [1],
-        # "loss_functions": ["cosine_similarity", "mse_loss"],
-        "loss_functions": ["cosine_similarity"],
+        # "loss_functions": ["cos_sim", "mse_loss"],
+        "loss_functions": ["cos_sim"],
         "embed_weight": ["model_weights"],
         # "embed_ln_weights": ["no_ln", "default_weights", "model_weights"],
         "embed_ln_weights": ["no_ln", "model_weights"],
@@ -104,8 +105,8 @@ def config_dict():
         # "unembed_weight": ["model_weights"],
         "unembed_weight": ["model_weights"],
         # "unembed_ln_weights": ["no_ln", "default_weights", "model_weights"],
-        "unembed_ln_weights": ["no_ln", "model_weights"],
-        # "unembed_ln_weights": ["default_weights"],
+        # "unembed_ln_weights": ["no_ln", "model_weights"],
+        "unembed_ln_weights": ["default_weights"],
         # "unembed_ln_weights": ["default_weights"],
         "n_epochs": [100],
         "weight_decay": [
@@ -119,10 +120,5 @@ def config_dict():
 
 @pytest.mark.slow
 def test_run_experiment(benchmark, config_dict):
-    benchmark.extra_info["min_rounds"] = 1
-    benchmark.extra_info["max_time"] = 60
-    benchmark.extra_info["warmup_iterations"] = 10
-    local_results = benchmark(
-        run_experiment, config_dict, return_local_results=True, use_neptune=False
-    )
+    local_results = benchmark(run_experiment, config_dict)
     assert isinstance(local_results, list)

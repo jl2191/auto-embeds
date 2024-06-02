@@ -94,7 +94,7 @@ def run_prompt(
     # get_most_similar_embeddings(model, logits[0, -1], answer, top_k=top_k)
 
 
-def calculate_gradient_color(
+def calc_gradient_color(
     value: float, min_value: float, max_value: float, reverse: bool = False
 ) -> str:
     """

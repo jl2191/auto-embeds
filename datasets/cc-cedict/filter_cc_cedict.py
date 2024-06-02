@@ -8,11 +8,10 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from auto_embeds.data import filter_word_pairs, tokenize_word_pairs
 from auto_embeds.embed_utils import (
-    initialize_loss,
     initialize_transform_and_optim,
     train_transform,
 )
-from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy
+from auto_embeds.metrics import calc_acc_detailed, calc_cos_sim_acc, initialize_loss
 from auto_embeds.utils.misc import repo_path_to_abs_path
 
 model = tl.HookedTransformer.from_pretrained_no_processing("bloom-560m")
@@ -131,7 +130,7 @@ for transformation_name in transformation_names:
         # optim_kwargs={"lr": 8e-5}
         # optim_kwargs={"lr": 5e-4, "weight_decay": 2e-5}
     )
-    loss_module = initialize_loss("cosine_similarity")
+    loss_module = initialize_loss("cos_sim")
 
     if optim is not None:
         transform, loss_history = train_transform(
@@ -148,7 +147,7 @@ for transformation_name in transformation_names:
         print(f"nothing trained for {transformation_name}")
     print(f"{transformation_name}:")
     transform.eval()
-    accuracy = evaluate_accuracy(
+    accuracy = calc_acc_detailed(
         model,
         test_loader,
         transform,

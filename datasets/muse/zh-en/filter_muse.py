@@ -2,7 +2,7 @@
 import json
 import os
 
-from auto_embeds.metrics import calc_cos_sim_acc, evaluate_accuracy
+from auto_embeds.metrics import calc_acc_detailed, calc_cos_sim_acc, initialize_loss
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -94,7 +94,6 @@ import torch as t
 from auto_embeds.embed_utils import (
     initialize_transform_and_optim,
     train_transform,
-    initialize_loss,
 )
 
 # translation_file = get_dataset_path(
@@ -156,7 +155,7 @@ for transformation_name in transformation_names:
         # optim_kwargs={"lr": 6e-5},
         optim_kwargs={"lr": 8e-5, "weight_decay": 2e-5},
     )
-    loss_module = initialize_loss("cosine_similarity")
+    loss_module = initialize_loss("cos_sim")
 
     if optim is not None:
         transform, loss_history = train_transform(
@@ -173,7 +172,7 @@ for transformation_name in transformation_names:
         print(f"nothing trained for {transformation_name}")
 
     print(f"{transformation_name}:")
-    accuracy = evaluate_accuracy(
+    accuracy = calc_acc_detailed(
         model,
         test_loader,
         transform,
