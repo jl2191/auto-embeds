@@ -116,7 +116,7 @@ def create_filter_query():
                     dbc.Tooltip(
                         "Enter a pandas dataframe query string to filter the results. "
                         "Example \"transformation in ['Rotation', 'Linear Map'] and "
-                        'seed = 10" or "unembed_apply_ln == True".',
+                        'seed == 2" or "unembed_apply_ln == True".',
                         target="text-filter",
                     ),
                 ],

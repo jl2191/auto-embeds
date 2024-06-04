@@ -2,15 +2,13 @@
 import json
 
 import dash_bootstrap_components as dbc
-import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
 from dash import Dash, Input, Output, State, callback_context, dcc, html, no_update
 from plotly.subplots import make_subplots
-from auto_embeds.utils.wandb import fetch_wandb_runs
 
-from auto_embeds.utils.wandb import process_wandb_runs_df
+from auto_embeds.utils.wandb import fetch_wandb_runs, process_wandb_runs_df
 
 # Load and preprocess data outside of callbacks
 original_df = fetch_wandb_runs(
@@ -320,7 +318,7 @@ app.layout = dbc.Container(
                     dbc.Tooltip(
                         "Enter a pandas dataframe query string to filter the results. "
                         "Example \"transformation in ['Rotation', 'Linear Map'] and "
-                        'seed = 10" or "unembed_apply_ln == True".',
+                        'seed == 2" or "unembed_apply_ln == True".',
                         target="text-filter",
                     ),
                 ],

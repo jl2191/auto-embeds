@@ -12,7 +12,6 @@ torch = "^2.1.1"
 transformer-lens = "^1.13.0"
 einops = "^0.6.1"
 ordered-set = "^4.1.0"
-tqdm = { git = "https://github.com/UFO-101/tqdm.git" }
 plotly = "^5.18.0"
 kaleido = "0.2.1"                                                # Improved renderer for plotly
 blobfile = "2.0.2"
@@ -34,6 +33,7 @@ inflect = "^7"
 dash = "^2.16.1"
 dash-bootstrap-components = "^1.6.0"
 loguru = "^0.7.2"
+tqdm = "^4.66.4"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.3.3"

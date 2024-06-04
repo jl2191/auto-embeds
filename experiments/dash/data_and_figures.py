@@ -246,7 +246,8 @@ def generate_parallel_categories_plot(
 
 original_df = fetch_wandb_runs(
     project_name="jl2191/language-transformations",
-    tags=["actual", "2024-04-29 analytical and ln", "experiment 3"],
+    tags=["actual", "2024-04-29 analytical and ln"],
+    # tags=["actual", "2024-04-25 analytical solutions 4", "run group 1"],
     get_artifacts=True,
 )
 
