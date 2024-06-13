@@ -484,7 +484,7 @@ class Unembed(nn.Module):
         """
         if self.ln_final is not None:
             x = self.ln_final(x)
-        return (
+        result = (
             einsum(
                 "batch pos d_model, d_model vocab -> batch pos vocab",
                 x,
@@ -492,6 +492,7 @@ class Unembed(nn.Module):
             )
             + self.b_U
         )
+        return result
 
 
 # losses ===============================================================================

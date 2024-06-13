@@ -86,7 +86,8 @@ def calc_acc_detailed(
         exact_match: If True, requires exact matches between predicted and actual
             embeddings. If False, matches are correct if identical ignoring case
             differences.
-        device: Model's device. Defaults to None.
+        device: The device on which to allocate tensors. If None, defaults to
+            default_device.
         print_results: If True, prints translation attempts/results. Defaults to False.
         print_top_preds: If True and print_results=True, prints top predictions.
             Defaults to True.
@@ -167,7 +168,8 @@ def calc_acc_fast(
         exact_match: If True, requires exact matches between predicted and actual
             embeddings. If False, matches are correct if identical ignoring case
             differences.
-        device: Model's device. Defaults to None.
+        device: The device on which to allocate tensors. If None, defaults to
+            default_device.
         print_results: If True, prints translation attempts/results. Defaults to False.
         print_top_preds: If True and print_results=True, prints top predictions.
             Defaults to True.
@@ -179,6 +181,8 @@ def calc_acc_fast(
     correct_count = 0
     total_count = 0
     for en_embeds, fr_embeds in test_loader:
+        en_embeds = en_embeds.to(device)
+        fr_embeds = fr_embeds.to(device)
         fr_logits = unembed_module(fr_embeds)
         fr_strs: List[str] = tokenizer.batch_decode(fr_logits.argmax(dim=-1))
         pred = transformation(en_embeds)
@@ -204,6 +208,7 @@ def calc_acc_fast(
     return accuracy
 
 
+@t.no_grad()
 def mark_translation(
     tokenizer: PreTrainedTokenizerBase,
     transformation: nn.Module,
@@ -211,8 +216,9 @@ def mark_translation(
     test_loader: DataLoader[Tuple[Tensor, ...]],
     azure_translations_path: Optional[Union[str, Path]] = None,
     print_results: bool = False,
-    print_top_preds: bool = True,
+    print_top_preds: bool = False,
     translations_dict: Optional[Dict[str, List[str]]] = None,
+    device: Optional[Union[str, t.device]] = default_device,
 ) -> float:
     """Marks translations as correct according to a dictionary of translations.
 
@@ -231,6 +237,8 @@ def mark_translation(
         print_top_preds: If True and print_results=True, prints top predictions.
             Defaults to True.
         translations_dict: Optional; A dictionary of translations. Defaults to None.
+        device: The device on which to allocate tensors. If None, defaults to
+            default_device.
     Returns:
         The accuracy of the translations as a float.
 
@@ -263,65 +271,60 @@ def mark_translation(
     correct_count = 0
     total_marked = 0
 
-    with t.no_grad():
-        for batch in test_loader:
-            en_embeds, fr_embeds = batch
-            en_logits = unembed_module(en_embeds)
-            en_strs: List[str] = tokenizer.batch_decode(
-                en_logits.squeeze().argmax(dim=-1)
+    for en_embeds, fr_embeds in test_loader:
+        en_embeds = en_embeds.to(device)
+        fr_embeds = fr_embeds.to(device)
+        en_logits = unembed_module(en_embeds)
+        en_strs: List[str] = tokenizer.batch_decode(en_logits.squeeze().argmax(dim=-1))
+        fr_logits = unembed_module(fr_embeds)
+        fr_strs: List[str] = tokenizer.batch_decode(fr_logits.squeeze().argmax(dim=-1))
+        pred = transformation(en_embeds)
+        pred_logits = unembed_module(pred)
+        pred_top_strs = tokenizer.batch_decode(pred_logits.squeeze().argmax(dim=-1))
+        pred_top_strs = [
+            item if isinstance(item, str) else item[0] for item in pred_top_strs
+        ]
+        assert all(isinstance(item, str) for item in pred_top_strs)
+        # if statement for performance
+        if print_top_preds:
+            most_similar_embeds = get_most_similar_embeddings(
+                tokenizer,
+                out=pred_logits,
+                top_k=4,
             )
-            fr_logits = unembed_module(fr_embeds)
-            fr_strs: List[str] = tokenizer.batch_decode(
-                fr_logits.squeeze().argmax(dim=-1)
-            )
-            with t.no_grad():
-                pred = transformation(en_embeds)
-            pred_logits = unembed_module(pred)
-            pred_top_strs = tokenizer.batch_decode(pred_logits.squeeze().argmax(dim=-1))
-            pred_top_strs = [
-                item if isinstance(item, str) else item[0] for item in pred_top_strs
-            ]
-            assert all(isinstance(item, str) for item in pred_top_strs)
-            # if statement for performance
-            if print_top_preds:
-                most_similar_embeds = get_most_similar_embeddings(
-                    tokenizer,
-                    out=pred_logits,
-                    top_k=4,
+        for i, pred_top_str in enumerate(pred_top_strs):
+            correct = None
+            en_str = en_strs[i]
+            fr_str = fr_strs[i]
+            word_found = en_str.strip().lower() in translations_dict
+            if word_found:
+                all_allowed_translations = translations_dict[en_str.strip().lower()]
+                correct = (
+                    pred_top_str.strip() in all_allowed_translations
+                    or pred_top_str.strip() + "s" in all_allowed_translations
+                    or pred_top_str.strip()[:-1] in all_allowed_translations
                 )
-            for i, pred_top_str in enumerate(pred_top_strs):
-                correct = None
-                en_str = en_strs[i]
-                fr_str = fr_strs[i]
-                word_found = en_str.strip().lower() in translations_dict
+                correct_count += correct
+                total_marked += 1
+            if print_results:
+                result_emoji = "✅" if correct else "❌"
+                print(
+                    f'English: "{en_str}"\n'
+                    f'Target: "{fr_str}"\n'
+                    f'Predicted: "{pred_top_str}" {result_emoji}'
+                )
                 if word_found:
-                    all_allowed_translations = translations_dict[en_str.strip().lower()]
-                    correct = (
-                        pred_top_str.strip() in all_allowed_translations
-                        or pred_top_str.strip() + "s" in all_allowed_translations
-                        or pred_top_str.strip()[:-1] in all_allowed_translations
-                    )
-                    correct_count += correct
-                    total_marked += 1
-                if print_results:
-                    result_emoji = "✅" if correct else "❌"
                     print(
-                        f'English: "{en_str}"\n'
-                        f'Target: "{fr_str}"\n'
-                        f'Predicted: "{pred_top_str}" {result_emoji}'
+                        f"Check: Found "
+                        f"{list(translations_dict[en_str.strip().lower()])}"
                     )
-                    if word_found:
-                        print(
-                            f"Check: Found "
-                            f"{list(translations_dict[en_str.strip().lower()])}"
-                        )
-                    else:
-                        print("Check: Not Found")
-                    if print_top_preds:
-                        print("Top Predictions:")
-                        current_most_similar_embeds = {0: most_similar_embeds[i]}
-                        print_most_similar_embeddings_dict(current_most_similar_embeds)
-                    print()
+                else:
+                    print("Check: Not Found")
+                if print_top_preds:
+                    print("Top Predictions:")
+                    current_most_similar_embeds = {0: most_similar_embeds[i]}
+                    print_most_similar_embeddings_dict(current_most_similar_embeds)
+                print()
     accuracy = correct_count / total_marked
     return accuracy
 
@@ -380,8 +383,8 @@ def calc_pred_same_as_input(
 ) -> float:
     same_count = 0
     total_count = 0
-    for batch in test_loader:
-        en_embeds, _ = batch
+    for en_embeds, _ in test_loader:
+        en_embeds = en_embeds.to(device)
         en_logits = unembed_module(en_embeds)
         en_strs: List[str] = tokenizer.batch_decode(en_logits.argmax(dim=-1))
         pred = transformation(en_embeds)
@@ -433,10 +436,13 @@ def initialize_loss(loss: str, loss_kwargs: Dict[str, Any] = {}) -> nn.Module:
         raise ValueError(f"Unsupported loss type: {loss}")
 
 
+@t.no_grad()
 def calc_loss(
     test_loader: DataLoader[Tuple[Tensor, ...]],
     transform: nn.Module,
     loss_module: nn.Module,
+    device: Optional[Union[str, t.device]] = default_device,
+    
 ) -> float:
     """Calculate the average test loss over all batches in the test loader.
 
@@ -444,18 +450,21 @@ def calc_loss(
         test_loader: DataLoader for the test dataset.
         transform: The transformation module to be evaluated.
         loss_module: The loss function used for evaluation.
+        device: The device on which to allocate tensors. If None, defaults to
+            default_device.
 
     Returns:
         The average test loss as a float.
     """
-    with t.no_grad():
-        total_test_loss = 0.0
-        for test_en_embed, test_fr_embed in test_loader:
-            test_pred = transform(test_en_embed)
-            test_loss = loss_module(test_pred.squeeze(), test_fr_embed.squeeze())
-            total_test_loss += test_loss.item()
-        avg_test_loss = total_test_loss / len(test_loader)
-        return avg_test_loss
+    total_test_loss = 0.0
+    for test_en_embed, test_fr_embed in test_loader:
+        test_en_embed = test_en_embed.to(device)
+        test_fr_embed = test_fr_embed.to(device)
+        test_pred = transform(test_en_embed)
+        test_loss = loss_module(test_pred.squeeze(), test_fr_embed.squeeze())
+        total_test_loss += test_loss.item()
+    avg_test_loss = total_test_loss / len(test_loader)
+    return avg_test_loss
 
 
 @t.no_grad()

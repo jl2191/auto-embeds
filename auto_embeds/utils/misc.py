@@ -1,4 +1,5 @@
 import argparse
+import os
 import pickle
 from contextlib import contextmanager
 from datetime import datetime
@@ -16,6 +17,13 @@ install()
 
 
 def get_default_device():
+    device_override = os.getenv("AUTOEMBEDS_DEFAULT_DEVICE", "none").lower()
+
+    if device_override == "none":
+        pass
+    elif device_override in ["cpu", "mps", "cuda"]:
+        return t.device(device_override)
+
     if t.cuda.is_available():
         return t.device("cuda")
     elif t.backends.mps.is_available():

@@ -33,6 +33,7 @@ def verify_transform(
     transformation: nn.Module,
     test_loader: DataLoader[Tuple[Tensor, ...]],
     unembed_module: nn.Module,
+    device: Optional[Union[str, t.device]] = default_device,
 ) -> Dict[str, Any]:
     """Verify the validity of our learned transformation.
 
@@ -47,6 +48,8 @@ def verify_transform(
         test_loader: DataLoader for the test dataset with source and target language
             embeddings tuples.
         unembed_module: The module used for unembedding.
+                device: The device on which to allocate tensors. If None, defaults to
+            default_device.
 
     Returns:
         A dictionary with the following keys:
@@ -79,9 +82,10 @@ def verify_transform(
     }
     # for each batch in the test dataset
     with t.no_grad():
-        for batch in test_loader:
+        for en_embeds, fr_embeds in test_loader:
             # we get the embeddings for the source and target language
-            en_embeds, fr_embeds = batch
+            en_embeds = en_embeds.to(device)
+            fr_embeds = fr_embeds.to(device)
             en_logits = unembed_module(en_embeds)
             en_strs: List[str] = tokenizer.batch_decode(
                 en_logits.squeeze().argmax(dim=-1)
@@ -710,6 +714,7 @@ def prepare_verify_datasets(
         "src_and_src", "tgt_and_tgt", "top_src", "top_tgt"
     ] = "src_and_src",
     return_type: Literal["dataloader", "dataset"] = "dataloader",
+    device: Union[str, t.device] = default_device,
 ) -> Union[Tuple[DataLoader, DataLoader], Tuple[TensorDataset, TensorDataset]]:
     """Prepares training and testing datasets.
 
@@ -733,6 +738,10 @@ def prepare_verify_datasets(
             randomly chosen source or target embedding, respectively.
         return_type: Specifies whether to return DataLoader or TensorDataset objects.
             Accepted values are 'loader' for DataLoader 'dataset' for TensorDataset.
+        device: The device on which to allocate tensors. If None, defaults to
+            default_device. This parameter only controls the device of the returned
+            tensors, the device of the tensors in the verify_learning object is
+            unchanged and is where the processing occurs.
 
     Returns:
         A tuple with either DataLoader objects or TensorDataset objects.
@@ -846,19 +855,19 @@ def prepare_verify_datasets(
     tgt_embeds_with_top_k_cos_sims = tgt_embeds[test_indices]
 
     # Unsqueeze to add an extra dimension for pos
-    src_test_embeds = src_embeds_with_top_k_cos_sims.unsqueeze(1)
-    tgt_test_embeds = tgt_embeds_with_top_k_cos_sims.unsqueeze(1)
+    src_test_embeds = src_embeds_with_top_k_cos_sims.unsqueeze(1).to(device)
+    tgt_test_embeds = tgt_embeds_with_top_k_cos_sims.unsqueeze(1).to(device)
     # these should now be [batch, pos, d_model]
 
     logger.debug(f"source test embeds shape: {src_test_embeds.shape}")
     logger.debug(f"target test embeds shape: {tgt_test_embeds.shape}")
 
     # For train embeddings, we just need to remove the indices we used for the test
-    mask = t.ones(src_embeds.shape[0], dtype=t.bool, device=src_embeds.device)
+    mask = t.ones(src_embeds.shape[0], dtype=t.bool, device=default_device)
     mask[test_indices] = False
 
-    src_train_embeds = src_embeds[mask].unsqueeze(1)
-    tgt_train_embeds = tgt_embeds[mask].unsqueeze(1)
+    src_train_embeds = src_embeds[mask].unsqueeze(1).to(device)
+    tgt_train_embeds = tgt_embeds[mask].unsqueeze(1).to(device)
     # these should now be [batch pos d_model]
 
     logger.debug(f"source train embeds shape: {src_train_embeds.shape}")

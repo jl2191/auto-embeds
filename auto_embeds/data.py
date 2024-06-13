@@ -531,8 +531,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoTensors:
-    ...
+) -> TwoTensors: ...
 
 
 @overload
@@ -547,8 +546,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> FourTensors:
-    ...
+) -> FourTensors: ...
 
 
 @overload
@@ -563,8 +561,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TensorDataset:
-    ...
+) -> TensorDataset: ...
 
 
 @overload
@@ -579,8 +576,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoDatasets:
-    ...
+) -> TwoDatasets: ...
 
 
 @overload
@@ -595,8 +591,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> DataLoader:
-    ...
+) -> DataLoader: ...
 
 
 @overload
@@ -611,8 +606,7 @@ def prepare_data(
     batch_size: int = 128,
     shuffle_word_pairs: bool = False,
     shuffle_dataloader: bool = True,
-) -> TwoDataLoaders:
-    ...
+) -> TwoDataLoaders: ...
 
 
 def prepare_data(
@@ -823,7 +817,9 @@ def get_most_similar_embeddings(
 @auto_embeds_cache
 @t.no_grad()
 def get_cached_weights(
-    model_name: str, processing: bool = False
+    model_name: str,
+    processing: bool = False,
+    device: Union[str, t.device] = default_device,
 ) -> Dict[str, t.Tensor]:
     """Fetches and caches model weights for a specified transformer model.
 
@@ -877,4 +873,8 @@ def get_cached_weights(
     else:
         raise ValueError(f"Unsupported model: {model_name}")
     del model
+    model_weights = {
+        k: v.to(device) if isinstance(v, t.Tensor) else v
+        for k, v in model_weights.items()
+    }
     return model_weights

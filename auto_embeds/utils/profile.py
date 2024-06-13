@@ -158,8 +158,8 @@ def print_tensor_info() -> None:
     """Prints information about all tensors currently in memory.
 
     This function iterates over all objects tracked by the garbage collector,
-    identifies tensors, and prints their type, shape, size in GB, and whether
-    they require gradients.
+    identifies tensors, and prints their type, shape, size in GB, whether they
+    require gradients, and the device where they are located.
     """
 
     data = []
@@ -170,8 +170,21 @@ def print_tensor_info() -> None:
                 requires_grad = (
                     obj.requires_grad if t.is_tensor(obj) else obj.data.requires_grad
                 )
-                data.append([type(obj), obj.size(), f"{size_gb:.3f} GB", requires_grad])
+                device = obj.device if hasattr(obj, "device") else obj.data.device
+                data.append(
+                    [
+                        type(obj),
+                        obj.shape,
+                        f"{size_gb:.3f} GB",
+                        requires_grad,
+                        str(device),
+                    ]
+                )
         except Exception:
             pass
 
-    print(tabulate(data, headers=["Type", "Shape", "Size (GB)", "Requires Grad"]))
+    print(
+        tabulate(
+            data, headers=["Type", "Shape", "Size (GB)", "Requires Grad", "Device"]
+        )
+    )

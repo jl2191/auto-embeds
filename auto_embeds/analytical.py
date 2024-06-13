@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Union
 
 import torch as t
 from jaxtyping import Float
@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 
 from auto_embeds.modules import ManualTransformModule
 from auto_embeds.utils.logging import logger
+from auto_embeds.utils.misc import default_device
 
 
 def calc_translation(
@@ -116,7 +117,9 @@ def calc_linear_map(
 
 
 def initialize_manual_transform(
-    transform_name: str, train_loader: DataLoader
+    transform_name: str,
+    train_loader: DataLoader,
+    device: Union[str, t.device] = default_device,
 ) -> ManualTransformModule:
     """Initializes a ManualTransformModule.
 
@@ -138,8 +141,9 @@ def initialize_manual_transform(
     train_src_embeds, train_tgt_embeds = [], []
 
     # Extract embeddings from the train_loader
-    for batch in train_loader:
-        src_embeds, tgt_embeds = batch
+    for src_embeds, tgt_embeds in train_loader:
+        src_embeds = src_embeds.to(device)
+        tgt_embeds = tgt_embeds.to(device)
         train_src_embeds.append(src_embeds)
         train_tgt_embeds.append(tgt_embeds)
 
